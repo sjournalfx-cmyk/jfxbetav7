@@ -1,0 +1,51 @@
+/* Global Compact Scaling */
+:root {
+  font-size: 14px; /* Scaled down from 16px to fit more on screen */
+}
+
+@media (min-width: 1536px) {
+  :root {
+    font-size: 15px; /* Slightly larger for huge screens */
+  }
+}
+
+/* Tighten Layout Spacing */
+body {
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+/* Sidebar Width Scaling */
+.w-64 { width: 14rem !important; }
+.w-80 { width: 18rem !important; }
+
+/* Dashboard Widget Scaling */
+.p-8 { padding: 1.5rem !important; } /* Standard page padding */
+.p-10 { padding: 2rem !important; } /* Large page padding */
+.gap-8 { gap: 1.5rem !important; }
+.gap-6 { gap: 1rem !important; }
+
+/* Adjust header sizes */
+h1 { font-size: 1.875rem !important; line-height: 2.25rem !important; } /* text-3xl */
+h2 { font-size: 1.5rem !important; line-height: 2rem !important; } /* text-2xl */
+
+/* Custom scrollbar improvements for smaller space */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+/* Ensure Chart Grid stays legible */
+.grid-cols-2 {
+  gap: 0.5rem !important;
+}
+
+/* Notes Editor Padding */
+.mx-auto.py-12 {
+  padding-top: 1.5rem !important;
+  padding-bottom: 1.5rem !important;
+}
+
+/* Tailwind button scaling */
+button.px-8 { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
+button.py-4 { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
