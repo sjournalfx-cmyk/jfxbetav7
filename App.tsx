@@ -56,27 +56,27 @@ const AppContent: React.FC = () => {
 
   const playNotificationSound = () => {
     try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
 
-        osc.connect(gain);
-        gain.connect(ctx.destination);
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-        osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1); // A6
-        
-        gain.gain.setValueAtTime(0.1, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
 
-        osc.start();
-        osc.stop(ctx.currentTime + 0.3);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1); // A6
+
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
     } catch (e) {
-        console.error("Audio play failed", e);
+      console.error("Audio play failed", e);
     }
   };
 
@@ -308,21 +308,21 @@ const AppContent: React.FC = () => {
 
       // --- 3. Journal Inactivity Reminder ---
       if (fetchedTrades.length > 0) {
-          const lastTradeDate = new Date(fetchedTrades[0].date); // First is newest
-          const now = new Date();
-          const diffTime = Math.abs(now.getTime() - lastTradeDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        const lastTradeDate = new Date(fetchedTrades[0].date); // First is newest
+        const now = new Date();
+        const diffTime = Math.abs(now.getTime() - lastTradeDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-          if (diffDays > 3) {
-              setTimeout(() => { // Slight delay to not overwhelm on load
-                  addToast({
-                      type: 'info',
-                      title: 'Time to Journal?',
-                      message: `It's been ${diffDays} days since your last logged trade. Consistency is key!`,
-                      duration: 6000
-                  });
-              }, 2000);
-          }
+        if (diffDays > 3) {
+          setTimeout(() => { // Slight delay to not overwhelm on load
+            addToast({
+              type: 'info',
+              title: 'Time to Journal?',
+              message: `It's been ${diffDays} days since your last logged trade. Consistency is key!`,
+              duration: 6000
+            });
+          }, 2000);
+        }
       }
 
     } catch (error) {
@@ -344,7 +344,7 @@ const AppContent: React.FC = () => {
         const now = new Date();
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
-        
+
         const tradesThisMonth = trades.filter(t => {
           const tradeDate = new Date(t.date);
           return tradeDate.getMonth() === currentMonth && tradeDate.getFullYear() === currentYear;
@@ -352,7 +352,7 @@ const AppContent: React.FC = () => {
 
         const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
         const features = PLAN_FEATURES[currentPlan] || PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
-        
+
         if (features.maxTradesPerMonth !== Infinity && tradesThisMonth >= features.maxTradesPerMonth) {
           setConfirmModal({
             isOpen: true,
@@ -396,18 +396,18 @@ const AppContent: React.FC = () => {
     try {
       const addedTrades = await dataService.batchAddTrades(newTrades);
       setTrades(prev => [...addedTrades, ...prev].sort((a, b) => {
-          const dateA = new Date(`${a.date}T${a.time || '00:00:00'}`);
-          const dateB = new Date(`${b.date}T${b.time || '00:00:00'}`);
-          return dateB.getTime() - dateA.getTime();
+        const dateA = new Date(`${a.date}T${a.time || '00:00:00'}`);
+        const dateB = new Date(`${b.date}T${b.time || '00:00:00'}`);
+        return dateB.getTime() - dateA.getTime();
       }));
-      
+
       addToast({
         type: 'success',
         title: 'Import Successful',
         message: `Successfully imported ${addedTrades.length} trades from file.`,
         duration: 5000
       });
-      
+
       setCurrentView('history');
     } catch (error) {
       console.error("Error batch adding trades:", error);
@@ -431,7 +431,7 @@ const AppContent: React.FC = () => {
 
   const handleDeleteTrades = async (tradeIds: string[]) => {
     const tradesToDelete = trades.filter(t => tradeIds.includes(t.id));
-    
+
     setConfirmModal({
       isOpen: true,
       title: 'Delete Trades',
@@ -443,7 +443,7 @@ const AppContent: React.FC = () => {
           await dataService.deleteTrades(tradeIds);
           setTrades(prev => prev.filter(t => !tradeIds.includes(t.id)));
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
-          
+
           addToast({
             type: 'success',
             title: 'Trades Deleted',
@@ -538,7 +538,7 @@ const AppContent: React.FC = () => {
   const handleAddGoal = async (goal: Goal) => {
     try {
       const newGoal = await dataService.addGoal(goal);
-      setGoals([newGoal, ...goals]);
+      setGoals(prev => [newGoal, ...prev]);
     } catch (error) {
       console.error("Error adding goal:", error);
     }
@@ -547,7 +547,7 @@ const AppContent: React.FC = () => {
   const handleUpdateGoal = async (goal: Goal) => {
     try {
       await dataService.updateGoal(goal);
-      setGoals(goals.map(g => g.id === goal.id ? goal : g));
+      setGoals(prev => prev.map(g => g.id === goal.id ? goal : g));
     } catch (error) {
       console.error("Error updating goal:", error);
     }
@@ -556,7 +556,7 @@ const AppContent: React.FC = () => {
   const handleDeleteGoal = async (goalId: string) => {
     try {
       await dataService.deleteGoal(goalId);
-      setGoals(goals.filter(g => g.id !== goalId));
+      setGoals(prev => prev.filter(g => g.id !== goalId));
     } catch (error) {
       console.error("Error deleting goal:", error);
     }
@@ -620,12 +620,12 @@ const AppContent: React.FC = () => {
     const themeClasses = ['theme-midnight'];
     document.documentElement.classList.remove(...themeClasses, 'theme-cosmic');
     document.body.classList.remove(...themeClasses, 'theme-cosmic');
-    
+
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-      
+
       const activeTheme = userProfile?.themePreference || 'default';
-      
+
       // Apply premium themes if selected
       if (activeTheme === 'midnight') {
         const themeClass = 'theme-midnight';
@@ -646,7 +646,7 @@ const AppContent: React.FC = () => {
     if (currentView !== 'charts') {
       setIsFocusMode(false);
     }
-    
+
     // Auto-refresh data when switching to critical views
     if (isAuthenticated && userId) {
       if (currentView === 'history') {
@@ -715,143 +715,132 @@ const AppContent: React.FC = () => {
     return <Onboarding isDarkMode={isDarkMode} onComplete={handleOnboardingComplete} />;
   }
 
-    const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
-    const isPro = userProfile?.plan === 'PRO TIER (ANALYSTS)';
-    // Centralized currentBalance logic: use bridge balance if connected, otherwise fallback to journal PnL
-    // For PRO users, if not connected, balance is effectively 0 until sync
-    const currentBalance = eaSession?.data?.account?.balance !== undefined 
-      ? eaSession.data.account.balance 
-      : (isPro ? 0 : (userProfile.initialBalance + totalPnL));
-  
-    // Calculate Usage Stats
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    const tradesThisMonth = trades.filter(t => {
-      const tradeDate = new Date(t.date);
-      return tradeDate.getMonth() === currentMonth && tradeDate.getFullYear() === currentYear;
-    }).length;
-    const totalNotes = notes.length;
-    const totalImages = trades.reduce((acc, t) => {
-      let count = 0;
-      if (t.beforeScreenshot) count++;
-      if (t.afterScreenshot) count++;
-      return acc + count;
-    }, 0);
-  
-    return (
-      <ErrorBoundary isDarkMode={isDarkMode}>
-        <div className={`flex h-screen w-full transition-colors duration-300 ${isDarkMode ? 'bg-[#050505] text-zinc-100' : 'bg-slate-50 text-slate-900'}`}>
-  
-          {isCalculatorOpen && (
-            <PositionSizeCalculator
-              isOpen={isCalculatorOpen}
-              onClose={() => setIsCalculatorOpen(false)}
+  const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
+  const isPro = userProfile?.plan === 'PRO TIER (ANALYSTS)';
+  // Centralized currentBalance logic: use bridge balance if connected, otherwise fallback to journal PnL
+  // For PRO users, if not connected, balance is effectively 0 until sync
+  const currentBalance = eaSession?.data?.account?.balance !== undefined
+    ? eaSession.data.account.balance
+    : (isPro ? 0 : (userProfile.initialBalance + totalPnL));
+
+  // Calculate Usage Stats
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const tradesThisMonth = trades.filter(t => {
+    const tradeDate = new Date(t.date);
+    return tradeDate.getMonth() === currentMonth && tradeDate.getFullYear() === currentYear;
+  }).length;
+  const totalNotes = notes.length;
+  const totalImages = trades.reduce((acc, t) => {
+    let count = 0;
+    if (t.beforeScreenshot) count++;
+    if (t.afterScreenshot) count++;
+    return acc + count;
+  }, 0);
+
+  return (
+    <ErrorBoundary isDarkMode={isDarkMode}>
+      <div className={`flex h-screen w-full transition-colors duration-300 ${isDarkMode ? 'bg-[#050505] text-zinc-100' : 'bg-slate-50 text-slate-900'}`}>
+
+        {isCalculatorOpen && (
+          <PositionSizeCalculator
+            isOpen={isCalculatorOpen}
+            onClose={() => setIsCalculatorOpen(false)}
+            isDarkMode={isDarkMode}
+            initialBalance={currentBalance}
+            currencySymbol={userProfile.currencySymbol}
+          />
+        )}
+
+        {!isFocusMode && (
+          <Sidebar
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            onSettingsTabChange={setSettingsTab}
+            isDarkMode={isDarkMode}
+            onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+            onOpenCalculator={() => setIsCalculatorOpen(true)}
+            onOpenQuickLog={() => setIsQuickLogOpen(true)}
+            onLogout={handleLogout}
+            userProfile={userProfile}
+            trades={trades}
+          />
+        )}
+
+        <main className="flex-1 h-full overflow-hidden relative">
+          {currentView === 'dashboard' && (
+            <Dashboard
               isDarkMode={isDarkMode}
-              initialBalance={currentBalance}
-              currencySymbol={userProfile.currencySymbol}
+              trades={trades}
+              dailyBias={dailyBias}
+              onUpdateBias={handleUpdateBias}
+              userProfile={userProfile}
+              onViewChange={setCurrentView}
+              eaSession={eaSession}
+              isLoading={isDataLoading}
             />
           )}
-  
-          {!isFocusMode && (
-            <Sidebar
-              currentView={currentView}
-              onViewChange={setCurrentView}
-              onSettingsTabChange={setSettingsTab}
+          {currentView === 'log-trade' && userProfile && (
+            <LogTrade
               isDarkMode={isDarkMode}
-              onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-              onOpenCalculator={() => setIsCalculatorOpen(true)}
-              onOpenQuickLog={() => setIsQuickLogOpen(true)}
-              onLogout={handleLogout}
+              onSave={handleAddTrade}
+              onBatchSave={handleBatchAddTrades}
+              initialTrade={editingTrade || undefined}
+              onCancel={() => { setEditingTrade(null); setCurrentView('history'); }}
+              currencySymbol={userProfile.currencySymbol}
               userProfile={userProfile}
+            />
+          )}
+          {currentView === 'history' && (
+            <Journal
+              isDarkMode={isDarkMode}
               trades={trades}
+              onUpdateTrade={handleUpdateTrade}
+              onDeleteTrades={handleDeleteTrades}
+              onEditTrade={handleEditTrade}
+              userProfile={userProfile}
+            />
+          )}
+          {currentView === 'analytics' && userProfile && (
+            <Analytics
+              isDarkMode={isDarkMode}
+              trades={trades}
+              userProfile={userProfile}
+              eaSession={eaSession}
+              onViewChange={setCurrentView}
             />
           )}
 
-          <main className="flex-1 h-full overflow-hidden relative">
-            {currentView === 'dashboard' && (
-              <Dashboard
-                isDarkMode={isDarkMode}
-                trades={trades}
-                dailyBias={dailyBias}
-                onUpdateBias={handleUpdateBias}
-                userProfile={userProfile}
-                onViewChange={setCurrentView}
-                eaSession={eaSession}
-                isLoading={isDataLoading}
-              />
-            )}
-            {currentView === 'log-trade' && userProfile && (
-              <LogTrade
-                isDarkMode={isDarkMode}
-                onSave={handleAddTrade}
-                onBatchSave={handleBatchAddTrades}
-                initialTrade={editingTrade || undefined}
-                onCancel={() => { setEditingTrade(null); setCurrentView('history'); }}
-                currencySymbol={userProfile.currencySymbol}
-                userProfile={userProfile}
-              />
-            )}
-            {currentView === 'history' && (
-              <Journal
-                isDarkMode={isDarkMode}
-                trades={trades}
-                onUpdateTrade={handleUpdateTrade}
-                onDeleteTrades={handleDeleteTrades}
-                onEditTrade={handleEditTrade}
-                userProfile={userProfile}
-              />
-            )}
-            {currentView === 'analytics' && userProfile && (
-              <Analytics 
-                isDarkMode={isDarkMode} 
-                trades={trades} 
-                userProfile={userProfile} 
-                eaSession={eaSession} 
-                onViewChange={setCurrentView}
-              />
-            )} 
-  
-            {currentView === 'goals' && userProfile && (
-              <Goals
-                isDarkMode={isDarkMode}
-                trades={trades}
-                goals={goals}
-                onAddGoal={handleAddGoal}
-                onUpdateGoal={handleUpdateGoal}
-                onDeleteGoal={handleDeleteGoal}
-                currencySymbol={userProfile.currencySymbol}
-              />
-            )}
-            {currentView === 'notes' && (
-              <Notes
-                isDarkMode={isDarkMode}
-                notes={notes}
-                goals={goals}
-                onAddNote={handleAddNote}
-                onUpdateNote={handleUpdateNote}
-                onDeleteNote={handleDeleteNote}
-                onUpdateGoal={handleUpdateGoal}
-                userProfile={userProfile}
-                onViewChange={setCurrentView}
-              />
-            )}
-            
-            {/* Persistent Chart View (Respects keepChartsAlive preference) */}
-            {userProfile?.keepChartsAlive ? (
-              <div className={currentView === 'charts' ? 'h-full w-full' : 'hidden'}>
-                {userProfile && (
-                  <ChartGrid
-                    isDarkMode={isDarkMode}
-                    isFocusMode={isFocusMode}
-                    onToggleFocus={() => setIsFocusMode(!isFocusMode)}
-                    userProfile={userProfile}
-                    onUpdateProfile={handleUpdateProfile}
-                  />
-                )}
-              </div>
-            ) : (
-              currentView === 'charts' && userProfile && (
+          {currentView === 'goals' && userProfile && (
+            <Goals
+              isDarkMode={isDarkMode}
+              trades={trades}
+              goals={goals}
+              onAddGoal={handleAddGoal}
+              onUpdateGoal={handleUpdateGoal}
+              onDeleteGoal={handleDeleteGoal}
+              currencySymbol={userProfile.currencySymbol}
+            />
+          )}
+          {currentView === 'notes' && (
+            <Notes
+              isDarkMode={isDarkMode}
+              notes={notes}
+              goals={goals}
+              onAddNote={handleAddNote}
+              onUpdateNote={handleUpdateNote}
+              onDeleteNote={handleDeleteNote}
+              onUpdateGoal={handleUpdateGoal}
+              userProfile={userProfile}
+              onViewChange={setCurrentView}
+            />
+          )}
+
+          {/* Persistent Chart View (Respects keepChartsAlive preference) */}
+          {userProfile?.keepChartsAlive ? (
+            <div className={currentView === 'charts' ? 'h-full w-full' : 'hidden'}>
+              {userProfile && (
                 <ChartGrid
                   isDarkMode={isDarkMode}
                   isFocusMode={isFocusMode}
@@ -859,49 +848,60 @@ const AppContent: React.FC = () => {
                   userProfile={userProfile}
                   onUpdateProfile={handleUpdateProfile}
                 />
-              )
-            )}
+              )}
+            </div>
+          ) : (
+            currentView === 'charts' && userProfile && (
+              <ChartGrid
+                isDarkMode={isDarkMode}
+                isFocusMode={isFocusMode}
+                onToggleFocus={() => setIsFocusMode(!isFocusMode)}
+                userProfile={userProfile}
+                onUpdateProfile={handleUpdateProfile}
+              />
+            )
+          )}
 
-            {currentView === 'diagrams' && <DiagramEditor isDarkMode={isDarkMode} />}
-            {currentView === 'ea-setup' && userProfile && (
-              <EASetup 
-                isDarkMode={isDarkMode} 
-                userProfile={userProfile}
-                onUpdateProfile={handleUpdateProfile}
-                eaSession={eaSession}
-                onTradeAdded={(newTrade) => setTrades(prev => [newTrade, ...prev])}
-              />
-            )}
-            {currentView === 'broker' && userProfile && (
-              <BrokerConnect
-                isDarkMode={isDarkMode}
-                userProfile={userProfile}
-                onUpdateProfile={handleUpdateProfile}
-              />
-            )}
-            {currentView === 'calculators' && userProfile && (
-              <Calculators
-                isDarkMode={isDarkMode}
-                currencySymbol={userProfile.currencySymbol}
-              />
-            )}
-            {currentView === 'settings' && userProfile && (
-              <Settings
-                isDarkMode={isDarkMode}
-                userProfile={userProfile}
-                userEmail={userEmail}
-                onUpdateProfile={handleUpdateProfile}
-                onLogout={handleLogout}
-                onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-                tradesThisMonth={tradesThisMonth}
-                totalNotes={totalNotes}
-                totalImages={totalImages}
-                tradesCount={trades.length}
-                initialTab={settingsTab}
-              />
-            )}
-          </main>
-        
+          {currentView === 'diagrams' && <DiagramEditor isDarkMode={isDarkMode} />}
+          {currentView === 'ea-setup' && userProfile && (
+            <EASetup
+              isDarkMode={isDarkMode}
+              userProfile={userProfile}
+              onUpdateProfile={handleUpdateProfile}
+              eaSession={eaSession}
+              onTradeAdded={(newTrade) => setTrades(prev => [newTrade, ...prev])}
+            />
+          )}
+          {currentView === 'broker' && userProfile && (
+            <BrokerConnect
+              isDarkMode={isDarkMode}
+              userProfile={userProfile}
+              onUpdateProfile={handleUpdateProfile}
+            />
+          )}
+          {currentView === 'calculators' && userProfile && (
+            <Calculators
+              isDarkMode={isDarkMode}
+              currencySymbol={userProfile.currencySymbol}
+            />
+          )}
+          {currentView === 'settings' && userProfile && (
+            <Settings
+              isDarkMode={isDarkMode}
+              userProfile={userProfile}
+              userEmail={userEmail}
+              onUpdateProfile={handleUpdateProfile}
+              onLogout={handleLogout}
+              onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+              tradesThisMonth={tradesThisMonth}
+              totalNotes={totalNotes}
+              totalImages={totalImages}
+              tradesCount={trades.length}
+              initialTab={settingsTab}
+            />
+          )}
+        </main>
+
         <QuickLogModal
           isOpen={isQuickLogOpen}
           onClose={() => setIsQuickLogOpen(false)}
@@ -926,10 +926,9 @@ const AppContent: React.FC = () => {
         {/* Beta Announcement Modal */}
         {showBetaAnnouncement && (
           <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-            <div 
-              className={`w-full max-w-lg rounded-[32px] p-10 shadow-2xl relative overflow-hidden ${
-                isDarkMode ? 'bg-[#0f111a] text-white border border-zinc-800' : 'bg-white text-gray-900 border border-gray-100'
-              } transform transition-all animate-in zoom-in-95 duration-300`}
+            <div
+              className={`w-full max-w-lg rounded-[32px] p-10 shadow-2xl relative overflow-hidden ${isDarkMode ? 'bg-[#0f111a] text-white border border-zinc-800' : 'bg-white text-gray-900 border border-gray-100'
+                } transform transition-all animate-in zoom-in-95 duration-300`}
             >
               {/* Decorative Background Elements */}
               <div className="absolute top-[-10%] right-[-10%] w-40 h-40 bg-[#FF4F01]/10 rounded-full blur-3xl" />
@@ -939,10 +938,10 @@ const AppContent: React.FC = () => {
                 <div className="w-20 h-20 bg-gradient-to-br from-[#FF4F01] to-orange-600 rounded-[24px] flex items-center justify-center text-white mb-8 shadow-2xl rotate-3">
                   <PartyPopper size={40} />
                 </div>
-                
+
                 <h2 className="text-4xl font-black mb-4 tracking-tight">Welcome to the Beta!</h2>
                 <p className={`text-base mb-8 leading-relaxed px-4 ${isDarkMode ? 'text-zinc-400' : 'text-gray-500'}`}>
-                  Thank you for joining the <span className="text-[#FF4F01] font-bold">JournalFX Beta Program</span>. 
+                  Thank you for joining the <span className="text-[#FF4F01] font-bold">JournalFX Beta Program</span>.
                   As a beta tester, you have full access to all <span className="text-indigo-400 font-bold">Pro</span> and <span className="text-purple-400 font-bold">Premium</span> features for free.
                 </p>
 
@@ -958,7 +957,7 @@ const AppContent: React.FC = () => {
                   </p>
                 </div>
 
-                <button 
+                <button
                   onClick={() => {
                     setShowBetaAnnouncement(false);
                     setHasSeenBetaAnnouncement(true);
@@ -967,7 +966,7 @@ const AppContent: React.FC = () => {
                 >
                   LET'S START TRADING
                 </button>
-                
+
                 <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.2em] opacity-30">
                   JournalFX v1.0.0-beta.1
                 </p>

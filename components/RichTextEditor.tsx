@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useEditor, EditorContent, ReactNodeViewRenderer } from '@tiptap/react';
+import { useEditor, EditorContent, ReactNodeViewRenderer, Node } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { StarterKit } from '@tiptap/starter-kit';
 import { TaskList } from '@tiptap/extension-task-list';
@@ -20,10 +20,11 @@ import {
   ListChecks, Table as TableIcon, Eraser, Type,
   Plus, Trash2, PlusCircle, ArrowUp, ArrowDown,
   ArrowLeft, ArrowRight, Combine, Split, GripHorizontal,
-  Palette, Image as ImageIcon
+  Palette, Image as ImageIcon, MousePointer2
 } from 'lucide-react';
 import ConfirmationModal from './ConfirmationModal';
 import ImageNode from './RichTextEditorImage';
+import FloatingTextNode from './RichTextEditorFloatingText';
 
 interface RichTextEditorProps {
   content: string;
@@ -118,6 +119,59 @@ const CustomImage = Image.extend({
           'data-border-color': attributes.borderColor,
         }),
       },
+      x: {
+        default: 0,
+        renderHTML: attributes => ({
+          'data-x': attributes.x,
+        }),
+      },
+      y: {
+        default: 0,
+        renderHTML: attributes => ({
+          'data-y': attributes.y,
+        }),
+      },
+    };
+  },
+});
+
+const FloatingText = Node.create({
+  name: 'floatingText',
+  group: 'block',
+  content: 'inline*',
+  draggable: true,
+  selectable: true,
+  atom: false,
+
+  addAttributes() {
+    return {
+      x: { default: 0 },
+      y: { default: 0 },
+      width: { default: '250px' },
+      color: { default: 'transparent' },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-type="floating-text"]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', { 'data-type': 'floating-text', ...HTMLAttributes }, 0];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(FloatingTextNode);
+  },
+
+  addCommands() {
+    return {
+      insertFloatingText: (attributes) => ({ commands }) => {
+        return commands.insertContent({
+          type: this.name,
+          attrs: attributes,
+        });
+      },
     };
   },
 });
@@ -164,6 +218,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         inline: true,
         allowBase64: true,
       }),
+      FloatingText,
     ],
     content: content,
     onUpdate: ({ editor }) => {
@@ -174,6 +229,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const editorRef = React.useRef<HTMLDivElement>(null);
   const [tableInfo, setTableInfo] = React.useState<{ rect: DOMRect, element: HTMLElement } | null>(null);
   const [menuOffset, setMenuOffset] = React.useState({ x: 0, y: 0 });
+  const menuOffsetRef = React.useRef({ x: 0, y: 0 });
+  const isManuallyMoved = React.useRef(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const dragStartPos = React.useRef({ x: 0, y: 0 });
 
@@ -259,12 +316,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             element: current
           });
 
-          // Set initial menu position if not set
-          if (menuOffset.x === 0 && menuOffset.y === 0 && containerRect) {
-            setMenuOffset({
+          // Set initial menu position or follow table if not manually moved
+          if (containerRect && (!isManuallyMoved.current || (menuOffsetRef.current.x === 0 && menuOffsetRef.current.y === 0))) {
+            const newPos = {
               x: Math.max(20, rect.left - containerRect.left),
               y: Math.max(20, rect.top - containerRect.top - 80)
-            });
+            };
+            menuOffsetRef.current = newPos;
+            setMenuOffset(newPos);
           }
 
           foundTable = true;
@@ -275,7 +334,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       if (!foundTable) {
         setTableInfo(null);
         // Reset menu offset when table is lost so it re-centers next time
-        setMenuOffset({ x: 0, y: 0 });
+        const resetPos = { x: 0, y: 0 };
+        menuOffsetRef.current = resetPos;
+        setMenuOffset(resetPos);
+        isManuallyMoved.current = false;
       }
     };
 
@@ -302,10 +364,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDragging) {
-        setMenuOffset({
+        const newPos = {
           x: e.clientX - dragStartPos.current.x,
           y: e.clientY - dragStartPos.current.y,
-        });
+        };
+        menuOffsetRef.current = newPos;
+        setMenuOffset(newPos);
+        isManuallyMoved.current = true;
       }
     };
     const handleMouseUp = () => setIsDragging(false);
@@ -319,6 +384,21 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging]);
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!editor) return;
+    
+    // Check if double click was on the canvas background, not inside an existing node
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('ProseMirror')) {
+      const rect = target.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Insert floating text at double-click coordinates
+      (editor.commands as any).insertFloatingText({ x, y });
+    }
+  };
 
   if (!editor) return null;
 
@@ -403,6 +483,13 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             onClick={handleImageClick}
             icon={ImageIcon}
             title="Insert Image"
+            showTooltip={showTooltips}
+          />
+
+          <ToolbarButton
+            onClick={() => (editor.commands as any).insertFloatingText({ x: 50, y: 50 })}
+            icon={MousePointer2}
+            title="Add Floating Text Box"
             showTooltip={showTooltips}
           />
 
@@ -586,10 +673,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       <div
         className={`p-4 overflow-auto custom-scrollbar prose prose-sm max-w-none relative ${isDarkMode ? 'prose-invert' : ''}`}
         style={{ minHeight }}
-        onScroll={() => {
-          // No-op: Table info is updated on selection/transaction, 
-          // and we use offsetTop/Left for stable positioning during scroll.
-        }}
+        onDoubleClick={handleDoubleClick}
       >
         <EditorContent editor={editor} />
 
@@ -649,10 +733,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           border-collapse: collapse;
           table-layout: fixed;
           width: auto;
-          margin: 40px;
-          margin-left: 48px;
-          margin-top: 48px;
-          overflow: visible;
+          min-width: 100%;
+          margin: 48px 0 32px 48px;
           counter-reset: row;
         }
         .ProseMirror table tr {
@@ -719,14 +801,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           z-index: 2;
         }
         .ProseMirror table td, .ProseMirror table th {
-          min-width: 80px;
-          width: 120px;
+          min-width: 100px;
           border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'};
           padding: 12px;
           vertical-align: top;
           box-sizing: border-box;
           position: relative;
           background: ${isDarkMode ? '#18181b' : '#fff'};
+          word-break: break-word;
         }
         .ProseMirror table th {
           font-weight: bold;
@@ -749,7 +831,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           position: absolute;
           right: -2px;
           top: 0;
-          bottom: 0;
+          bottom: -2px;
           width: 4px;
           background-color: #6366f1;
           pointer-events: none;
@@ -758,9 +840,15 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         /* Canvas container */
         .ProseMirror {
           min-width: 100%;
-          width: max-content;
+          width: 100%;
           padding-right: 60px;
           padding-bottom: 60px;
+          position: relative;
+        }
+        /* Responsive Wrapper */
+        .editor-content-wrapper {
+          width: 100%;
+          overflow-x: auto;
         }
       `}</style>
 

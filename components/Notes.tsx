@@ -25,7 +25,7 @@ const COLORS = [
   { id: 'gray', bg: 'bg-zinc-100', darkBg: 'bg-zinc-800', border: 'border-zinc-300' },
   { id: 'blue', bg: 'bg-blue-50', darkBg: 'bg-blue-900/20', border: 'border-blue-500/30' },
   { id: 'green', bg: 'bg-emerald-50', darkBg: 'bg-emerald-900/20', border: 'border-emerald-500/30' },
-  { id: 'purple', bg: 'bg-purple-50', darkBg: 'bg-purple-900/20', border: 'border-purple-500/30' },
+  { id: 'purple', bg: 'bg-purple-50', darkBg: 'bg-purple-900/20', border: 'border-purple-200', darkBorder: 'border-purple-500/30' },
   { id: 'rose', bg: 'bg-rose-50', darkBg: 'bg-rose-900/20', border: 'border-rose-500/30' },
   { id: 'yellow', bg: 'bg-amber-50', darkBg: 'bg-amber-900/20', border: 'border-amber-500/30' },
 ];
@@ -229,7 +229,7 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
 
           <div style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; display: flex; align-items: center; justify-content: center;">
 
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
 
           </div>
 
@@ -789,5 +789,3 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
   
 
   export default Notes;
-
-  

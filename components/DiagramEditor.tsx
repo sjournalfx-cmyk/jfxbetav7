@@ -673,8 +673,16 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode }) => {
         {/* Left Pane: Editor */}
         <div className="w-1/3 flex flex-col gap-4 min-w-[350px]">
             {/* AI Prompter */}
-            <div className={`p-4 rounded-xl border flex flex-col gap-3 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-                <div className="flex items-center justify-between">
+            <div className={`relative overflow-hidden p-4 rounded-xl border flex flex-col gap-3 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                {/* Maintenance Overlay */}
+                <div className="absolute inset-0 z-20 bg-white/10 dark:bg-black/20 backdrop-blur-[1px] flex flex-col items-center justify-center p-4">
+                     <div className={`px-3 py-1.5 rounded-full shadow-sm font-bold text-[10px] uppercase tracking-wide flex items-center gap-2 ${isDarkMode ? 'bg-zinc-800 text-zinc-400 border border-zinc-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                        <AlertCircle size={12} className="text-amber-500" />
+                        Under Maintenance
+                     </div>
+                </div>
+
+                <div className="flex items-center justify-between opacity-40 pointer-events-none select-none">
                     <div className="flex items-center gap-2 text-sm font-bold text-indigo-500">
                         <Sparkles size={16} /> AI Architect
                     </div>
@@ -692,12 +700,13 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode }) => {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Describe strategy (e.g. 'Flowchart for ICT Silver Bullet') OR instructions to refine (e.g. 'Add color red to bearish nodes')"
-                    className={`w-full h-16 bg-transparent outline-none resize-none text-xs placeholder:opacity-50 ${isDarkMode ? 'text-white placeholder-zinc-600' : 'text-slate-900 placeholder-slate-400'}`}
+                    className={`w-full h-16 bg-transparent outline-none resize-none text-xs placeholder:opacity-50 opacity-40 pointer-events-none select-none ${isDarkMode ? 'text-white placeholder-zinc-600' : 'text-slate-900 placeholder-slate-400'}`}
+                    readOnly
                 />
                 <button 
                     onClick={() => handleGenerate('new')}
-                    disabled={isGenerating || !prompt}
-                    className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20"
+                    disabled={true}
+                    className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all opacity-40 pointer-events-none shadow-lg shadow-indigo-600/20"
                 >
                     {isGenerating ? <RefreshCw className="animate-spin" size={14}/> : <Play size={14}/>}
                     Generate New Diagram

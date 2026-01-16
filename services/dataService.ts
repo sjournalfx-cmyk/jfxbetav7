@@ -162,7 +162,9 @@ const mapGoalFromDB = (dbGoal: any): Goal => ({
   status: dbGoal.status,
   createdAt: dbGoal.created_at,
   milestones: dbGoal.milestones || [],
-  manualProgress: dbGoal.current_value
+  manualProgress: dbGoal.current_value,
+  autoTrackRule: dbGoal.auto_track_rule,
+  manualEntries: dbGoal.manual_entries || []
 });
 
 export const dataService = {
@@ -401,7 +403,9 @@ export const dataService = {
         start_date: goal.startDate,
         end_date: goal.endDate,
         status: goal.status,
-        milestones: goal.milestones
+        milestones: goal.milestones,
+        auto_track_rule: goal.autoTrackRule,
+        manual_entries: goal.manualEntries
       })
       .select()
       .single();
@@ -424,7 +428,9 @@ export const dataService = {
         start_date: goal.startDate,
         end_date: goal.endDate,
         status: goal.status,
-        milestones: goal.milestones
+        milestones: goal.milestones,
+        auto_track_rule: goal.autoTrackRule,
+        manual_entries: goal.manualEntries
       })
       .eq('id', goal.id);
 

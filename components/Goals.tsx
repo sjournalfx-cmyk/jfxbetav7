@@ -4,7 +4,7 @@ import {
     Target, Trophy, Calendar, Plus, Activity, TrendingUp, Sparkles, Clock,
     DollarSign, Brain, Shield, Flag, BarChart, Percent, CheckCircle2,
     ArrowRight, ChevronLeft, Trash2, Settings2, TrendingDown, X,
-    ChevronDown, Info, Check, Layers
+    ChevronDown, Info, Check, Layers, GripVertical, Edit3
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Goal, Trade, MetricType, GoalType, GoalMilestone } from '../types'; import { Select } from './Select';
@@ -70,7 +70,7 @@ const ProgressBar = ({ progress, colorClass, height = 'h-2' }: { progress: numbe
 const ProgressChart = ({ goal, trades, isDarkMode }: { goal: Goal, trades: Trade[], isDarkMode: boolean }) => {
     const data = useMemo(() => {
         let points: { date: string, value: number }[] = [];
-        
+
         if (goal.autoTrackRule) {
             const relevantTrades = trades
                 .filter(t => t.date >= goal.startDate && t.date <= goal.endDate)
@@ -123,17 +123,17 @@ const ProgressChart = ({ goal, trades, isDarkMode }: { goal: Goal, trades: Trade
                         <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
                     </linearGradient>
                 </defs>
-                <path 
-                    d={`M 0,100 L ${data.path} L 100,100 Z`} 
-                    fill="url(#goalGradient)" 
+                <path
+                    d={`M 0,100 L ${data.path} L 100,100 Z`}
+                    fill="url(#goalGradient)"
                     className="transition-all duration-1000"
                 />
-                <path 
-                    d={`M ${data.path}`} 
-                    fill="none" 
-                    stroke="#6366f1" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
+                <path
+                    d={`M ${data.path}`}
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="2"
+                    strokeLinecap="round"
                     strokeLinejoin="round"
                     className="transition-all duration-1000"
                 />
@@ -187,7 +187,7 @@ const calculateProgress = (goal: Goal, trades: Trade[]) => {
                 return 0;
         }
     }
-    
+
     // Sum of manual entries
     const manualSum = (goal.manualEntries || []).reduce((acc, entry) => acc + entry.value, 0);
     return (goal.manualProgress || 0) + manualSum;
@@ -239,6 +239,13 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     const [isAddingMilestone, setIsAddingMilestone] = useState(false);
     const [milestoneForm, setMilestoneForm] = useState({ title: '', target: '' });
 
+    // Milestone Edit State
+    const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+    const [editMilestoneForm, setEditMilestoneForm] = useState({ title: '', target: '' });
+
+    // Milestone Drag State
+    const [draggedMilestoneId, setDraggedMilestoneId] = useState<string | null>(null);
+
     // Manual Progress Add State
     const [isAddingManualEntry, setIsAddingManualEntry] = useState(false);
     const [manualEntryForm, setManualEntryForm] = useState({ value: '', note: '' });
@@ -276,7 +283,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
 
     const handleAddManualEntry = async () => {
         if (!selectedGoalId || !selectedGoal || !manualEntryForm.value) return;
-        
+
         const newValue = parseFloat(manualEntryForm.value);
         const newEntry = {
             id: Date.now().toString(),
@@ -287,7 +294,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
 
         const updatedEntries = [...(selectedGoal.manualEntries || []), newEntry];
         const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
-        
+
         let updatedGoal: Goal = {
             ...selectedGoal,
             manualEntries: updatedEntries
@@ -299,7 +306,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
         await onUpdateGoal(updatedGoal);
         setIsAddingManualEntry(false);
         setManualEntryForm({ value: '', note: '' });
-        
+
         if (newTotalProgress < updatedGoal.targetValue) {
             confetti({
                 particleCount: 40,
@@ -320,7 +327,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
             onConfirm: async () => {
                 const updatedEntries = (selectedGoal.manualEntries || []).filter(e => e.id !== entryId);
                 const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
-                
+
                 let updatedGoal: Goal = {
                     ...selectedGoal,
                     manualEntries: updatedEntries
@@ -461,19 +468,111 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
 
     const handleAddMilestone = async () => {
         if (!selectedGoalId || !selectedGoal || !milestoneForm.title || !milestoneForm.target) return;
-        const newMilestone: GoalMilestone = {
-            id: Date.now().toString(),
-            title: milestoneForm.title,
-            targetValue: parseFloat(milestoneForm.target),
-            isAchieved: false
-        };
-        const updatedGoal: Goal = {
-            ...selectedGoal,
-            milestones: [...selectedGoal.milestones, newMilestone]
-        };
-        await onUpdateGoal(updatedGoal);
-        setIsAddingMilestone(false);
-        setMilestoneForm({ title: '', target: '' });
+
+        try {
+            const newMilestone: GoalMilestone = {
+                id: Math.random().toString(36).substr(2, 9),
+                title: milestoneForm.title,
+                targetValue: parseFloat(milestoneForm.target),
+                isAchieved: false
+            };
+
+            const updatedGoal: Goal = {
+                ...selectedGoal,
+                milestones: [...(selectedGoal.milestones || []), newMilestone]
+            };
+
+            await onUpdateGoal(updatedGoal);
+            setIsAddingMilestone(false);
+            setMilestoneForm({ title: '', target: '' });
+        } catch (error) {
+            console.error("Failed to add milestone:", error);
+            // Optionally show an error toast here if available
+        }
+    };
+
+    const handleDeleteMilestone = (milestoneId: string) => {
+        if (!selectedGoal) return;
+
+        const milestone = selectedGoal.milestones?.find(m => m.id === milestoneId);
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Milestone',
+            description: `Are you sure you want to delete "${milestone?.title || 'this milestone'}"? This cannot be undone.`,
+            onConfirm: async () => {
+                try {
+                    const updatedGoal: Goal = {
+                        ...selectedGoal,
+                        milestones: (selectedGoal.milestones || []).filter(m => m.id !== milestoneId)
+                    };
+                    await onUpdateGoal(updatedGoal);
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                } catch (error) {
+                    console.error("Failed to delete milestone:", error);
+                }
+            }
+        });
+    };
+
+    const handleEditMilestone = (milestone: GoalMilestone) => {
+        setEditingMilestoneId(milestone.id);
+        setEditMilestoneForm({
+            title: milestone.title,
+            target: milestone.targetValue.toString()
+        });
+    };
+
+    const handleSaveMilestoneEdit = async () => {
+        if (!selectedGoal || !editingMilestoneId || !editMilestoneForm.title || !editMilestoneForm.target) return;
+
+        try {
+            const updatedGoal: Goal = {
+                ...selectedGoal,
+                milestones: (selectedGoal.milestones || []).map(m =>
+                    m.id === editingMilestoneId
+                        ? { ...m, title: editMilestoneForm.title, targetValue: parseFloat(editMilestoneForm.target) }
+                        : m
+                )
+            };
+            await onUpdateGoal(updatedGoal);
+            setEditingMilestoneId(null);
+            setEditMilestoneForm({ title: '', target: '' });
+        } catch (error) {
+            console.error("Failed to edit milestone:", error);
+        }
+    };
+
+    const handleMilestoneDragStart = (milestoneId: string) => {
+        setDraggedMilestoneId(milestoneId);
+    };
+
+    const handleMilestoneDrop = async (targetMilestoneId: string) => {
+        if (!selectedGoal || !draggedMilestoneId || draggedMilestoneId === targetMilestoneId) {
+            setDraggedMilestoneId(null);
+            return;
+        }
+
+        try {
+            const milestones = [...(selectedGoal.milestones || [])];
+            const draggedIndex = milestones.findIndex(m => m.id === draggedMilestoneId);
+            const targetIndex = milestones.findIndex(m => m.id === targetMilestoneId);
+
+            if (draggedIndex === -1 || targetIndex === -1) return;
+
+            // Remove dragged item and insert at target position
+            const [draggedItem] = milestones.splice(draggedIndex, 1);
+            milestones.splice(targetIndex, 0, draggedItem);
+
+            const updatedGoal: Goal = {
+                ...selectedGoal,
+                milestones
+            };
+            await onUpdateGoal(updatedGoal);
+        } catch (error) {
+            console.error("Failed to reorder milestones:", error);
+        } finally {
+            setDraggedMilestoneId(null);
+        }
     };
 
     const renderDashboard = () => (
@@ -653,21 +752,21 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                             {newGoal.autoTrackRule && (
                                 <div className="mt-4 pt-4 border-t border-dashed border-gray-500/20 grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
                                     <div>
-                                                                                    <label className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1.5 block">Metric Source</label>
-                                                                                    <Select
-                                                                                        value={newGoal.autoTrackRule.type}
-                                                                                        onChange={(val) => setNewGoal({ ...newGoal, autoTrackRule: { ...newGoal.autoTrackRule!, type: val as any } })}
-                                                                                        options={[
-                                                                                            { value: 'pnl', label: 'Net Profit (P&L)' },
-                                                                                            { value: 'win_rate', label: 'Win Rate %' },
-                                                                                            { value: 'trade_count', label: 'Trade Count' },
-                                                                                            { value: 'drawdown', label: 'Max Drawdown' },
-                                                                                        ]}
-                                                                                        isDarkMode={isDarkMode}
-                                                                                    />
-                                                                                </div>
-                                                                                <div><label className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1.5 block">Filter Strategy (Optional)</label><input placeholder="e.g. 'Trendline Break'" value={newGoal.autoTrackRule.filterTag || ''} onChange={(e) => setNewGoal({ ...newGoal, autoTrackRule: { ...newGoal.autoTrackRule!, filterTag: e.target.value } })} className={`w-full p-2.5 rounded-lg text-sm border outline-none ${isDarkMode ? 'bg-[#0c0c0e] border-zinc-700 text-white' : 'bg-white border-slate-300'}`} /></div>
-                                                                            </div>                            )}
+                                        <label className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1.5 block">Metric Source</label>
+                                        <Select
+                                            value={newGoal.autoTrackRule.type}
+                                            onChange={(val) => setNewGoal({ ...newGoal, autoTrackRule: { ...newGoal.autoTrackRule!, type: val as any } })}
+                                            options={[
+                                                { value: 'pnl', label: 'Net Profit (P&L)' },
+                                                { value: 'win_rate', label: 'Win Rate %' },
+                                                { value: 'trade_count', label: 'Trade Count' },
+                                                { value: 'drawdown', label: 'Max Drawdown' },
+                                            ]}
+                                            isDarkMode={isDarkMode}
+                                        />
+                                    </div>
+                                    <div><label className="text-[10px] font-bold uppercase tracking-wider opacity-50 mb-1.5 block">Filter Strategy (Optional)</label><input placeholder="e.g. 'Trendline Break'" value={newGoal.autoTrackRule.filterTag || ''} onChange={(e) => setNewGoal({ ...newGoal, autoTrackRule: { ...newGoal.autoTrackRule!, filterTag: e.target.value } })} className={`w-full p-2.5 rounded-lg text-sm border outline-none ${isDarkMode ? 'bg-[#0c0c0e] border-zinc-700 text-white' : 'bg-white border-slate-300'}`} /></div>
+                                </div>)}
                         </div>
                     </div>
                 )}
@@ -698,12 +797,12 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
         const currentRunRate = daysPassed > 0 ? current / daysPassed : 0;
         const projectedTotal = currentRunRate * totalDays;
         const requiredRunRate = daysLeft > 0 ? (selectedGoal.targetValue - current) / daysLeft : 0;
-        
+
         // Forecasting Logic
         const remainingToTarget = selectedGoal.targetValue - current;
         const estDaysToFinish = currentRunRate > 0 && remainingToTarget > 0 ? remainingToTarget / currentRunRate : Infinity;
-        const projectedFinishDate = estDaysToFinish !== Infinity && estDaysToFinish < 3650 
-            ? new Date(Date.now() + estDaysToFinish * 24 * 60 * 60 * 1000) 
+        const projectedFinishDate = estDaysToFinish !== Infinity && estDaysToFinish < 3650
+            ? new Date(Date.now() + estDaysToFinish * 24 * 60 * 60 * 1000)
             : null;
         const isProjectedLate = projectedFinishDate ? projectedFinishDate > endDate : false;
 
@@ -721,12 +820,12 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                     <button onClick={() => setView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'}`}><ChevronLeft size={16} /> Back to Goals</button>
                     <div className="flex gap-2">
                         <button onClick={() => deleteGoal(selectedGoal.id)} className="p-2.5 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-colors" title="Delete Goal"><Trash2 size={18} /></button>
-                        <button 
+                        <button
                             onClick={handleEditGoal}
                             className={`p-2.5 rounded-xl transition-colors ${isDarkMode ? 'text-zinc-400 hover:bg-zinc-800' : 'text-slate-500 hover:bg-slate-100'}`}
                             title="Edit Goal"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="lucide lucide-settings2 lucide-settings-2" aria-hidden="true"><path d="M14 17H5"></path><path d="M19 7h-9"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-settings2 lucide-settings-2" aria-hidden="true"><path d="M14 17H5"></path><path d="M19 7h-9"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>
                         </button>
                     </div>
                 </header>
@@ -777,7 +876,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                     </div>
                                 </div>
                                 <div className={`flex-1 p-5 rounded-2xl border flex flex-col justify-center ${isDarkMode ? 'bg-[#0c0c0e] border-zinc-800' : 'bg-slate-50 border-slate-200'}`}><span className="text-xs font-bold uppercase opacity-50 mb-1">Time Elapsed</span><div className="text-2xl font-black font-mono">{Math.round((daysPassed / totalDays) * 100)}%</div><div className="text-xs opacity-50 mt-1">{Math.floor(daysLeft)} days remaining</div></div>
-                                
+
                                 {!isRisk && (
                                     <div className={`flex-1 p-5 rounded-2xl border flex flex-col justify-center relative overflow-hidden ${isDarkMode ? 'bg-[#0c0c0e] border-zinc-800' : 'bg-slate-50 border-slate-200'}`}>
                                         <div className={`absolute top-0 right-0 p-2 opacity-10 ${isProjectedLate ? 'text-rose-500' : 'text-emerald-500'}`}>
@@ -806,14 +905,79 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                             <h3 className="font-bold text-lg flex items-center gap-2"><Flag size={18} className="text-indigo-500" /> Milestones</h3>
                             <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200 shadow-md'}`}>
                                 <div className="space-y-6 relative pl-4">
-                                    <div className={`absolute top-2 bottom-2 left-[27px] w-0.5 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-100'}`} />
-                                    {(selectedGoal.milestones || []).map((milestone) => (
-                                        <div key={milestone.id} className="relative flex items-center gap-4 group">
-                                            <div onClick={() => toggleMilestone(selectedGoal.id, milestone.id)} className={`w-6 h-6 rounded-full border-4 shrink-0 flex items-center justify-center z-10 transition-colors cursor-pointer bg-white dark:bg-zinc-900 ${milestone.isAchieved ? 'border-emerald-500 text-emerald-500' : 'border-zinc-300 dark:border-zinc-700 text-zinc-400 group-hover:border-indigo-400'}`}>{milestone.isAchieved && <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}</div>
-                                            <div className={`flex-1 p-3 rounded-xl border transition-colors ${milestone.isAchieved ? (isDarkMode ? 'bg-emerald-900/10 border-emerald-900/30' : 'bg-emerald-50 border-emerald-100') : (isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100')}`}>
-                                                <div className="flex justify-between items-center mb-0.5"><h4 className={`font-bold text-sm ${milestone.isAchieved ? '' : 'opacity-50'}`}>{milestone.title}</h4>{milestone.isAchieved && (<span className="text-[10px] font-mono opacity-50">{milestone.dateAchieved}</span>)}</div>
-                                                <p className="text-xs font-mono opacity-50">Target: {formatMetric(milestone.targetValue, selectedGoal.metric, currencySymbol)}</p>
+                                    <div className={`absolute top-2 bottom-2 left-[1.75rem] -translate-x-1/2 w-0.5 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-100'}`} />
+                                    {(selectedGoal.milestones || []).map((milestone, index) => (
+                                        <div
+                                            key={milestone.id}
+                                            className={`relative flex items-center gap-2 group transition-all ${draggedMilestoneId === milestone.id ? 'opacity-50' : ''}`}
+                                            draggable
+                                            onDragStart={() => handleMilestoneDragStart(milestone.id)}
+                                            onDragOver={(e) => e.preventDefault()}
+                                            onDrop={() => handleMilestoneDrop(milestone.id)}
+                                            onDragEnd={() => setDraggedMilestoneId(null)}
+                                        >
+                                            {/* Drag Handle */}
+                                            <div className={`opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
+                                                <GripVertical size={14} />
                                             </div>
+
+                                            {/* Milestone Circle */}
+                                            <div
+                                                onClick={() => toggleMilestone(selectedGoal.id, milestone.id)}
+                                                className={`w-6 h-6 rounded-full border-4 shrink-0 flex items-center justify-center z-10 transition-colors cursor-pointer bg-white dark:bg-zinc-900 ${milestone.isAchieved ? 'border-emerald-500 text-emerald-500' : 'border-zinc-300 dark:border-zinc-700 text-zinc-400 group-hover:border-indigo-400'}`}
+                                            >
+                                                {milestone.isAchieved && <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
+                                            </div>
+
+                                            {/* Milestone Card */}
+                                            {editingMilestoneId === milestone.id ? (
+                                                // Edit Mode
+                                                <div className={`flex-1 p-3 rounded-xl border flex gap-3 items-center ${isDarkMode ? 'bg-zinc-900/50 border-indigo-500' : 'bg-slate-50 border-indigo-300'}`}>
+                                                    <input
+                                                        autoFocus
+                                                        placeholder="Title"
+                                                        value={editMilestoneForm.title}
+                                                        onChange={e => setEditMilestoneForm({ ...editMilestoneForm, title: e.target.value })}
+                                                        className={`bg-transparent outline-none text-sm font-bold flex-1 min-w-0 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                                    />
+                                                    <div className="w-px h-4 bg-gray-500/20" />
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Target"
+                                                        value={editMilestoneForm.target}
+                                                        onChange={e => setEditMilestoneForm({ ...editMilestoneForm, target: e.target.value })}
+                                                        className={`bg-transparent outline-none text-sm font-mono w-24 text-right ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                                        onKeyDown={(e) => e.key === 'Enter' && handleSaveMilestoneEdit()}
+                                                    />
+                                                    <button onClick={handleSaveMilestoneEdit} disabled={!editMilestoneForm.title || !editMilestoneForm.target} className="p-1.5 rounded-lg bg-indigo-500 text-white hover:bg-indigo-400 disabled:opacity-50"><Check size={14} /></button>
+                                                    <button onClick={() => { setEditingMilestoneId(null); setEditMilestoneForm({ title: '', target: '' }); }} className="p-1.5 rounded-lg hover:bg-rose-500/10 text-rose-500"><X size={14} /></button>
+                                                </div>
+                                            ) : (
+                                                // View Mode
+                                                <div className={`flex-1 p-3 rounded-xl border transition-colors relative group/mcard ${milestone.isAchieved ? (isDarkMode ? 'bg-emerald-900/10 border-emerald-900/30' : 'bg-emerald-50 border-emerald-100') : (isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100')}`}>
+                                                    <div className="flex justify-between items-center mb-0.5">
+                                                        <h4 className={`font-bold text-sm ${milestone.isAchieved ? '' : 'opacity-50'}`}>{milestone.title}</h4>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {milestone.isAchieved && (<span className="text-[10px] font-mono opacity-50">{milestone.dateAchieved}</span>)}
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleEditMilestone(milestone); }}
+                                                                className="opacity-0 group-hover/mcard:opacity-100 p-1 hover:bg-indigo-500/10 text-indigo-500 rounded transition-all"
+                                                                title="Edit Milestone"
+                                                            >
+                                                                <Edit3 size={12} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteMilestone(milestone.id); }}
+                                                                className="opacity-0 group-hover/mcard:opacity-100 p-1 hover:bg-rose-500/10 text-rose-500 rounded transition-all"
+                                                                title="Delete Milestone"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-xs font-mono opacity-50">Target: {formatMetric(milestone.targetValue, selectedGoal.metric, currencySymbol)}</p>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                     {isAddingMilestone ? (
@@ -828,7 +992,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                             </div>
                                         </div>
                                     ) : (
-                                        <button onClick={() => setIsAddingMilestone(true)} className="relative flex items-center gap-4 w-full text-left group pl-1">
+                                        <button onClick={() => setIsAddingMilestone(true)} className="relative flex items-center gap-4 w-full text-left group">
                                             <div className={`w-6 h-6 rounded-full border-2 border-dashed shrink-0 flex items-center justify-center z-10 transition-colors ${isDarkMode ? 'border-zinc-700 group-hover:border-indigo-500' : 'border-zinc-300 group-hover:border-indigo-500'}`}><Plus size={12} className="opacity-50 group-hover:opacity-100 group-hover:text-indigo-500" /></div>
                                             <span className="text-xs font-bold uppercase tracking-wider opacity-50 group-hover:opacity-100 group-hover:text-indigo-500 transition-colors">Add Milestone</span>
                                         </button>
@@ -866,7 +1030,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                         </div>
                                                         <div className="flex items-center gap-3">
                                                             <div className="font-mono font-bold text-indigo-500">+{formatMetric(entry.value, selectedGoal.metric, currencySymbol)}</div>
-                                                            <button 
+                                                            <button
                                                                 onClick={(e) => { e.stopPropagation(); handleDeleteManualEntry(entry.id); }}
                                                                 className="p-1.5 text-rose-500 opacity-0 group-hover/item:opacity-100 hover:bg-rose-500/10 rounded-lg transition-all"
                                                                 title="Delete Entry"
@@ -889,8 +1053,8 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                     <div className="space-y-3">
                                                         <div>
                                                             <label className="text-[9px] font-bold uppercase opacity-50 mb-1 block">Value to Add ({selectedGoal.metric})</label>
-                                                            <input 
-                                                                type="number" 
+                                                            <input
+                                                                type="number"
                                                                 autoFocus
                                                                 value={manualEntryForm.value}
                                                                 onChange={e => setManualEntryForm({ ...manualEntryForm, value: e.target.value })}
@@ -900,7 +1064,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                         </div>
                                                         <div>
                                                             <label className="text-[9px] font-bold uppercase opacity-50 mb-1 block">Note (Optional)</label>
-                                                            <input 
+                                                            <input
                                                                 value={manualEntryForm.note}
                                                                 onChange={e => setManualEntryForm({ ...manualEntryForm, note: e.target.value })}
                                                                 className={`w-full p-2 rounded-lg border outline-none text-sm ${isDarkMode ? 'bg-[#0c0c0e] border-zinc-700' : 'bg-white border-slate-200'}`}
@@ -908,14 +1072,14 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                             />
                                                         </div>
                                                         <div className="flex gap-2 pt-1">
-                                                            <button 
+                                                            <button
                                                                 onClick={handleAddManualEntry}
                                                                 disabled={!manualEntryForm.value}
                                                                 className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-500 disabled:opacity-50"
                                                             >
                                                                 Save Entry
                                                             </button>
-                                                            <button 
+                                                            <button
                                                                 onClick={() => setIsAddingManualEntry(false)}
                                                                 className={`px-4 py-2 rounded-lg text-xs font-bold border ${isDarkMode ? 'border-zinc-700 text-zinc-400' : 'border-slate-200 text-slate-500'}`}
                                                             >
@@ -926,7 +1090,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                 </div>
                                             ) : (
                                                 <div className="p-2">
-                                                    <button 
+                                                    <button
                                                         onClick={() => setIsAddingManualEntry(true)}
                                                         className={`w-full py-3 rounded-xl font-bold text-xs border border-dashed transition-all flex items-center justify-center gap-2 ${isDarkMode ? 'border-zinc-700 hover:bg-zinc-800 text-zinc-400' : 'border-slate-300 hover:bg-slate-50 text-slate-500'}`}
                                                     >

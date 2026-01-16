@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
-import { Trash2, Maximize2, AlignLeft, AlignCenter, AlignRight, Square, Layout, Palette, Expand, X } from 'lucide-react';
+import { Trash2, Maximize2, AlignLeft, AlignCenter, AlignRight, Square, Layout, Palette, Expand, X, Move } from 'lucide-react';
 
 const BORDER_COLORS = [
   { name: 'Auto', value: 'auto', color: 'gray' },
@@ -12,13 +12,16 @@ const BORDER_COLORS = [
 const ImageNode: React.FC<NodeViewProps> = (props) => {
   const { node, updateAttributes, deleteNode, editor, selected } = props;
   const [isResizing, setIsResizing] = useState(false);
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [width, setWidth] = useState(node.attrs.width || '200px');
   
   const align = node.attrs.align || 'center';
   const hasBorder = node.attrs.hasBorder || false;
-  const layout = node.attrs.layout || 'block'; // 'block' | 'inline'
+  const layout = node.attrs.layout || 'block'; // 'block' | 'inline' | 'floating'
   const caption = node.attrs.caption || '';
   const borderColor = node.attrs.borderColor || 'auto';
+  const x = node.attrs.x || 0;
+  const y = node.attrs.y || 0;
 
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
@@ -42,8 +45,9 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLightboxOpen]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsResizing(true);
     
     const startX = e.clientX;
@@ -69,16 +73,56 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  const handleDragMouseDown = (e: React.MouseEvent) => {
+    if (layout !== 'floating') return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingNode(true);
+
+    const startX = e.clientX - x;
+    const startY = e.clientY - y;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const newX = moveEvent.clientX - startX;
+      const newY = moveEvent.clientY - startY;
+      updateAttributes({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingNode(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
   // Determine wrapper classes based on layout mode and alignment
   const wrapperClass = `image-node-view relative leading-none transition-all ${
-    layout === 'inline' 
-      ? 'inline-block mx-1 my-1 align-top' 
-      : `block my-8 ${align === 'left' ? 'mr-auto ml-0' : align === 'right' ? 'ml-auto mr-0' : 'mx-auto'}`
+    layout === 'floating'
+      ? 'absolute z-50'
+      : layout === 'inline' 
+        ? 'inline-block mx-1 my-1 align-top' 
+        : `block my-8 ${align === 'left' ? 'mr-auto ml-0' : align === 'right' ? 'ml-auto mr-0' : 'mx-auto'}`
   }`;
 
+  const wrapperStyle: React.CSSProperties = {
+    width: layout === 'block' ? 'fit-content' : width,
+    maxWidth: '100%',
+    ...(layout === 'floating' ? {
+      left: `${x}px`,
+      top: `${y}px`,
+      cursor: isDraggingNode ? 'grabbing' : 'default',
+    } : {})
+  };
+
   return (
-    <NodeViewWrapper className={wrapperClass} style={{ width: layout === 'block' ? 'fit-content' : width, maxWidth: '100%' }}>
+    <NodeViewWrapper className={wrapperClass} style={wrapperStyle}>
       <div 
+        data-drag-handle={layout !== 'floating' ? true : undefined}
+        onMouseDown={layout === 'floating' ? handleDragMouseDown : undefined}
         className={`relative transition-all group/image flex flex-col ${
           selected ? 'ring-2 ring-indigo-500 rounded-lg shadow-2xl' : 'shadow-lg'
         } ${hasBorder ? 'p-1 border-2 rounded-lg' : ''} ${
@@ -94,6 +138,7 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
           ref={imageRef}
           src={node.attrs.src}
           alt={node.attrs.alt}
+          draggable={false}
           className={`rounded-lg shadow-sm block w-full h-auto ${hasBorder ? 'rounded-md' : ''}`}
           onLoad={(e) => {
               setAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight);
@@ -113,7 +158,10 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
         />
 
         {/* Actions Overlay */}
-        <div className={`absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover/image:opacity-100 transition-opacity z-10 ${selected ? 'opacity-100' : ''}`}>
+        <div 
+          className={`absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover/image:opacity-100 transition-opacity z-10 ${selected ? 'opacity-100' : ''}`}
+          onMouseDown={(e) => e.stopPropagation()} // Prevent drag when clicking controls
+        >
            {/* Alignment Controls (Only relevant in Block mode) */}
            {layout === 'block' && (
              <div className="flex bg-black/70 backdrop-blur-sm rounded-md overflow-hidden border border-white/10 shadow-lg">
@@ -150,13 +198,32 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
              >
                <Expand size={14} />
              </button>
-             <button 
-               onClick={() => updateAttributes({ layout: layout === 'block' ? 'inline' : 'block' })}
-               className={`p-1.5 hover:bg-white/20 transition-colors ${layout === 'inline' ? 'text-indigo-400 bg-white/10' : 'text-white'}`}
-               title={layout === 'block' ? "Switch to Inline (Grid)" : "Switch to Block (Standalone)"}
-             >
-               <Layout size={14} />
-             </button>
+             
+             {/* Layout Toggles */}
+             <div className="flex border-x border-white/10">
+               <button 
+                 onClick={() => updateAttributes({ layout: 'block' })}
+                 className={`p-1.5 hover:bg-white/20 transition-colors ${layout === 'block' ? 'text-indigo-400 bg-white/10' : 'text-white'}`}
+                 title="Block Layout"
+               >
+                 <Layout size={14} />
+               </button>
+               <button 
+                 onClick={() => updateAttributes({ layout: 'inline' })}
+                 className={`p-1.5 hover:bg-white/20 transition-colors ${layout === 'inline' ? 'text-indigo-400 bg-white/10' : 'text-white'}`}
+                 title="Inline Layout"
+               >
+                 <AlignLeft size={14} className="rotate-90" />
+               </button>
+               <button 
+                 onClick={() => updateAttributes({ layout: 'floating' })}
+                 className={`p-1.5 hover:bg-white/20 transition-colors ${layout === 'floating' ? 'text-indigo-400 bg-white/10' : 'text-white'}`}
+                 title="Floating (Canvas) Mode"
+               >
+                 <Move size={14} />
+               </button>
+             </div>
+
              <button 
                onClick={() => updateAttributes({ hasBorder: !hasBorder })}
                className={`p-1.5 hover:bg-white/20 transition-colors ${hasBorder ? 'text-indigo-400 bg-white/10' : 'text-white'}`}
@@ -194,11 +261,18 @@ const ImageNode: React.FC<NodeViewProps> = (props) => {
         {/* Resize Handle */}
         <div
           className={`absolute bottom-8 right-2 p-1.5 bg-black/50 text-white rounded-md cursor-ew-resize opacity-0 group-hover/image:opacity-100 transition-opacity ${selected ? 'opacity-100' : ''}`}
-          onMouseDown={handleMouseDown}
+          onMouseDown={handleResizeMouseDown}
           title="Resize"
         >
           <Maximize2 size={14} className="rotate-90" />
         </div>
+
+        {/* Drag Indicator (Only in Floating Mode) */}
+        {layout === 'floating' && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-2 bg-indigo-600/50 backdrop-blur-md rounded-full text-white opacity-0 group-hover/image:opacity-100 transition-opacity pointer-events-none">
+            <Move size={20} />
+          </div>
+        )}
       </div>
 
       {/* Lightbox Modal */}
