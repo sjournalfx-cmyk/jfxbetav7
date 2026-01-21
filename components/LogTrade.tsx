@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, Target, Hash, Image as ImageIcon, Save, ChevronRight, ChevronLeft, TrendingUp, TrendingDown, Layout, Type, CheckCircle2, XCircle, MinusCircle, Upload, FileText, ArrowRight, Brain, AlertTriangle, ShieldCheck, Check, ChevronDown, X, Star, Eye, Trash2, Square, Lock } from 'lucide-react';
 import { Trade, AssetType, UserProfile } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
+import { getSASTDateTime } from '../lib/timeUtils';
 import RichTextEditor from './RichTextEditor';
 import { Select } from './Select';
 import ConfirmationModal from './ConfirmationModal';
@@ -22,8 +23,13 @@ interface LogTradeProps {
 
 const getSessionFromTime = (time: string): string => {
     const [h, m] = time.split(':').map(Number);
+    
+    // Create a date object and force it to be interpreted as SAST (UTC+2)
+    // We can do this by creating a UTC date and subtracting 2 hours from the desired SAST hour
     const date = new Date();
-    date.setHours(h, m, 0);
+    date.setUTCFullYear(2024, 0, 1);
+    date.setUTCHours(h - 2, m, 0, 0); // SAST is UTC+2
+    
     const hour = date.getUTCHours();
 
     if (hour >= 8 && hour < 12) return 'London Session';
@@ -191,12 +197,14 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
         onConfirm: () => { }
     });
 
+    const sast = getSASTDateTime();
+
     const [formData, setFormData] = useState({
         pair: initialTrade?.pair || '',
         assetType: initialTrade?.assetType || 'Forex' as AssetType,
-        date: initialTrade?.date || new Date().toISOString().split('T')[0],
-        time: initialTrade?.time || new Date().toTimeString().split(' ')[0].slice(0, 5),
-        session: initialTrade?.session || getSessionFromTime(new Date().toTimeString().split(' ')[0].slice(0, 5)),
+        date: initialTrade?.date || sast.date,
+        time: initialTrade?.time || sast.time,
+        session: initialTrade?.session || getSessionFromTime(sast.time),
         direction: initialTrade?.direction || 'Long' as 'Long' | 'Short',
         entryPrice: initialTrade?.entryPrice?.toString() || '',
         exitPrice: initialTrade?.exitPrice?.toString() || '',
@@ -273,11 +281,13 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
         const entry = parseFloat(formData.entryPrice);
         const sl = parseFloat(formData.stopLoss);
         const tp = parseFloat(formData.takeProfit);
+        const exit = parseFloat(formData.exitPrice);
         const lots = parseFloat(formData.lots) || 0;
 
-        if (entry && sl && tp) {
+        if (entry && sl && (tp || exit)) {
+            const targetExit = exit || tp;
             const riskDist = Math.abs(entry - sl);
-            const rewardDist = Math.abs(tp - entry);
+            const rewardDist = Math.abs(targetExit - entry);
             const rrRatio = riskDist > 0 ? rewardDist / riskDist : 0;
 
             const riskPnL = calculatePnL({ 
@@ -286,15 +296,20 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                 stopLoss: sl, 
                 result: 'Loss', 
                 lots,
-                exitPrice: formData.exitPrice ? parseFloat(formData.exitPrice) : undefined
+                exitPrice: exit || undefined
             } as any);
+
+            // Use actual exit price for reward calculation if available, otherwise use TP
+            // This ensures "Potential Reward" reflects the actual realized profit if the trade is closed
+            const effectiveExitForReward = exit || tp;
+
             const rewardPnL = calculatePnL({ 
                 ...formData, 
                 entryPrice: entry, 
-                takeProfit: tp, 
+                takeProfit: effectiveExitForReward, 
                 result: 'Win', 
                 lots,
-                exitPrice: formData.exitPrice ? parseFloat(formData.exitPrice) : undefined
+                exitPrice: exit || undefined
             } as any);
 
             setMetrics({
@@ -305,7 +320,7 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
         } else {
             setMetrics({ risk: 0, reward: 0, rr: 0 });
         }
-    }, [formData.entryPrice, formData.stopLoss, formData.takeProfit, formData.lots, formData.assetType, formData.direction]);
+    }, [formData.entryPrice, formData.stopLoss, formData.takeProfit, formData.exitPrice, formData.lots, formData.assetType, formData.direction]);
 
     // Auto-session detection
     useEffect(() => {
@@ -383,10 +398,19 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                     // Standard MT4 format: 2023.10.25 14:30:05
                     let date = new Date().toISOString().split('T')[0];
                     let time = '00:00';
+                    let fullOpenTime = '';
+                    let fullCloseTime = '';
+                    
                     if (openTime) {
                         const parts = openTime.split(' ');
                         if (parts.length >= 1) date = parts[0].replace(/\./g, '-');
                         if (parts.length >= 2) time = parts[1].slice(0, 5);
+                        fullOpenTime = parts[0] ? parts[0].replace(/\./g, '-') + 'T' + (parts[1] || '00:00:00') : '';
+                    }
+                    
+                    if (closeTime) {
+                        const parts = closeTime.split(' ');
+                        fullCloseTime = parts[0] ? parts[0].replace(/\./g, '-') + 'T' + (parts[1] || '00:00:00') : '';
                     }
 
                     // Determine Asset Type
@@ -419,7 +443,9 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                         notes: `Imported from MT4/MT5. Ticket: ${ticket}`,
                         planAdherence: 'No Plan',
                         mindset: 'Neutral',
-                        emotions: []
+                        emotions: [],
+                        openTime: fullOpenTime,
+                        closeTime: fullCloseTime
                     };
 
                     importedTrades.push(newTrade);
@@ -522,6 +548,8 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                 emotions: formData.emotions,
                 beforeScreenshot: screenshots.before,
                 afterScreenshot: screenshots.after,
+                openTime: initialTrade?.openTime || `${formData.date}T${formData.time}:00`,
+                closeTime: initialTrade?.closeTime || (formData.result !== 'Pending' ? `${formData.date}T${formData.time}:00` : undefined),
             };
 
             await onSave(newTrade);
@@ -586,8 +614,8 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                         <FileText size={20} />
                     </div>
                     <div>
-                        <h1 className="text-lg font-bold tracking-tight leading-none">{initialTrade ? 'Edit Trade Entry' : 'Log New Trade'}</h1>
-                        <p className="text-xs text-zinc-500 font-medium mt-1">{initialTrade ? `Editing ID: ${initialTrade.id}` : `Journal Entry #${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}`}</p>
+                        <h1 className="text-lg font-bold tracking-tight leading-none">{initialTrade?.id ? 'Edit Trade Entry' : 'Log New Trade'}</h1>
+                        <p className="text-xs text-zinc-500 font-medium mt-1">{initialTrade?.id ? `Editing ID: ${initialTrade.id}` : `Journal Entry #${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}`}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -628,7 +656,7 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                         ) : (
                             <Save size={16} />
                         )}
-                        {isSaving ? 'Saving...' : (initialTrade ? 'Update Entry' : 'Save Entry')}
+                        {isSaving ? 'Saving...' : (initialTrade?.id ? 'Update Entry' : 'Save Entry')}
                     </button>
                 </div>
             </div>
@@ -1175,8 +1203,8 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
 
                         <div className={`py-3 px-6 text-center text-[10px] font-bold uppercase tracking-widest flex items-center justify-between ${isDarkMode ? 'bg-[#09090b] text-zinc-500 border-t border-[#27272a]' : 'bg-slate-50 text-slate-500'}`}>
                             <span>Status</span>
-                            <span className={formData.entryPrice && formData.stopLoss ? 'text-blue-500' : 'opacity-50'}>
-                                {formData.entryPrice && formData.stopLoss ? 'Ready to Submit' : 'Incomplete'}
+                            <span className={formData.entryPrice && formData.stopLoss && (formData.takeProfit || formData.exitPrice) ? 'text-blue-500' : 'opacity-50'}>
+                                {formData.entryPrice && formData.stopLoss && (formData.takeProfit || formData.exitPrice) ? 'Ready to Submit' : 'Incomplete'}
                             </span>
                         </div>
                     </div>

@@ -42,6 +42,8 @@ export interface Trade {
   pnl: number;
   rr: number;
   rating: number;
+  openTime?: string; // ISO or Full SAST string
+  closeTime?: string; // ISO or Full SAST string
   tags: string[];
   notes?: string;
   emotions?: string[];

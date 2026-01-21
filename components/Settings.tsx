@@ -78,14 +78,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
-  const getTesterRank = () => {
-    if (tradesCount >= 30) return { label: 'Elite Tester', level: 4, next: 'Max Level', color: 'text-amber-400', bg: 'bg-amber-400/10', bar: 'bg-amber-400' };
-    if (tradesCount >= 15) return { label: 'Beta Specialist', level: 3, next: '30 trades', color: 'text-purple-400', bg: 'bg-purple-400/10', bar: 'bg-purple-400' };
-    if (tradesCount >= 5) return { label: 'Active Tester', level: 2, next: '15 trades', color: 'text-indigo-400', bg: 'bg-indigo-400/10', bar: 'bg-indigo-400' };
-    return { label: 'Beta Scout', level: 1, next: '5 trades', color: 'text-emerald-400', bg: 'bg-emerald-400/10', bar: 'bg-emerald-400' };
-  };
 
-  const rank = getTesterRank();
 
   const handleFeedbackSubmit = async () => {
     setIsSubmittingFeedback(true);
@@ -652,50 +645,7 @@ const Settings: React.FC<SettingsProps> = ({
 
             {activeTab === 'help' && (
               <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {/* Tester Progress Section */}
-                <div className={`p-8 rounded-3xl border relative overflow-hidden ${isDarkMode ? 'bg-[#1a1b23] border-zinc-800' : 'bg-white border-slate-100 shadow-sm'}`}>
-                  <div className="absolute top-0 right-0 p-8 opacity-10">
-                    <Medal size={120} className={rank.color} />
-                  </div>
-                  
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className={`p-3 rounded-2xl ${rank.bg} ${rank.color}`}>
-                        <Medal size={24} />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-black tracking-tight">Tester Progress</h3>
-                        <p className="text-xs font-bold opacity-40 uppercase tracking-widest">Rank: {rank.label}</p>
-                      </div>
-                    </div>
 
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-end">
-                        <span className="text-sm font-bold">Progress to next rank</span>
-                        <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Next: {rank.next}</span>
-                      </div>
-                      <div className="h-3 w-full bg-black/20 dark:bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/5">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-1000 ${rank.bar}`} 
-                          style={{ width: `${Math.min(100, (tradesCount / (rank.level === 1 ? 5 : rank.level === 2 ? 15 : 30)) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] font-black uppercase tracking-widest opacity-40">
-                        <span>{tradesCount} trades logged</span>
-                        <span>Level {rank.level} / 4</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-8 flex gap-4">
-                      <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${formData.feedbackSent ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'}`}>
-                        {formData.feedbackSent ? '✓ Feedback Contribution' : '○ Feedback Needed'}
-                      </div>
-                      <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${tradesCount >= 5 ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'}`}>
-                        {tradesCount >= 5 ? '✓ Active Reporter' : '○ Not Enough Data'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
                 {/* Support Resources */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

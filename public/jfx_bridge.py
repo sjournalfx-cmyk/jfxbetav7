@@ -31,10 +31,12 @@ def get_account_info():
         "profit": account.profit,
         "margin": account.margin,
         "margin_free": account.margin_free,
+        "margin_level": account.margin_level,
         "currency": account.currency,
         "server": account.server,
         "company": account.company,
-        "name": account.name
+        "name": account.name,
+        "is_demo": account.trade_mode != mt5.ACCOUNT_TRADE_MODE_REAL
     }
 
 def get_positions():
@@ -72,22 +74,28 @@ def get_history():
 
     result = []
     
-    # Pre-fetch all entry deals to map opening prices
+    # Pre-fetch all entry deals to map opening prices and times
     entry_deals = {}
     for deal in deals:
         if deal.entry == 0: # Entry In
-            entry_deals[deal.position_id] = deal.price
+            entry_deals[deal.position_id] = {
+                "price": deal.price,
+                "time": deal.time
+            }
 
     for deal in deals:
         # We process 'Out' deals (Exit) as the completion of a trade
         if deal.entry == 1 or deal.entry == 2: # Entry Out or In/Out
-            entry_price = entry_deals.get(deal.position_id, deal.price) # Fallback to deal price if entry not found
+            entry_data = entry_deals.get(deal.position_id, {"price": deal.price, "time": deal.time})
+            entry_price = entry_data["price"]
+            entry_time = entry_data["time"] # Exact opening time
             
             result.append({
                 "ticket": deal.ticket,
                 "order": deal.order,
                 "position_id": deal.position_id,
-                "time": deal.time,
+                "time": deal.time, # Exit time
+                "entry_time": entry_time, # Opening time
                 "type": "BUY" if deal.type == 0 else "SELL", 
                 "entry": deal.entry,
                 "symbol": deal.symbol,
@@ -136,9 +144,22 @@ def main():
 
             try:
                 response = requests.post(args.url, json=payload, headers=headers, timeout=10)
+                
                 if response.status_code == 200:
                     data = response.json()
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] Sync OK | Equity: {account['equity'] if account else 'N/A'}")
+                elif response.status_code == 403:
+                    # Check for STOP command
+                    try:
+                        data = response.json()
+                        if data.get("command") == "STOP":
+                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] STOP SIGNAL RECEIVED: {data.get('error')}")
+                            print("The bridge was disconnected from the JournalFX dashboard.")
+                            mt5.shutdown()
+                            sys.exit(0)
+                    except:
+                        pass
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Sync Error: 403 Forbidden")
                 else:
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] Sync Error: {response.status_code} - {response.text}")
             except requests.exceptions.RequestException as e:

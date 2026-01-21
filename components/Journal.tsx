@@ -7,6 +7,7 @@ import {
   Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye
 } from 'lucide-react';
 import { Trade, UserProfile } from '../types';
+import { getSASTDateTime } from '../lib/timeUtils';
 
 interface JournalProps {
   isDarkMode: boolean;
@@ -16,6 +17,40 @@ interface JournalProps {
   onEditTrade: (trade: Trade) => void;
   userProfile: UserProfile;
 }
+
+const formatDuration = (openTime?: string, closeTime?: string) => {
+    if (!openTime || !closeTime) return null;
+    try {
+        // Handle potential space instead of T in some date strings
+        const startStr = openTime.includes(' ') && !openTime.includes('T') ? openTime.replace(' ', 'T') : openTime;
+        const endStr = closeTime.includes(' ') && !closeTime.includes('T') ? closeTime.replace(' ', 'T') : closeTime;
+        
+        const start = new Date(startStr);
+        const end = new Date(endStr);
+        
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+        
+        const diff = end.getTime() - start.getTime();
+        
+        if (diff < 0) return '0s'; // Or handle negative duration if exit is before entry
+        
+        const totalSeconds = Math.floor(diff / 1000);
+        if (totalSeconds === 0) return '0s';
+        
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        
+        let parts = [];
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0) parts.push(`${minutes}m`);
+        if (seconds > 0 || (hours === 0 && minutes === 0)) parts.push(`${seconds}s`);
+        
+        return parts.join(' ');
+    } catch (e) {
+        return null;
+    }
+};
 
 const ReadOnlyStarRating = ({ rating, isDarkMode }: { rating: number, isDarkMode: boolean }) => (
   <div className="flex items-center gap-0.5">
@@ -40,8 +75,7 @@ const MiniCalendar = ({ year, month, trades, isDarkMode, onClick }: any) => {
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
     const monthTrades = trades.filter((t: Trade) => {
-        const d = new Date(t.date);
-        return d.getFullYear() === year && d.getMonth() === month;
+        return t.date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`);
     });
 
     const getDayStyle = (day: number) => {
@@ -122,7 +156,18 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
         };
     }, [trades, year, month]);
 
-    const isToday = (day: number) => { const today = new Date(); return day === today.getDate() && month === today.getMonth() && year === today.getFullYear(); };
+    const isToday = (day: number) => { 
+        const sast = getSASTDateTime();
+        // Since year and month are already from currentDate (which might be in the past/future)
+        // We only care if year and month match current SAST and day matches current SAST day
+        const sastDate = new Date(); // Temporary to parse parts
+        const sastFull = getSASTDateTime(sastDate);
+        
+        // Let's make it simpler: match strings
+        const currentSASTDate = getSASTDateTime().date;
+        const targetDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return currentSASTDate === targetDate;
+    };
 
     return (
         <div className="h-full flex flex-col">
@@ -324,7 +369,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                 <div className="flex items-center gap-6">
                     <div>
                         <div className={`text-4xl font-mono font-black tracking-tighter leading-none ${trade.pnl > 0 ? 'text-emerald-400' : trade.pnl < 0 ? 'text-rose-500' : 'text-zinc-500'}`}>
-                            {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString()}
+                            {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mt-1">Net P&L</div>
                     </div>
@@ -341,6 +386,14 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             <span className="flex items-center gap-1">{trade.time}</span>
                             <span className="w-1 h-1 rounded-full bg-current opacity-50"></span>
                             <span className="flex items-center gap-1">{trade.session}</span>
+                            {trade.openTime && trade.closeTime && (
+                                <>
+                                    <span className="w-1 h-1 rounded-full bg-current opacity-50"></span>
+                                    <span className="flex items-center gap-1 text-indigo-400 font-bold">
+                                        <Clock size={12} /> {formatDuration(trade.openTime, trade.closeTime)}
+                                    </span>
+                                </>
+                            )}
                             <span className="w-1 h-1 rounded-full bg-current opacity-50"></span>
                             <div className="flex items-center gap-1" title={`Rating: ${trade.rating || 0}/5`}>
                                 <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
@@ -364,11 +417,25 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                     <div className="col-span-12 md:col-span-4 lg:col-span-3 space-y-4">
                         <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-slate-50/50 border-slate-200'}`}>
                             <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3">Execution</h4>
-                            <div className="space-y-3 text-sm">
-                                <div className="flex justify-between"><span className="opacity-50">Entry</span><span className="font-mono font-bold">{trade.entryPrice}</span></div>
-                                <div className="flex justify-between"><span className="opacity-50">Stop Loss</span><span className="font-mono font-bold text-rose-500">{trade.stopLoss}</span></div>
-                                <div className="flex justify-between"><span className="opacity-50">Take Profit</span><span className="font-mono font-bold text-emerald-500">{trade.takeProfit}</span></div>
-                                <div className="h-px bg-current opacity-10 my-2" />
+                             <div className="space-y-3 text-sm">
+                                 <div className="flex justify-between"><span className="opacity-50">Entry</span><span className="font-mono font-bold">{trade.entryPrice.toFixed(2)}</span></div>
+                                 <div className="flex justify-between"><span className="opacity-50">Exit</span><span className="font-mono font-bold">{trade.exitPrice?.toFixed(2)}</span></div>
+                                 <div className="flex justify-between"><span className="opacity-50">Stop Loss</span><span className="font-mono font-bold text-rose-500">{trade.stopLoss.toFixed(2)}</span></div>
+                                 <div className="flex justify-between"><span className="opacity-50">Take Profit</span><span className="font-mono font-bold text-emerald-500">{trade.takeProfit.toFixed(2)}</span></div>
+                                 <div className="h-px bg-current opacity-10 my-2" />
+                                 {(() => {
+                                     const pipSize = trade.pair.includes('JPY') ? 0.01 : 0.0001;
+                                     const pipMovement = trade.exitPrice ? (trade.direction === 'Long' ? trade.exitPrice - trade.entryPrice : trade.entryPrice - trade.exitPrice) / pipSize : 0;
+                                     return (
+                                          <div className="flex justify-between"><span className="opacity-50">Pip Movement</span><span className={`font-bold ${pipMovement >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{pipMovement >= 0 ? '+' : ''}{pipMovement.toFixed(2)} pip</span></div>
+                                     );
+                                 })()}
+                                {trade.openTime && (
+                                    <div className="flex justify-between text-[10px]"><span className="opacity-50 uppercase font-bold">Opened</span><span className="font-mono opacity-80">{new Date(trade.openTime).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</span></div>
+                                )}
+                                {trade.closeTime && (
+                                    <div className="flex justify-between text-[10px]"><span className="opacity-50 uppercase font-bold">Closed</span><span className="font-mono opacity-80">{new Date(trade.closeTime).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</span></div>
+                                )}
                                 <div className="flex justify-between"><span className="opacity-50">Volume</span><span className="font-bold">{trade.lots} Lots</span></div>
                                 <div className="flex justify-between"><span className="opacity-50">R:R Ratio</span><span className="font-bold text-indigo-500">1 : {trade.rr}</span></div>
                             </div>
@@ -509,7 +576,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                     <CalendarView isDarkMode={isDarkMode} trades={trades} userProfile={userProfile} />
                 ) : (
                     <>
-                        <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1.5fr_0.8fr_1.2fr_40px] px-6 py-4 border-b text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'border-[#27272a] text-zinc-500' : 'border-slate-100 text-slate-400'}`}>
+                        <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-6 py-4 border-b text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'border-[#27272a] text-zinc-500' : 'border-slate-100 text-slate-400'}`}>
                             <div className="col-span-1 flex items-center justify-center">
                                 <button onClick={handleSelectAll} className="opacity-50 hover:opacity-100">
                                     {selectedIds.length > 0 && selectedIds.length === filteredTrades.length ? <CheckSquare size={16} /> : <Square size={16} />}
@@ -520,6 +587,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             <div className="col-span-1">Type</div>
                             <div className="col-span-1">Direction</div>
                             <div className="col-span-1">Session</div>
+                            <div className="col-span-1">Duration</div>
                             <div className="col-span-1">Tags</div>
                             <div className="col-span-1">Rating</div>
                             <div className="col-span-1 text-right">PnL / Result</div>
@@ -533,7 +601,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             ) : (
                                 filteredTrades.map(trade => (
                                     <React.Fragment key={trade.id}>
-                                        <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl mt-1 ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
+                                        <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl mt-1 ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
                                             <div className="col-span-1 flex items-center justify-center">
                                                 <button onClick={() => handleSelectOne(trade.id)} className={`${selectedIds.includes(trade.id) ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
                                                     {selectedIds.includes(trade.id) ? <CheckSquare size={16} /> : <Square size={16} />}
@@ -551,6 +619,9 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 </span>
                                             </div>
                                             <div className="col-span-1 text-xs opacity-80 cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.session}</div>
+                                            <div className="col-span-1 text-xs font-mono font-bold opacity-60 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                                                {formatDuration(trade.openTime, trade.closeTime) || '---'}
+                                            </div>
                                             <div className="col-span-1 flex flex-wrap gap-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
                                                 {trade.tags.slice(0, 2).map((tag, i) => (
                                                     <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
@@ -562,7 +633,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                             </div>
                                             <div className="col-span-1 text-right cursor-pointer" onClick={() => toggleExpand(trade.id)}>
                                                 <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
-                                                    {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString()}
+                                                    {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </p>
                                                 <p className={`text-[10px] font-bold uppercase ${trade.result === 'Win' ? 'text-emerald-500' : trade.result === 'Loss' ? 'text-rose-500' : 'text-zinc-500'}`}>
                                                     {trade.result} {trade.rr > 0 ? `(${trade.rr}R)` : ''}

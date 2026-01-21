@@ -1,12 +1,16 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Trade, UserProfile } from '../types';
+import { getSASTDateTime } from '../lib/timeUtils';
 import {
     TrendingUp, PieChart, Info, ArrowUpRight, ArrowDownRight, Activity,
     Target, BarChart3, Award, AlertOctagon,
     ArrowLeftRight, GitCompare, MoreVertical, Star, Coins,
     LayoutDashboard, LineChart, ShieldAlert, X, HelpCircle, GripVertical,
-    ArrowRightLeft, Crown, Flame, Snowflake, Lock, Clock, Sparkles
+    ArrowRightLeft, Crown, Flame, Snowflake, Lock, Sparkles, Printer, Clock
 } from 'lucide-react';
+import { TimeAnalysis } from './analytics/TimeAnalysis';
+import { ReportView } from './analytics/ReportView';
+
 import {
     DndContext,
     closestCenter,
@@ -37,113 +41,8 @@ interface AnalyticsProps {
     eaSession?: any;
 }
 
-const BestTimeWidget = ({ trades = [], isDarkMode, currencySymbol = '$', onInfoClick }: { trades: Trade[], isDarkMode: boolean, currencySymbol: string, onInfoClick?: () => void }) => {
-    const [hoveredHour, setHoveredHour] = useState<number | null>(null);
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
-    const hourlyData = useMemo(() => {
-        const safeTrades = trades || [];
-        const hours = Array.from({ length: 24 }, (_, i) => ({ hour: i, pnl: 0, count: 0 }));
 
-        safeTrades.forEach(t => {
-            const date = new Date(`${t.date}T${t.time || '00:00'}`);
-            const hour = date.getHours();
-            if (hours[hour]) {
-                hours[hour].pnl += t.pnl;
-                hours[hour].count += 1;
-            }
-        });
-
-        return hours;
-    }, [trades]);
-
-    const maxPnl = Math.max(...hourlyData.map(d => Math.abs(d.pnl)), 10);
-    const hoveredData = hoveredHour !== null ? hourlyData[hoveredHour] : null;
-
-    const handleMouseMove = (e: React.MouseEvent) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        setMousePos({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        });
-    };
-
-    return (
-        <div 
-            onMouseMove={handleMouseMove}
-            className={`p-8 rounded-[32px] border flex flex-col h-full min-h-[350px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
-        >
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-bold tracking-tight">Hourly Performance</h3>
-                    <Tooltip content="Analyzes your trading performance based on the hour of the day to identify your most profitable sessions." isDarkMode={isDarkMode}>
-                        <svg 
-                            onClick={onInfoClick}
-                            xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-question-mark opacity-40 cursor-help hover:opacity-100 transition-opacity" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                    </Tooltip>
-                </div>
-                <Clock size={16} className="opacity-30" />
-            </div>
-
-            <div className="flex-1 flex items-end gap-1 relative">
-                {/* Zero Line */}
-                <div className="absolute left-0 right-0 h-px bg-zinc-500/20 z-0" style={{ top: '50%' }} />
-
-                {hourlyData.map((d) => {
-                    const heightPercent = (Math.abs(d.pnl) / maxPnl) * 45; // Max 45% height (leaving 10% gap)
-                    const isPositive = d.pnl >= 0;
-                    const isHovered = hoveredHour === d.hour;
-
-                    return (
-                        <div
-                            key={d.hour}
-                            className="flex-1 flex flex-col items-center justify-center h-full relative group cursor-pointer"
-                            onMouseEnter={() => setHoveredHour(d.hour)}
-                            onMouseLeave={() => setHoveredHour(null)}
-                        >
-                            {/* Bar */}
-                            <div
-                                className={`w-full max-w-[12px] rounded-sm transition-all duration-300 relative z-10 ${isPositive ? 'bg-emerald-500' : 'bg-rose-500'} ${isHovered ? 'brightness-110 scale-x-125 shadow-lg' : 'opacity-80'}`}
-                                style={{
-                                    height: `${Math.max(2, heightPercent)}%`,
-                                    marginBottom: isPositive ? '50%' : 'auto',
-                                    marginTop: isPositive ? 'auto' : '50%',
-                                }}
-                            />
-                            
-                            {/* Hour Label (Every 4 hours) */}
-                            {d.hour % 4 === 0 && (
-                                <span className="absolute bottom-0 text-[9px] font-mono opacity-30">{d.hour}h</span>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Tooltip Overlay (Floating) */}
-            {hoveredData && (
-                <div 
-                    className="fixed pointer-events-none z-50"
-                    style={{ 
-                        left: mousePos.x + 20, 
-                        top: mousePos.y - 40,
-                        position: 'absolute'
-                    }}
-                >
-                    <div className={`px-4 py-2 rounded-xl border backdrop-blur-md shadow-xl flex items-center gap-4 animate-in fade-in zoom-in duration-200 ${isDarkMode ? 'bg-[#09090b]/90 border-zinc-700' : 'bg-white/90 border-slate-200'}`}>
-                        <div className="text-xs font-black uppercase tracking-wider opacity-60 w-12">{hoveredData.hour}:00</div>
-                        <div className={`text-lg font-black ${hoveredData.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {hoveredData.pnl >= 0 ? '+' : ''}{currencySymbol}{hoveredData.pnl.toLocaleString()}
-                        </div>
-                        <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest border-l border-white/10 pl-4">
-                            {hoveredData.count} Trades
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { trades: Trade[], isDarkMode: boolean, currencySymbol: string }) => {
     const symbols = useMemo(() => {
@@ -164,11 +63,13 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
     const [rangeB, setRangeB] = useState('all');
 
     const filterByRange = (tradeList: Trade[], range: string) => {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const sastNow = getSASTDateTime();
+        const [year, month] = sastNow.date.split('-').map(Number);
+        
+        const startOfMonth = new Date(year, month - 1, 1);
+        const startOfLastMonth = new Date(year, month - 2, 1);
+        const endOfLastMonth = new Date(year, month - 1, 0);
+        const startOfYear = new Date(year, 0, 1);
 
         return tradeList.filter(t => {
             const tradeDate = new Date(t.date);
@@ -180,12 +81,14 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
     };
 
     const getPreviousTrades = (tradeList: Trade[], range: string) => {
-        const now = new Date();
+        const sastNow = getSASTDateTime();
+        const [year, month] = sastNow.date.split('-').map(Number);
+        
         if (range === 'all') return [];
 
         if (range === 'this_month') {
-            const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+            const startOfLastMonth = new Date(year, month - 2, 1);
+            const endOfLastMonth = new Date(year, month - 1, 0);
             return tradeList.filter(t => {
                 const d = new Date(t.date);
                 return d >= startOfLastMonth && d <= endOfLastMonth;
@@ -193,8 +96,8 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
         }
 
         if (range === 'last_month') {
-            const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-            const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 0);
+            const startOfPrevMonth = new Date(year, month - 3, 1);
+            const endOfPrevMonth = new Date(year, month - 2, 0);
             return tradeList.filter(t => {
                 const d = new Date(t.date);
                 return d >= startOfPrevMonth && d <= endOfPrevMonth;
@@ -202,8 +105,8 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
         }
 
         if (range === 'this_year') {
-            const startOfPrevYear = new Date(now.getFullYear() - 1, 0, 1);
-            const endOfPrevYear = new Date(now.getFullYear() - 1, 11, 31);
+            const startOfPrevYear = new Date(year - 1, 0, 1);
+            const endOfPrevYear = new Date(year - 1, 11, 31);
             return tradeList.filter(t => {
                 const d = new Date(t.date);
                 return d >= startOfPrevYear && d <= endOfPrevYear;
@@ -362,7 +265,7 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
                         }
                     }
                 ].map((panel, idx) => (
-                    <div key={idx} className={`p-8 rounded-[32px] border relative overflow-hidden ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+                    <div key={idx} className={`p-8 rounded-[32px] border relative ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
                         <div className="flex items-center justify-between mb-8">
                             <div className="flex items-center gap-3">
                                 <div className={`p-2 rounded-xl ${panel.bg} ${panel.color}`}><BarChart3 size={20} /></div>
@@ -943,11 +846,11 @@ const TradeExitAnalysisWidget = ({ trades = [], isDarkMode, onInfoClick }: { tra
 
                 {/* Tooltip Overlay (Floating) */}
                 {hoveredData && (
-                    <div 
+                    <div
                         className="absolute pointer-events-none z-50"
-                        style={{ 
-                            left: mousePos.x - 40, 
-                            top: mousePos.y - 100
+                        style={{
+                            left: mousePos.x + 15,
+                            top: mousePos.y - 80
                         }}
                     >
                         <div className={`p-3 rounded-xl shadow-2xl border backdrop-blur-md animate-in fade-in zoom-in duration-200 ${isDarkMode ? 'bg-[#09090b]/90 border-zinc-700' : 'bg-white/90 border-slate-200'}`}>
@@ -1009,8 +912,8 @@ const EquityCurveWidget = ({ trades = [], equityData = [], isDarkMode, currencyS
     const hoverY = hoverIndex !== null ? 240 - ((equityData[hoverIndex] - min) / range) * 240 : 0;
 
     return (
-        <div className={`p-8 rounded-[32px] border flex flex-col min-h-[350px] relative overflow-hidden ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
-            <div className="flex justify-between items-start mb-6 relative z-10">
+        <div className={`p-8 rounded-[32px] border flex flex-col min-h-[350px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
+            <div className="flex justify-between items-start mb-6 relative">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500"><TrendingUp size={20} /></div>
                     <div>
@@ -1521,14 +1424,14 @@ const SymbolPerformanceWidget = ({ trades = [], isDarkMode, currencySymbol = '$'
     );
 };
 
-const DrawdownOverTimeWidget = ({ trades = [], isDarkMode, userProfile, onInfoClick }: { trades: Trade[], isDarkMode: boolean, userProfile: UserProfile, onInfoClick?: () => void }) => {
+const DrawdownOverTimeWidget = ({ trades = [], isDarkMode, userProfile, startingBalance, onInfoClick }: { trades: Trade[], isDarkMode: boolean, userProfile: UserProfile, startingBalance?: number, onInfoClick?: () => void }) => {
     const [hoverIndex, setHoverIndex] = useState<number | null>(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
     const drawdownData = useMemo(() => {
         if (!trades || trades.length === 0) return [];
         const sortedTrades = [...trades].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        let peak = userProfile?.initialBalance || 10000;
+        let peak = startingBalance !== undefined ? startingBalance : (userProfile?.initialBalance || 10000);
         let balance = peak;
         const data: { date: string; drawdown: number; balance: number }[] = [];
         sortedTrades.forEach(trade => {
@@ -1538,7 +1441,7 @@ const DrawdownOverTimeWidget = ({ trades = [], isDarkMode, userProfile, onInfoCl
             data.push({ date: trade.date, drawdown, balance });
         });
         return data;
-    }, [trades, userProfile?.initialBalance]);
+    }, [trades, userProfile?.initialBalance, startingBalance]);
 
     const maxDrawdown = drawdownData.length > 0 ? Math.max(...drawdownData.map(d => d.drawdown)) : 0;
     const maxY = Math.max(maxDrawdown * 1.2, 1);
@@ -1583,16 +1486,14 @@ const DrawdownOverTimeWidget = ({ trades = [], isDarkMode, userProfile, onInfoCl
                     </Tooltip>
                 </div>
 
-                {hoverIndex !== null && (
-                    <div className="text-right animate-in fade-in zoom-in-95 duration-200">
-                        <div className="text-xl font-black font-mono text-rose-500 leading-none">
-                            -{drawdownData[hoverIndex].drawdown.toFixed(2)}%
-                        </div>
-                        <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest mt-1">
-                            {userProfile.currencySymbol}{drawdownData[hoverIndex].balance.toLocaleString()}
-                        </div>
+                <div className={`text-right transition-opacity duration-200 ${hoverIndex !== null ? 'opacity-100' : 'opacity-0'}`}>
+                    <div className="text-xl font-black font-mono text-rose-500 leading-none">
+                        {hoverIndex !== null ? `-${drawdownData[hoverIndex].drawdown.toFixed(2)}%` : '-0.00%'}
                     </div>
-                )}
+                    <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest mt-1">
+                        {hoverIndex !== null ? `${userProfile.currencySymbol}${drawdownData[hoverIndex].balance.toLocaleString()}` : 'Balance'}
+                    </div>
+                </div>
             </div>
             {drawdownData.length < 2 ? (
                 <div className="flex-1 flex items-center justify-center opacity-30 text-sm">Insufficient data</div>
@@ -1810,12 +1711,12 @@ const PerformanceRadarWidget = ({ trades = [], isDarkMode, onInfoClick }: { trad
                     ))}
 
                     {/* Data Area (Radar) */}
-                    <polygon 
-                        points={points} 
-                        fill="rgba(99, 102, 241, 0.6)" 
-                        stroke="#6366f1" 
-                        strokeWidth="2" 
-                        strokeLinejoin="round" 
+                    <polygon
+                        points={points}
+                        fill="rgba(99, 102, 241, 0.6)"
+                        stroke="#6366f1"
+                        strokeWidth="1"
+                        strokeLinejoin="round"
                         className="transition-all duration-1000"
                     />
 
@@ -1825,11 +1726,11 @@ const PerformanceRadarWidget = ({ trades = [], isDarkMode, onInfoClick }: { trad
                             key={i}
                             cx={50 + d.x * d.value * 45}
                             cy={50 + d.y * d.value * 45}
-                            r="3"
+                            r="2"
                             fill="#6366f1"
                             stroke={isDarkMode ? "#18181b" : "white"}
                             strokeWidth="1.5"
-                            className="cursor-pointer transition-all duration-300 hover:r-4"
+                            className="cursor-pointer transition-all duration-300 hover:r-3"
                             onMouseEnter={() => setHoveredNode({ mindset: d.mindset, value: d.rawValue, x: 50 + d.x * d.value * 45, y: 50 + d.y * d.value * 45 })}
                             onMouseLeave={() => setHoveredNode(null)}
                         />
@@ -2187,17 +2088,14 @@ const StrategyPerformanceBubbleChart = ({ trades = [], isDarkMode, currencySymbo
     return (
         <div 
             onMouseMove={handleMouseMove}
-            className={`p-8 rounded-[32px] border flex flex-col h-full min-h-[450px] relative overflow-hidden ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
+            className={`p-8 rounded-[32px] border flex flex-col h-full min-h-[450px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
         >
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h3 className="text-xl font-bold tracking-tight">Performance by Strategy</h3>
-                    <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">Win Rate vs. Net Profitability</p>
-                </div>
-                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
-                    <Sparkles size={20} />
-                </div>
-            </div>
+             <div className="flex items-center justify-between mb-8">
+                 <div>
+                     <h3 className="text-xl font-bold tracking-tight">Performance by Strategy</h3>
+                     <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">Win Rate vs. Net Profitability</p>
+                 </div>
+             </div>
 
             <div className="flex-1 relative mt-4 mb-12 ml-12 mr-4">
                 {/* Y-Axis (PnL) Labels */}
@@ -2318,11 +2216,15 @@ const StrategyPerformanceBubbleChart = ({ trades = [], isDarkMode, currencySymbo
 };
 
 const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProfile, eaSession }) => {
-    const [activeTab, setActiveTab] = useState<'overview' | 'growth' | 'discipline' | 'comparison'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'time' | 'growth' | 'discipline' | 'comparison'>('overview');
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
     
     const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
     const features = PLAN_FEATURES[currentPlan];
+
+    const handlePrintReport = () => {
+        window.print();
+    };
 
     const InfoPanel = ({ info, onClose }: { info: { title: string, content: string }, onClose: () => void }) => (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 sm:p-12 animate-in fade-in duration-300">
@@ -2368,17 +2270,15 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
         'streakMomentum', 'equityCurve',
         'drawdown', 'largestWinLoss',
         'symbolPerformance', 'monthlyPerformance',
-        'currencyStrength', 'tradeExit', 'bestTime'
+        'currencyStrength', 'tradeExit'
     ]);
 
     const [growthOrder, setGrowthOrder] = useLocalStorage('analytics_growth_order', [
         'outcomeDist', 'perfByPair', 'strategyPerf', 'executionTable'
     ]);
 
-    const [disciplineOrder, setDisciplineOrder] = useLocalStorage('analytics_discipline_order', [
-        'tiltScore', 'radar',
-        'plMindset', 'plAdherence',
-        'riskReward'
+    const [disciplineOrder, setDisciplineOrder] = useLocalStorage('analytics_discipline_order_v2', [
+        'tiltScore', 'riskReward', 'plAdherence', 'radar', 'plMindset'
     ]);
 
     const sensors = useSensors(
@@ -2391,10 +2291,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
         const defaultOverview = [
             'winRate', 'profitFactor', 'grossProfit', 'grossLoss',
             'streakMomentum', 'equityCurve', 'drawdown', 'largestWinLoss',
-            'symbolPerformance', 'monthlyPerformance', 'currencyStrength', 'tradeExit', 'bestTime'
+            'symbolPerformance', 'monthlyPerformance', 'currencyStrength', 'tradeExit'
         ];
         const defaultGrowth = ['outcomeDist', 'perfByPair', 'strategyPerf', 'executionTable'];
-        const defaultDiscipline = ['tiltScore', 'radar', 'plMindset', 'plAdherence', 'riskReward'];
+        const defaultDiscipline = ['tiltScore', 'riskReward', 'plAdherence', 'radar', 'plMindset'];
 
         // Use functional updates to avoid dependency on the values themselves
         setOverviewOrder(prev => {
@@ -2461,9 +2361,25 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
         };
     }, [trades]);
 
+    // Calculate effective initial balance based on Plan and Bridge Data
+    const effectiveInitialBalance = useMemo(() => {
+        const isPro = userProfile.plan === APP_CONSTANTS.PLANS.HOBBY; // PRO TIER
+        const isPremium = userProfile.plan === APP_CONSTANTS.PLANS.STANDARD; // PREMIUM
+        
+        // Use bridge balance if available and user is on paid plan
+        if ((isPro || isPremium) && eaSession?.data?.account?.balance !== undefined) {
+             // To match the bridge balance at the end, we calculate back from current bridge balance
+             // Start = CurrentBridgeBalance - SumOfAllTradePnLs
+             const totalPnL = (trades || []).reduce((acc, t) => acc + t.pnl, 0);
+             return eaSession.data.account.balance - totalPnL;
+        }
+        
+        return userProfile?.initialBalance || 0;
+    }, [userProfile, eaSession, trades]);
+
     const equityData = useMemo(() => {
         const safeTrades = trades || [];
-        let cumulative = userProfile?.initialBalance || 0;
+        let cumulative = effectiveInitialBalance;
         const data = [cumulative];
         const sortedTrades = [...safeTrades].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         sortedTrades.forEach(t => {
@@ -2471,10 +2387,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
             data.push(cumulative);
         });
         return data;
-    }, [trades, userProfile?.initialBalance]);
+    }, [trades, effectiveInitialBalance]);
 
     const tabs = [
         { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { id: 'time', label: 'Time Analysis', icon: Clock },
         { id: 'growth', label: 'Growth', icon: LineChart },
         { id: 'discipline', label: 'Discipline', icon: Target },
         { id: 'comparison', label: 'Comparison', icon: ArrowRightLeft }
@@ -2568,6 +2485,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
                         trades={trades} 
                         isDarkMode={isDarkMode} 
                         userProfile={userProfile} 
+                        startingBalance={effectiveInitialBalance}
                         onInfoClick={() => setActiveInfo({
                             title: "Drawdown Over Time",
                             content: "This chart tracks your 'Peak-to-Valley' equity drops. It shows the percentage decline from your highest ever balance point.\n\nManaging drawdown is critical for long-term survival. Seeing your drawdown history helps you understand the 'risk of ruin' and whether your strategy's losing periods are within your tolerated risk parameters."
@@ -2632,18 +2550,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
                         })}
                     />
                 );
-            case 'bestTime':
-                return (
-                    <BestTimeWidget 
-                        trades={trades} 
-                        isDarkMode={isDarkMode} 
-                        currencySymbol={currencySymbol} 
-                        onInfoClick={() => setActiveInfo({
-                            title: "Hourly Performance",
-                            content: "This widget analyzes your trading performance based on the hour of the day. It helps you identify which hours are most profitable for your strategy and when you might be prone to losses.\n\nBy understanding your 'Golden Hours', you can optimize your schedule to trade only when your edge is highest and avoid sessions where you typically underperform or face higher volatility."
-                        })}
-                    />
-                );
+
 
             // Growth Widgets
             case 'outcomeDist': {
@@ -2851,8 +2758,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
             case 'strategyPerf': return 'col-span-12';
             case 'executionTable': return 'col-span-12';
 
-            case 'tiltScore': case 'radar': case 'plMindset': case 'plAdherence': return 'col-span-12 lg:col-span-6';
-            case 'riskReward': return 'col-span-12';
+            case 'tiltScore': return 'col-span-12 md:col-span-6 lg:col-span-3';
+            case 'riskReward': return 'col-span-12 md:col-span-6 lg:col-span-3';
+            case 'plAdherence': return 'col-span-12 lg:col-span-6';
+            case 'radar': case 'plMindset': return 'col-span-12 lg:col-span-6';
             default: return 'col-span-12';
         }
     }
@@ -2885,11 +2794,21 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
 
     return (
         <div className={`w-full h-full overflow-y-auto custom-scrollbar p-6 lg:p-10 font-sans ${isDarkMode ? 'bg-[#050505] text-zinc-200' : 'bg-[#F8FAFC] text-slate-900'}`}>
+            {/* Print View (Hidden on Screen) */}
+            <div className="hidden print:block fixed inset-0 z-[9999] bg-white">
+                <ReportView 
+                    trades={trades} 
+                    userProfile={userProfile} 
+                    monthStr={new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} 
+                />
+            </div>
+
             <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
                     <h1 className="text-3xl font-black tracking-tight mb-2">Performance Analytics</h1>
                     <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Visual breakdown of your trading performance.</p>
                 </div>
+                <div className="flex items-center gap-3">
                 <div className={`flex p-1 gap-1 ${isDarkMode ? 'bg-[#121214] rounded-[20px] border border-[#1e1e22]' : 'bg-slate-100 rounded-[20px] border border-slate-200'}`}>
                     {tabs.map((tab) => {
                         const isActive = activeTab === tab.id;
@@ -2916,6 +2835,15 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
                         );
                     })}
                 </div>
+                
+                <button
+                    onClick={handlePrintReport}
+                    className={`p-3 rounded-[20px] border transition-all ${isDarkMode ? 'bg-[#121214] border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-900'}`}
+                    title="Print Report"
+                >
+                    <Printer size={20} />
+                </button>
+                </div>
             </header>
 
             {!canAccessGrowth && activeTab === 'growth' && (
@@ -2940,6 +2868,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
             )}
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                {activeTab === 'time' && (
+                    <div className="animate-in fade-in duration-500 pb-20">
+                        <TimeAnalysis trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile?.currencySymbol || '$'} />
+                    </div>
+                )}
+
                 {activeTab === 'overview' && (
                     <SortableContext items={overviewOrder} strategy={rectSortingStrategy}>
                         <div className="animate-in fade-in duration-500 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 pb-20">
@@ -2966,7 +2900,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
 
                 {activeTab === 'discipline' && canAccessDiscipline && (
                     <SortableContext items={disciplineOrder} strategy={rectSortingStrategy}>
-                        <div className="animate-in fade-in duration-500 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6 pb-20">
+                        <div className="animate-in fade-in duration-500 grid grid-cols-1 md:grid-cols-12 gap-6 pb-20">
                             {disciplineOrder.map(id => (
                                 <SortableWidget key={id} id={id} className={getColSpan(id)}>
                                     {renderWidget(id)}

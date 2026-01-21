@@ -42,7 +42,7 @@ serve(async (req) => {
         // 2. Verify sync key exists in profiles
         const { data: profile, error: profileError } = await supabaseClient
             .from('profiles')
-            .select('id, name, auto_journal')
+            .select('id, name, auto_journal, ea_connected')
             .eq('sync_key', syncKey)
             .single();
 
@@ -55,6 +55,19 @@ serve(async (req) => {
             }), {
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
                 status: 401,
+            })
+        }
+
+        // Check if the user has disconnected the bridge via the UI
+        if (profile.ea_connected === false) {
+            return new Response(JSON.stringify({
+                success: false,
+                command: 'STOP',
+                error: 'Session terminated by user',
+                details: 'The bridge connection was disabled in the dashboard.'
+            }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 403, // Forbidden
             })
         }
 

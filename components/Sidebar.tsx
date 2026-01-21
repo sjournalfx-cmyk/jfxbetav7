@@ -67,21 +67,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const tradeCount = trades.length;
   
-  const getTesterRank = () => {
-    if (tradeCount >= 30) return { label: 'Elite Tester', color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/20' };
-    if (tradeCount >= 15) return { label: 'Beta Specialist', color: 'text-purple-400', bg: 'bg-purple-400/10', border: 'border-purple-400/20' };
-    if (tradeCount >= 5) return { label: 'Active Tester', color: 'text-indigo-400', bg: 'bg-indigo-400/10', border: 'border-indigo-400/20' };
-    return { label: 'Beta Scout', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20' };
-  };
 
-  const rank = getTesterRank();
-
-  const TesterBadge = () => (
-    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${rank.bg} ${rank.border} ${rank.color} animate-in fade-in slide-in-from-left-2 duration-500`}>
-      <Medal size={10} className="shrink-0" />
-      <span className="text-[9px] font-black uppercase tracking-wider whitespace-nowrap">{rank.label}</span>
-    </div>
-  );
 
   // Close notifications on click outside
   useEffect(() => {
@@ -267,7 +253,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div className="text-[9px] font-black uppercase tracking-widest text-emerald-500 leading-none">Live Status</div>
               <div className="text-[11px] font-bold mt-0.5">{userProfile?.eaConnected ? 'Bridge' : 'Disconnected'}</div>
             </div>
-            <TesterBadge />
+
           </div>
         )}
       </div>

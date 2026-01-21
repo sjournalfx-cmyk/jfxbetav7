@@ -25,6 +25,7 @@ import { supabase } from '../lib/supabase';
 import OpenPositions from './OpenPositions';
 import { Skeleton } from './ui/Skeleton';
 import { Tooltip } from './ui/Tooltip';
+import { getSASTDateTime } from '../lib/timeUtils';
 
 
 interface DashboardProps {
@@ -160,7 +161,7 @@ const EquityCurveWidget = ({ trades, equityData, isDarkMode, currencySymbol }: {
                 {hoverIndex !== null && (
                     <div className="animate-in fade-in zoom-in-95 duration-200">
                         <span className={`text-sm font-black font-mono ${equityData[hoverIndex] >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {equityData[hoverIndex] >= 0 ? '+' : ''}{currencySymbol}{equityData[hoverIndex].toLocaleString()}
+                            {equityData[hoverIndex] >= 0 ? '+' : ''}{currencySymbol}{equityData[hoverIndex].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                         <span className="text-[10px] font-bold opacity-40 uppercase ml-2">Trade #{hoverIndex}</span>
                     </div>
@@ -207,7 +208,7 @@ const RecentTrades = ({ isDarkMode, trades, symbol }: { isDarkMode: boolean, tra
                         </div>
                     </div>
                     <span className={`font-mono text-xs font-bold ${trade.pnl > 0 ? 'text-teal-500' : trade.pnl < 0 ? 'text-rose-500' : 'text-gray-500'}`}>
-                        {trade.pnl > 0 ? '+' : ''}{symbol}{trade.pnl}
+                        {trade.pnl > 0 ? '+' : ''}{symbol}{Number(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                 </div>
             ))}
@@ -222,7 +223,7 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
     const days = Array.from({ length: 7 }, (_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - (6 - i));
-        return d.toLocaleDateString('en-CA');
+        return getSASTDateTime(d).date;
     });
 
     const getBiasForDate = (date: string) => dailyBias.find(b => b.date === date)?.bias || 'Neutral';
@@ -252,7 +253,7 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
                 {days.map(date => {
                     const bias = getBiasForDate(date);
                     const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
-                    const isToday = date === new Date().toLocaleDateString('en-CA');
+                    const isToday = date === getSASTDateTime().date;
                     return (
                         <button
                             key={date}
@@ -507,7 +508,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                                     </span>
                                 )}
                             </div>
-                            <div className="text-xl font-black font-mono tracking-tighter leading-none">{userProfile.currencySymbol}{currentBalance.toLocaleString()}</div>
+                            <div className="text-xl font-black font-mono tracking-tighter leading-none">{userProfile.currencySymbol}{currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -545,7 +546,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <StatCard 
                     label="Net PnL" 
-                    value={`${userProfile.currencySymbol}${totalPnL.toLocaleString()}`} 
+                    value={`${userProfile.currencySymbol}${totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
                     isDarkMode={isDarkMode} 
                     icon={DollarSign} 
                     colorClass="text-blue-500" 

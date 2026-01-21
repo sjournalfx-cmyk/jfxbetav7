@@ -110,17 +110,17 @@ const OpenPositions: React.FC<OpenPositionsProps> = ({ positions, isDarkMode, cu
                             <div className="grid grid-cols-3 gap-4 pt-3 border-t border-zinc-800/50">
                                 <div>
                                     <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest mb-1">Entry</div>
-                                    <div className="text-xs font-mono font-bold">{(pos.openPrice || 0).toFixed(5)}</div>
-                                </div>
-                                <div>
-                                    <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest mb-1">Current</div>
-                                    <div className="text-xs font-mono font-bold">{(pos.currentPrice || 0).toFixed(5)}</div>
-                                </div>
-                                <div>
-                                    <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest mb-1">SL / TP</div>
-                                    <div className="text-xs font-mono font-bold">
-                                        {pos.sl > 0 ? pos.sl.toFixed(5) : '---'} / {pos.tp > 0 ? pos.tp.toFixed(5) : '---'}
-                                    </div>
+                                     <div className="text-xs font-mono font-bold">{(pos.openPrice || 0).toFixed(2)}</div>
+                                 </div>
+                                 <div>
+                                     <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest mb-1">Current</div>
+                                     <div className="text-xs font-mono font-bold">{(pos.currentPrice || 0).toFixed(2)}</div>
+                                 </div>
+                                 <div>
+                                     <div className="text-[9px] font-bold opacity-40 uppercase tracking-widest mb-1">SL / TP</div>
+                                     <div className="text-xs font-mono font-bold">
+                                         {pos.sl > 0 ? pos.sl.toFixed(2) : '---'} / {pos.tp > 0 ? pos.tp.toFixed(2) : '---'}
+                                     </div>
                                 </div>
                             </div>
                         </div>

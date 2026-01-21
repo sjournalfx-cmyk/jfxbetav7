@@ -8,6 +8,7 @@ import { uploadNoteImage } from '../services/dataService';
 import ConfirmationModal from './ConfirmationModal';
 import RichTextEditor, { ToolbarButton } from './RichTextEditor';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { getSASTDateTime } from '../lib/timeUtils';
 
 interface NotesProps {
   isDarkMode: boolean;
@@ -113,7 +114,7 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
       content: '',
       tags: [],
       color: 'gray',
-      date: new Date().toISOString(),
+      date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime,
       isPinned: false
     };
     try {
@@ -139,7 +140,7 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
       content,
       tags,
       color: selectedColor as any,
-      date: new Date().toISOString()
+      date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime
     };
 
     await onUpdateNote(updated);

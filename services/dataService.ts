@@ -15,6 +15,8 @@ export const mapTradeFromDB = (dbTrade: any): Trade => ({
   planAdherence: dbTrade.plan_adherence,
   tradingMistake: dbTrade.trading_mistake,
   exitComment: dbTrade.exit_comment,
+  openTime: dbTrade.open_time,
+  closeTime: dbTrade.close_time,
   beforeScreenshot: dbTrade.before_screenshot,
   afterScreenshot: dbTrade.after_screenshot,
 });
@@ -45,6 +47,8 @@ const mapTradeToDB = (trade: Trade, userId: string) => ({
   trading_mistake: trade.tradingMistake,
   mindset: trade.mindset,
   exit_comment: trade.exitComment,
+  open_time: trade.openTime,
+  close_time: trade.closeTime,
   before_screenshot: trade.beforeScreenshot,
   after_screenshot: trade.afterScreenshot,
 });

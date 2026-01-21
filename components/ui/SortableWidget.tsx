@@ -22,12 +22,12 @@ export const SortableWidget: React.FC<SortableWidgetProps> = ({ id, children, cl
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
-        zIndex: isDragging ? 50 : 'auto',
+        zIndex: isDragging ? 50 : undefined,
         opacity: isDragging ? 0.5 : 1,
     };
 
     return (
-        <div ref={setNodeRef} style={style} className={`relative group h-full ${className}`}>
+        <div ref={setNodeRef} style={style} className={`relative group h-full hover:z-[150] ${className}`}>
             {/* Drag Handle - Only visible on hover */}
             <div
                 {...attributes}

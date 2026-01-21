@@ -632,7 +632,6 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                                 </span>
                                             )}
                                         </div>
-                                        {goal.autoTrackRule ? (<div className="text-indigo-500 bg-indigo-500/10 p-1.5 rounded-md"><Sparkles size={14} /></div>) : (<div className="text-zinc-500 bg-zinc-500/10 p-1.5 rounded-md"><Clock size={14} /></div>)}
                                     </div>
                                     <h3 className="text-lg font-bold leading-tight mb-2 group-hover:text-indigo-500 transition-colors">{goal.title}</h3>
                                     <p className={`text-xs line-clamp-2 leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{goal.description}</p>
@@ -904,32 +903,32 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                         <div className="space-y-4">
                             <h3 className="font-bold text-lg flex items-center gap-2"><Flag size={18} className="text-indigo-500" /> Milestones</h3>
                             <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200 shadow-md'}`}>
-                                <div className="space-y-6 relative pl-4">
-                                    <div className={`absolute top-2 bottom-2 left-[1.75rem] -translate-x-1/2 w-0.5 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-100'}`} />
-                                    {(selectedGoal.milestones || []).map((milestone, index) => (
-                                        <div
-                                            key={milestone.id}
-                                            className={`relative flex items-center gap-2 group transition-all ${draggedMilestoneId === milestone.id ? 'opacity-50' : ''}`}
-                                            draggable
-                                            onDragStart={() => handleMilestoneDragStart(milestone.id)}
-                                            onDragOver={(e) => e.preventDefault()}
-                                            onDrop={() => handleMilestoneDrop(milestone.id)}
-                                            onDragEnd={() => setDraggedMilestoneId(null)}
-                                        >
-                                            {/* Drag Handle */}
-                                            <div className={`opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
-                                                <GripVertical size={14} />
-                                            </div>
+                                 <div className="space-y-6 relative pl-4">
+                                     <div className={`absolute top-0 bottom-0 left-[1.75rem] -translate-x-1/2 w-0.5 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-100'}`} />
+                                     {(selectedGoal.milestones || []).map((milestone, index) => (
+                                         <div
+                                             key={milestone.id}
+                                             className={`relative flex items-center gap-2 group transition-all ${draggedMilestoneId === milestone.id ? 'opacity-50' : ''}`}
+                                             draggable
+                                             onDragStart={() => handleMilestoneDragStart(milestone.id)}
+                                             onDragOver={(e) => e.preventDefault()}
+                                             onDrop={() => handleMilestoneDrop(milestone.id)}
+                                             onDragEnd={() => setDraggedMilestoneId(null)}
+                                         >
+                                             {/* Drag Handle */}
+                                             <div className={`opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
+                                                 <GripVertical size={14} />
+                                             </div>
 
-                                            {/* Milestone Circle */}
-                                            <div
-                                                onClick={() => toggleMilestone(selectedGoal.id, milestone.id)}
-                                                className={`w-6 h-6 rounded-full border-4 shrink-0 flex items-center justify-center z-10 transition-colors cursor-pointer bg-white dark:bg-zinc-900 ${milestone.isAchieved ? 'border-emerald-500 text-emerald-500' : 'border-zinc-300 dark:border-zinc-700 text-zinc-400 group-hover:border-indigo-400'}`}
-                                            >
-                                                {milestone.isAchieved && <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
-                                            </div>
+                                             {/* Milestone Circle */}
+                                             <div
+                                                 onClick={() => toggleMilestone(selectedGoal.id, milestone.id)}
+                                                 className={`w-6 h-6 rounded-full border-4 shrink-0 flex items-center justify-center z-10 transition-colors cursor-pointer bg-white dark:bg-zinc-900 -translate-y-[2px] ${milestone.isAchieved ? 'border-emerald-500 text-emerald-500' : 'border-zinc-300 dark:border-zinc-700 text-zinc-400 group-hover:border-indigo-400'}`}
+                                             >
+                                                 {milestone.isAchieved && <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
+                                             </div>
 
-                                            {/* Milestone Card */}
+                                             {/* Milestone Card */}
                                             {editingMilestoneId === milestone.id ? (
                                                 // Edit Mode
                                                 <div className={`flex-1 p-3 rounded-xl border flex gap-3 items-center ${isDarkMode ? 'bg-zinc-900/50 border-indigo-500' : 'bg-slate-50 border-indigo-300'}`}>
@@ -1009,7 +1008,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                                             {filteredTrades.map(trade => (
                                                 <div key={trade.id} className={`flex justify-between items-center p-3 rounded-xl transition-colors ${isDarkMode ? 'hover:bg-zinc-800' : 'hover:bg-slate-50'}`}>
                                                     <div className="flex items-center gap-3"><div className={`w-1 h-8 rounded-full ${trade.pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} /><div><div className="font-bold text-sm flex items-center gap-2">{trade.pair} <span className={`text-[10px] uppercase px-1 rounded ${trade.direction === 'Long' ? 'bg-teal-500/20 text-teal-500' : 'bg-rose-500/20 text-rose-500'}`}>{trade.direction}</span></div><div className="text-xs opacity-50">{trade.date}</div></div></div>
-                                                    <div className={`font-mono font-bold ${trade.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{trade.pnl >= 0 ? '+' : ''}{currencySymbol}{Math.abs(trade.pnl)}</div>
+                                                    <div className={`font-mono font-bold ${trade.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{trade.pnl >= 0 ? '+' : ''}{currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                                 </div>
                                             ))}
                                             {filteredTrades.length === 0 && (<div className="flex flex-col items-center justify-center py-12 text-center opacity-60"><Layers size={32} className="mb-3 opacity-50" /><p className="font-bold text-sm">No matching trades found</p></div>)}

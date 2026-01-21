@@ -20,7 +20,8 @@ import {
   ListChecks, Table as TableIcon, Eraser, Type,
   Plus, Trash2, PlusCircle, ArrowUp, ArrowDown,
   ArrowLeft, ArrowRight, Combine, Split, GripHorizontal,
-  Palette, Image as ImageIcon, MousePointer2
+  Palette, Image as ImageIcon, MousePointer2, AlignLeft,
+  AlignCenter, AlignRight, Maximize2
 } from 'lucide-react';
 import ConfirmationModal from './ConfirmationModal';
 import ImageNode from './RichTextEditorImage';
@@ -70,6 +71,27 @@ const CustomTableCell = TableCell.extend({
             style: `background-color: ${attributes.backgroundColor}`,
           }
         },
+      },
+      textAlign: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-text-align') || element.style.textAlign || null,
+        renderHTML: attributes => {
+          if (!attributes.textAlign) {
+            return {}
+          }
+          return {
+            'data-text-align': attributes.textAlign,
+            style: `text-align: ${attributes.textAlign}`,
+          }
+        },
+      },
+      minWidth: {
+        default: '120px',
+        parseHTML: element => element.getAttribute('data-min-width') || element.style.minWidth || '120px',
+        renderHTML: attributes => ({
+          'data-min-width': attributes.minWidth,
+          style: `min-width: ${attributes.minWidth}`,
+        }),
       },
     }
   },
@@ -320,7 +342,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           if (containerRect && (!isManuallyMoved.current || (menuOffsetRef.current.x === 0 && menuOffsetRef.current.y === 0))) {
             const newPos = {
               x: Math.max(20, rect.left - containerRect.left),
-              y: Math.max(20, rect.top - containerRect.top - 80)
+              y: Math.max(20, rect.top - containerRect.top - 120)
             };
             menuOffsetRef.current = newPos;
             setMenuOffset(newPos);
@@ -473,9 +495,9 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           <ToolbarDivider />
 
           <ToolbarButton
-            onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 5, withHeaderRow: false }).run()}
+            onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 3, withHeaderRow: false }).run()}
             icon={TableIcon}
-            title="Insert Table"
+            title="Insert Table (2×3)"
             showTooltip={showTooltips}
           />
           
@@ -568,90 +590,169 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       {/* Custom Draggable Table Menu */}
       {editor && tableInfo && (
         <div
-          className={`absolute z-[100] flex flex-wrap items-center gap-0.5 p-1 rounded-xl shadow-2xl border select-none transition-shadow ${isDarkMode ? 'bg-[#18181b] border-[#27272a] shadow-black/50' : 'bg-white border-slate-200 shadow-slate-200/50'}`}
+          className={`absolute z-[100] p-3 rounded-xl shadow-2xl border select-none transition-shadow ${isDarkMode ? 'bg-[#18181b] border-[#27272a] shadow-black/50' : 'bg-white border-slate-200 shadow-slate-200/50'}`}
           style={{
             left: menuOffset.x,
             top: menuOffset.y,
             cursor: isDragging ? 'grabbing' : 'default',
           }}
         >
-          <div
-            className="p-1.5 cursor-grab active:cursor-grabbing text-zinc-500 hover:text-indigo-500 transition-colors"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-              dragStartPos.current = { x: e.clientX - menuOffset.x, y: e.clientY - menuOffset.y };
-            }}
-          >
-            <GripHorizontal size={16} />
+          {/* Drag Handle */}
+          <div className="flex items-center justify-between mb-3">
+            <div
+              className="p-1 cursor-grab active:cursor-grabbing text-zinc-500 hover:text-indigo-500 transition-colors rounded"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+                dragStartPos.current = { x: e.clientX - menuOffset.x, y: e.clientY - menuOffset.y };
+              }}
+            >
+              <GripHorizontal size={14} />
+            </div>
+            <span className="text-xs font-medium text-zinc-500">Table Tools</span>
           </div>
 
-          <div className="w-px h-4 bg-zinc-500/20 mx-1" />
+          {/* Cell Formatting */}
+          <div className="mb-4">
+            <div className="text-xs text-zinc-500 mb-2 font-medium">Cell Style</div>
+            <div className="flex items-center gap-1">
+              <Palette size={12} className="text-zinc-500 mr-1" />
+              {CELL_COLORS.slice(0, 5).map(c => (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => editor.chain().focus().setCellAttribute('backgroundColor', c.color).run()}
+                  className={`w-4 h-4 rounded border border-black/10 transition-transform hover:scale-125 ${editor.isActive('tableCell', { backgroundColor: c.color }) ? 'ring-2 ring-offset-1 ring-indigo-500' : ''}`}
+                  title={`Cell Color: ${c.name}`}
+                  style={{ backgroundColor: c.color === 'transparent' ? (isDarkMode ? '#27272a' : '#f1f5f9') : c.color }}
+                />
+              ))}
+            </div>
+          </div>
 
-          {/* Cell Color Picker */}
-          <div className="flex items-center gap-1 px-1">
-            <Palette size={14} className="text-zinc-500 mr-1" />
-            {CELL_COLORS.map(c => (
-              <button
-                key={c.name}
-                type="button"
-                onClick={() => editor.chain().focus().setCellAttribute('backgroundColor', c.color).run()}
-                className={`w-5 h-5 rounded border border-black/10 transition-transform hover:scale-125 ${editor.isActive('tableCell', { backgroundColor: c.color }) ? 'ring-2 ring-offset-1 ring-indigo-500' : ''}`}
-                title={`Cell Color: ${c.name}`}
-                style={{ backgroundColor: c.color === 'transparent' ? (isDarkMode ? '#27272a' : '#f1f5f9') : c.color }}
+          {/* Row Operations */}
+          <div className="mb-4">
+            <div className="text-xs text-zinc-500 mb-2 font-medium">Rows</div>
+            <div className="flex gap-1">
+              <ToolbarButton
+                onClick={() => editor.chain().focus().addRowBefore().run()}
+                icon={ArrowUp}
+                title="Insert Row Above"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
               />
-            ))}
+              <ToolbarButton
+                onClick={() => editor.chain().focus().addRowAfter().run()}
+                icon={ArrowDown}
+                title="Insert Row Below"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().deleteRow().run()}
+                icon={Trash2}
+                className="text-rose-500 hover:bg-rose-500/10 text-xs px-2 py-1"
+                title="Delete Row"
+                showTooltip={showTooltips}
+              />
+            </div>
           </div>
 
-          <div className="w-px h-4 bg-zinc-500/20 mx-1" />
+          {/* Column Operations */}
+          <div className="mb-4">
+            <div className="text-xs text-zinc-500 mb-2 font-medium">Columns</div>
+            <div className="flex gap-1">
+              <ToolbarButton
+                onClick={() => editor.chain().focus().addColumnBefore().run()}
+                icon={ArrowLeft}
+                title="Insert Column Left"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().addColumnAfter().run()}
+                icon={ArrowRight}
+                title="Insert Column Right"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().deleteColumn().run()}
+                icon={Trash2}
+                className="text-rose-500 hover:bg-rose-500/10 text-xs px-2 py-1"
+                title="Delete Column"
+                showTooltip={showTooltips}
+              />
+            </div>
+          </div>
 
-          <ToolbarButton
-            onClick={() => editor.chain().focus().addColumnAfter().run()}
-            icon={Plus}
-            title="Add Col After"
-            showTooltip={showTooltips}
-          />
-          <ToolbarButton
-            onClick={() => editor.chain().focus().addRowAfter().run()}
-            icon={Plus}
-            title="Add Row After"
-            showTooltip={showTooltips}
-          />
+          {/* Cell Operations */}
+          <div className="mb-4">
+            <div className="text-xs text-zinc-500 mb-2 font-medium">Cells</div>
+            <div className="flex gap-1 mb-2">
+              <ToolbarButton
+                onClick={() => editor.chain().focus().mergeCells().run()}
+                icon={Combine}
+                title="Merge Cells"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().splitCell().run()}
+                icon={Split}
+                title="Split Cell"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => {
+                  const currentCell = editor.state.selection.$from.node(1);
+                  const currentWidth = currentCell?.attrs?.minWidth || '120px';
+                  const newWidth = currentWidth === '120px' ? '200px' : currentWidth === '200px' ? '280px' : '120px';
+                  editor.chain().focus().setCellAttribute('minWidth', newWidth).run();
+                }}
+                icon={Maximize2}
+                title="Toggle Cell Width"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+            </div>
+            <div className="flex gap-1">
+              <ToolbarButton
+                onClick={() => editor.chain().focus().setCellAttribute('textAlign', 'left').run()}
+                isActive={editor.isActive('tableCell', { textAlign: 'left' })}
+                icon={AlignLeft}
+                title="Align Left"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().setCellAttribute('textAlign', 'center').run()}
+                isActive={editor.isActive('tableCell', { textAlign: 'center' })}
+                icon={AlignCenter}
+                title="Align Center"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().setCellAttribute('textAlign', 'right').run()}
+                isActive={editor.isActive('tableCell', { textAlign: 'right' })}
+                icon={AlignRight}
+                title="Align Right"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1"
+              />
+              <ToolbarButton
+                onClick={() => editor.chain().focus().setCellAttribute('textAlign', null).run()}
+                icon={Type}
+                title="Reset Alignment"
+                showTooltip={showTooltips}
+                className="text-xs px-2 py-1 opacity-60"
+              />
+            </div>
+          </div>
 
-          <div className="w-px h-4 bg-zinc-500/20 mx-1" />
-
-          <ToolbarButton
-            onClick={() => editor.chain().focus().deleteColumn().run()}
-            icon={Trash2}
-            className="text-rose-500 hover:bg-rose-500/10"
-            title="Delete Col"
-            showTooltip={showTooltips}
-          />
-          <ToolbarButton
-            onClick={() => editor.chain().focus().deleteRow().run()}
-            icon={Trash2}
-            className="text-rose-500 hover:bg-rose-500/10"
-            title="Delete Row"
-            showTooltip={showTooltips}
-          />
-
-          <div className="w-px h-4 bg-zinc-500/20 mx-1" />
-
-          <ToolbarButton
-            onClick={() => editor.chain().focus().mergeCells().run()}
-            icon={Combine}
-            title="Merge Cells"
-            showTooltip={showTooltips}
-          />
-          <ToolbarButton
-            onClick={() => editor.chain().focus().splitCell().run()}
-            icon={Split}
-            title="Split Cell"
-            showTooltip={showTooltips}
-          />
-
-          <div className="w-px h-4 bg-zinc-500/20 mx-1" />
-
+          {/* Delete Table */}
           <ToolbarButton
             onClick={() => {
               openConfirm(
@@ -662,7 +763,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
               );
             }}
             icon={Trash2}
-            className="text-white bg-rose-500 hover:bg-rose-600 shadow-sm"
+            className="text-white bg-rose-500 hover:bg-rose-600 shadow-sm w-full justify-center"
             title="Delete Table"
             showTooltip={showTooltips}
           />
@@ -734,37 +835,45 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           table-layout: fixed;
           width: auto;
           min-width: 100%;
-          margin: 48px 0 32px 48px;
+          margin: 32px auto 32px auto;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
           counter-reset: row;
         }
         .ProseMirror table tr {
           counter-increment: row;
           position: relative;
+          transition: background-color 0.15s ease;
+        }
+        .ProseMirror table tr:hover {
+          background-color: ${isDarkMode ? 'rgba(99, 102, 241, 0.03)' : 'rgba(99, 102, 241, 0.02)'};
         }
         /* Row Headers */
         .ProseMirror table tr::before {
           content: counter(row);
           position: absolute;
-          left: -32px;
+          left: -36px;
           top: 0;
           bottom: 0;
           width: 32px;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: ${isDarkMode ? '#18181b' : '#f1f5f9'};
+          background: ${isDarkMode ? '#27272a' : '#f8fafc'};
           border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'};
           border-right: 2px solid ${isDarkMode ? '#52525b' : '#cbd5e1'};
-          font-size: 12px;
+          font-size: 11px;
           color: ${isDarkMode ? '#a1a1aa' : '#64748b'};
           font-weight: 600;
+          border-radius: 4px 0 0 4px;
           z-index: 1;
         }
         /* Column Headers */
         .ProseMirror table tr:first-child {
           counter-reset: col;
         }
-        .ProseMirror table tr:first-child td, 
+        .ProseMirror table tr:first-child td,
         .ProseMirror table tr:first-child th {
           counter-increment: col;
           position: relative;
@@ -773,47 +882,64 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         .ProseMirror table tr:first-child th::after {
           content: counter(col, upper-alpha);
           position: absolute;
-          top: -32px;
+          top: -36px;
           left: 0;
           right: 0;
           height: 32px;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: ${isDarkMode ? '#18181b' : '#f1f5f9'};
+          background: ${isDarkMode ? '#27272a' : '#f8fafc'};
           border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'};
           border-bottom: 2px solid ${isDarkMode ? '#52525b' : '#cbd5e1'};
-          font-size: 12px;
+          font-size: 11px;
           color: ${isDarkMode ? '#a1a1aa' : '#64748b'};
           font-weight: 600;
+          border-radius: 0 4px 0 0;
           z-index: 1;
         }
         /* Top-left corner */
         .ProseMirror table tr:first-child::after {
           content: "";
           position: absolute;
-          top: -32px;
-          left: -32px;
+          top: -36px;
+          left: -36px;
           width: 32px;
           height: 32px;
-          background: ${isDarkMode ? '#18181b' : '#f1f5f9'};
+          background: ${isDarkMode ? '#27272a' : '#f8fafc'};
           border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'};
+          border-radius: 4px 0 0 0;
           z-index: 2;
         }
         .ProseMirror table td, .ProseMirror table th {
-          min-width: 100px;
-          border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'};
-          padding: 12px;
+          min-width: 120px;
+          border: 1px solid ${isDarkMode ? '#374151' : '#e5e7eb'};
+          padding: 16px 12px;
           vertical-align: top;
           box-sizing: border-box;
           position: relative;
-          background: ${isDarkMode ? '#18181b' : '#fff'};
+          background: ${isDarkMode ? '#18181b' : '#ffffff'};
           word-break: break-word;
+          transition: all 0.15s ease;
+        }
+        .ProseMirror table td[data-text-align="left"], .ProseMirror table th[data-text-align="left"] {
+          text-align: left !important;
+        }
+        .ProseMirror table td[data-text-align="center"], .ProseMirror table th[data-text-align="center"] {
+          text-align: center !important;
+        }
+        .ProseMirror table td[data-text-align="right"], .ProseMirror table th[data-text-align="right"] {
+          text-align: right !important;
+        }
+
+        .ProseMirror table td:hover, .ProseMirror table th:hover {
+          background: ${isDarkMode ? 'rgba(99, 102, 241, 0.02)' : 'rgba(99, 102, 241, 0.01)'};
         }
         .ProseMirror table th {
-          font-weight: bold;
+          font-weight: 600;
           text-align: left;
-          background-color: ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.01)'};
+          background: ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'};
+          border-bottom: 2px solid ${isDarkMode ? '#52525b' : '#d1d5db'};
         }
         .ProseMirror table .selectedCell:after {
           z-index: 2;
@@ -826,6 +952,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           pointer-events: none;
           position: absolute;
           border: 2px solid #6366f1;
+          border-radius: 4px;
         }
         .ProseMirror table .column-resize-handle {
           position: absolute;

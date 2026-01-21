@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Save, TrendingUp, TrendingDown, Target, Clock, Hash, Layout } from 'lucide-react';
 import { Trade, AssetType } from '../types';
 import { Select } from './Select';
+import { getSASTDateTime } from '../lib/timeUtils';
 
 interface QuickLogModalProps {
   isOpen: boolean;
@@ -32,12 +33,13 @@ const QuickLogModal: React.FC<QuickLogModalProps> = ({ isOpen, onClose, onSave, 
 
     setIsSaving(true);
     try {
+      const sast = getSASTDateTime();
       const newTrade: any = {
         id: Date.now().toString(),
         pair: formData.pair.toUpperCase(),
         assetType: formData.assetType,
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toTimeString().split(' ')[0].slice(0, 5),
+        date: sast.date,
+        time: sast.time,
         direction: formData.direction,
         entryPrice: parseFloat(formData.entryPrice),
         stopLoss: parseFloat(formData.stopLoss) || 0,

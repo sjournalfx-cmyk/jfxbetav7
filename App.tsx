@@ -24,6 +24,7 @@ import QuickLogModal from './components/QuickLogModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import { APP_CONSTANTS, PLAN_FEATURES } from './lib/constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
+import { getSASTDateTime } from './lib/timeUtils';
 import { authService } from './services/authService';
 import { dataService, mapTradeFromDB } from './services/dataService';
 import { supabase } from './lib/supabase';
@@ -335,19 +336,20 @@ const AppContent: React.FC = () => {
   // --- Trade Handlers ---
   const handleAddTrade = async (trade: Trade) => {
     try {
-      if (editingTrade) {
+      if (editingTrade && editingTrade.id) {
         await dataService.updateTrade(trade);
         setTrades(trades.map(t => t.id === trade.id ? trade : t));
         setEditingTrade(null);
       } else {
         // Enforce Plan Limits
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
+        const sastNow = getSASTDateTime();
+        const [year, month] = sastNow.date.split('-').map(Number);
+        const currentMonth = month - 1; // 0-indexed
+        const currentYear = year;
 
         const tradesThisMonth = trades.filter(t => {
-          const tradeDate = new Date(t.date);
-          return tradeDate.getMonth() === currentMonth && tradeDate.getFullYear() === currentYear;
+          const [tYear, tMonth] = t.date.split('-').map(Number);
+          return (tMonth - 1) === currentMonth && tYear === currentYear;
         }).length;
 
         const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
@@ -724,12 +726,14 @@ const AppContent: React.FC = () => {
     : (isPro ? 0 : (userProfile.initialBalance + totalPnL));
 
   // Calculate Usage Stats
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const sastNow = getSASTDateTime();
+  const [sYear, sMonth] = sastNow.date.split('-').map(Number);
+  const currentMonth = sMonth - 1;
+  const currentYear = sYear;
+  
   const tradesThisMonth = trades.filter(t => {
-    const tradeDate = new Date(t.date);
-    return tradeDate.getMonth() === currentMonth && tradeDate.getFullYear() === currentYear;
+    const [tYear, tMonth] = t.date.split('-').map(Number);
+    return (tMonth - 1) === currentMonth && tYear === currentYear;
   }).length;
   const totalNotes = notes.length;
   const totalImages = trades.reduce((acc, t) => {
@@ -870,6 +874,7 @@ const AppContent: React.FC = () => {
               onUpdateProfile={handleUpdateProfile}
               eaSession={eaSession}
               onTradeAdded={(newTrade) => setTrades(prev => [newTrade, ...prev])}
+              onEditTrade={handleEditTrade}
             />
           )}
           {currentView === 'broker' && userProfile && (

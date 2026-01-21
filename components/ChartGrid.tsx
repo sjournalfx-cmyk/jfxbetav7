@@ -161,7 +161,7 @@ const ChartGrid: React.FC<ChartGridProps> = ({ isDarkMode, isFocusMode = false, 
 
     // Chart Display Options
     const [showLegend, setShowLegend] = useLocalStorage('jfx_chart_show_legend', true);
-    const [showGrid, setShowGrid] = useLocalStorage('jfx_chart_show_grid', true);
+    const [showGrid, setShowGrid] = useLocalStorage('jfx_chart_show_grid', false);
     const [showToolbar, setShowToolbar] = useLocalStorage('jfx_chart_show_toolbar', true);
 
     // Track if charts have been viewed (meaning drawings might exist)
