@@ -91,7 +91,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
 const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade }: any) => {
     const [activeTab, setActiveTab] = useState<'monitor' | 'settings'>('monitor');
     const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-    const [confirmBeforeAdd, setConfirmBeforeAdd] = useLocalStorage('bridge_confirm_add', false);
+    const [autoLog, setAutoLog] = useLocalStorage('bridge_auto_log', false);
     const [now, setNow] = useState(new Date());
     const [savedTrades, setSavedTrades] = useState<Trade[]>([]);
     const [isSavingTrade, setIsSavingTrade] = useState<string | null>(null); // Track specific trade being saved
@@ -135,6 +135,19 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
     const incomingTrades = (liveData?.trades || []).filter((t: any) => t.entry === 1 || t.entry === 2);
     const pendingTrades = incomingTrades.filter((t: any) => !savedTrades.some(st => st.ticketId === String(t.ticket)));
 
+    // Auto-Log Logic
+    useEffect(() => {
+        if (autoLog && pendingTrades.length > 0 && isSavingTrade === null) {
+            const autoSave = async () => {
+                for (const trade of pendingTrades) {
+                    await handleAddTrade(trade);
+                }
+            };
+            autoSave();
+        }
+    }, [pendingTrades, autoLog]);
+
+
     const handleAddTrade = async (mt5Trade: any) => {
         setIsSavingTrade(String(mt5Trade.ticket));
         try {
@@ -172,7 +185,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                 planAdherence: 'No Plan'
             };
 
-            if (confirmBeforeAdd && onEditTrade) {
+            if (!autoLog && onEditTrade) {
                 onEditTrade(newTrade);
                 return;
             }
@@ -194,7 +207,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
             <div className="animate-in fade-in duration-500 max-w-6xl w-full mx-auto p-8">
-                
+
                 {/* Header Section */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div>
@@ -232,7 +245,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
 
                 {activeTab === 'monitor' ? (
                     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
-                        
+
                         {/* Primary Metrics Strip (Immediate Visibility) */}
                         <div className={`p-6 rounded-[32px] border-2 flex flex-wrap items-center justify-between gap-8 ${cardBg}`}>
                             <div className="flex items-center gap-8">
@@ -258,7 +271,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                 </div>
                             </div>
 
-                            <button 
+                            <button
                                 onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
                                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${showTechnicalDetails ? 'bg-zinc-800 text-white' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border border-zinc-500/10'}`}
                             >
@@ -313,11 +326,10 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                                 </span>
                                             </div>
                                             <div className="w-full h-1.5 bg-zinc-500/10 rounded-full overflow-hidden">
-                                                <div 
-                                                    className={`h-full transition-all duration-500 ${
-                                                        liveData?.account?.margin_level > 200 ? 'bg-emerald-500' : 
+                                                <div
+                                                    className={`h-full transition-all duration-500 ${liveData?.account?.margin_level > 200 ? 'bg-emerald-500' :
                                                         liveData?.account?.margin_level > 100 ? 'bg-amber-500' : 'bg-rose-500'
-                                                    }`}
+                                                        }`}
                                                     style={{ width: `${Math.min(100, (liveData?.account?.margin_level || 0) / 5)}%` }} // Visual scaling
                                                 />
                                             </div>
@@ -387,49 +399,49 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                     </div>
 
                                     <div className="space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar pr-1">
-                                         {pendingTrades.length > 0 ? (
-                                             pendingTrades.map((trade: any) => {
-                                                 const pipSize = trade.symbol.includes('JPY') ? 0.01 : 0.0001;
-                                                 const pipMovement = trade.entry_price ? (trade.type === 'BUY' ? trade.price - trade.entry_price : trade.entry_price - trade.price) / pipSize : 0;
-                                                 return (
-                                                     <div key={trade.ticket} className="p-3 rounded-xl border border-dashed border-zinc-500/20 hover:border-indigo-500/50 transition-colors">
-                                                         <div className="flex items-center justify-between mb-2">
-                                                             <div className="flex items-center gap-2">
-                                                                 <span className="font-black text-xs">{trade.symbol}</span>
-                                                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${trade.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                                                                     {trade.type}
-                                                                 </span>
-                                                             </div>
-                                                             <div className={`text-xs font-black font-mono ${trade.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                 {trade.profit >= 0 ? '+' : ''}{trade.profit.toFixed(2)}
-                                                             </div>
-                                                         </div>
-                                                         <div className="flex items-center justify-between mb-1">
-                                                             <div className="text-[10px] opacity-50 font-mono">
-                                                                 #{trade.ticket} • {trade.volume} Lots
-                                                             </div>
-                                                              <div className={`text-[10px] font-mono ${pipMovement >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                  {pipMovement >= 0 ? '+' : ''}{pipMovement.toFixed(2)} pip
-                                                              </div>
-                                                         </div>
-                                                         <div className="flex items-center justify-between">
-                                                             <div></div>
-                                                             {savedTrades.some(st => st.ticketId === String(trade.ticket)) ? (
-                                                                 <CheckCircle2 size={14} className="text-emerald-500" />
-                                                             ) : (
-                                                                 <button
-                                                                     onClick={() => handleAddTrade(trade)}
-                                                                     disabled={isSavingTrade !== null}
-                                                                     className="text-[10px] font-bold text-indigo-500 hover:underline disabled:opacity-50"
-                                                                 >
-                                                                     {isSavingTrade === String(trade.ticket) ? 'Saving...' : 'Add'}
-                                                                 </button>
-                                                             )}
-                                                         </div>
-                                                     </div>
-                                                 );
-                                             })
-                                         ) : (
+                                        {pendingTrades.length > 0 ? (
+                                            pendingTrades.map((trade: any) => {
+                                                const pipSize = trade.symbol.includes('JPY') ? 0.01 : 0.0001;
+                                                const pipMovement = trade.entry_price ? (trade.type === 'BUY' ? trade.price - trade.entry_price : trade.entry_price - trade.price) / pipSize : 0;
+                                                return (
+                                                    <div key={trade.ticket} className="p-3 rounded-xl border border-dashed border-zinc-500/20 hover:border-indigo-500/50 transition-colors">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-black text-xs">{trade.symbol}</span>
+                                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${trade.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                                                                    {trade.type}
+                                                                </span>
+                                                            </div>
+                                                            <div className={`text-xs font-black font-mono ${trade.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                                {trade.profit >= 0 ? '+' : ''}{trade.profit.toFixed(2)}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <div className="text-[10px] opacity-50 font-mono">
+                                                                #{trade.ticket} • {trade.volume} Lots
+                                                            </div>
+                                                            <div className={`text-[10px] font-mono ${pipMovement >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                                {pipMovement >= 0 ? '+' : ''}{pipMovement.toFixed(2)} pip
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <div></div>
+                                                            {savedTrades.some(st => st.ticketId === String(trade.ticket)) ? (
+                                                                <CheckCircle2 size={14} className="text-emerald-500" />
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleAddTrade(trade)}
+                                                                    disabled={isSavingTrade !== null}
+                                                                    className="text-[10px] font-bold text-indigo-500 hover:underline disabled:opacity-50"
+                                                                >
+                                                                    {isSavingTrade === String(trade.ticket) ? 'Saving...' : 'Add'}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        ) : (
                                             <div className="text-center py-8 opacity-40 text-xs font-medium border-2 border-dashed border-zinc-500/10 rounded-xl">
                                                 No new trades detected
                                             </div>
@@ -465,7 +477,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                 ) : (
                     <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
                         {/* Settings Tab Content */}
-                        
+
                         {/* Connection Diagnostic */}
                         <div className={`p-8 rounded-[32px] border-2 ${cardBg} relative overflow-hidden`}>
                             <div className="flex flex-col md:flex-row items-start justify-between relative z-10 gap-8">
@@ -505,21 +517,21 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
 
                         {/* Configuration */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                             {/* Workflow Settings */}
+                            {/* Workflow Settings */}
                             <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                <h3 className="font-bold mb-4 flex items-center gap-2"><Settings size={18} /> Workflow</h3>
+                                <h3 className="font-bold mb-4 flex items-center gap-2"><Zap size={18} className="text-amber-500" /> Automation</h3>
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <div className="font-bold text-sm">Review before saving</div>
+                                        <div className="font-bold text-sm">Auto-Log Trades</div>
                                         <div className="text-[10px] opacity-60 max-w-[200px] leading-tight mt-1">
-                                            Open "Log Trade" for pending trades to add details before saving.
+                                            Automatically add closed trades to your journal without manual confirmation.
                                         </div>
                                     </div>
                                     <button
-                                        onClick={() => setConfirmBeforeAdd(!confirmBeforeAdd)}
-                                        className={`w-12 h-6 rounded-full transition-colors relative ${confirmBeforeAdd ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'}`}
+                                        onClick={() => setAutoLog(!autoLog)}
+                                        className={`w-12 h-6 rounded-full transition-colors relative ${autoLog ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'}`}
                                     >
-                                        <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${confirmBeforeAdd ? 'left-7' : 'left-1'}`} />
+                                        <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${autoLog ? 'left-7' : 'left-1'}`} />
                                     </button>
                                 </div>
                             </div>
@@ -543,7 +555,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2 block">Bridge Command</label>
-                                        <div 
+                                        <div
                                             onClick={() => handleCopy(`python jfx_bridge.py --key ${syncKey} --url ${backendUrl} --apikey ${apiKey}`)}
                                             className="p-3 rounded-xl bg-black/5 dark:bg-white/5 font-mono text-[10px] break-all cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
                                         >
@@ -635,219 +647,249 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                     </div>
                 </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                <div className="lg:col-span-4 space-y-3">
-                    {[
-                        { id: 0, label: 'Install Python', icon: Terminal },
-                        { id: 1, label: 'Get Sync Key', icon: Shield },
-                        { id: 2, label: 'Setup Libraries', icon: Command },
-                        { id: 3, label: 'Download Bridge', icon: Download },
-                        { id: 4, label: 'Run Script', icon: Play },
-                        { id: 5, label: 'Live Connection', icon: Cpu },
-                    ].map((s) => (
-                        <div
-                            key={s.id}
-                            onClick={() => step >= s.id && setStep(s.id)}
-                            className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${step === s.id
-                                ? 'border-[#FF4F01] bg-[#FF4F01]/5 text-[#FF4F01]'
-                                : step > s.id ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-500' : `border-transparent opacity-40 ${subTextColor}`
-                                }`}
-                        >
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${step === s.id ? 'bg-[#FF4F01] text-white' : step > s.id ? 'bg-emerald-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800'
-                                }`}>
-                                {step > s.id ? <Check size={16} /> : <s.icon size={16} />}
-                            </div>
-                            <span className="font-bold text-xs uppercase tracking-widest">{s.label}</span>
-                        </div>
-                    ))}
-                </div>
-
-                <div className="lg:col-span-8">
-                    <div className={`p-10 rounded-[32px] border-2 h-full flex flex-col min-h-[500px] ${cardBg}`}>
-
-                        {step === 0 && (
-                            <div className="animate-in fade-in duration-300">
-                                <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center mb-8">
-                                    <Terminal size={32} />
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                    <div className="lg:col-span-4 space-y-3">
+                        {[
+                            { id: 0, label: 'Install Python', icon: Terminal },
+                            { id: 1, label: 'Get Sync Key', icon: Shield },
+                            { id: 2, label: 'Setup Libraries', icon: Command },
+                            { id: 3, label: 'Download Bridge', icon: Download },
+                            { id: 4, label: 'Run Script', icon: Play },
+                            { id: 5, label: 'Live Connection', icon: Cpu },
+                        ].map((s) => (
+                            <div
+                                key={s.id}
+                                onClick={() => step >= s.id && setStep(s.id)}
+                                className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${step === s.id
+                                    ? 'border-[#FF4F01] bg-[#FF4F01]/5 text-[#FF4F01]'
+                                    : step > s.id ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-500' : `border-transparent opacity-40 ${subTextColor}`
+                                    }`}
+                            >
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${step === s.id ? 'bg-[#FF4F01] text-white' : step > s.id ? 'bg-emerald-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800'
+                                    }`}>
+                                    {step > s.id ? <Check size={16} /> : <s.icon size={16} />}
                                 </div>
-                                <h3 className="text-2xl font-black mb-4">Step 0: Install Python</h3>
-                                <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                    The bridge requires Python to be installed on your computer. If you already have it, you can skip to the next step.
-                                </p>
-                                <div className="space-y-4">
-                                    <a href="https://www.python.org/downloads/windows/" target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all group">
-                                        <div className="flex items-center gap-3">
-                                            <Globe size={20} />
-                                            <span className="font-bold">Download Python for Windows</span>
-                                        </div>
-                                        <ExternalLink size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    </a>
-                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-3">
-                                        <Info className="text-amber-500 shrink-0" size={18} />
-                                        <p className="text-xs text-amber-500/80 font-medium">
-                                            IMPORTANT: During installation, check the box that says <b>"Add Python to PATH"</b> or the bridge won't run.
-                                        </p>
+                                <span className="font-bold text-xs uppercase tracking-widest">{s.label}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="lg:col-span-8">
+                        <div className={`p-10 rounded-[32px] border-2 h-full flex flex-col min-h-[500px] ${cardBg}`}>
+
+                            {step === 0 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center mb-8">
+                                        <Terminal size={32} />
                                     </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 1 && (
-                            <div className="animate-in fade-in duration-300">
-                                <div className="w-16 h-16 rounded-2xl bg-[#FF4F01]/10 text-[#FF4F01] flex items-center justify-center mb-8">
-                                    <Shield size={32} />
-                                </div>
-                                <h3 className="text-2xl font-black mb-4">Your Secure Sync Key</h3>
-                                <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                    This unique key identifies your account and allows the Python script to securely transmit your trading data.
-                                </p>
-                                <div className={`p-6 rounded-2xl border-2 border-dashed mb-8 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-200'}`}>
-                                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 block">Your Unique Sync Key</label>
-                                    <div className="flex items-center gap-4 relative">
-                                        <div className="flex-1 font-mono text-2xl font-black tracking-wider text-[#FF4F01]">
-                                            {syncKey}
-                                        </div>
-                                        <button
-                                            onClick={() => handleCopy(syncKey)}
-                                            className={`p-3 rounded-xl transition-all ${copied ? 'bg-emerald-500 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:scale-105'}`}
-                                        >
-                                            {copied ? <Check size={20} /> : <Copy size={20} />}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 2 && (
-                            <div className="animate-in fade-in duration-300">
-                                <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-8">
-                                    <Command size={32} />
-                                </div>
-                                <h3 className="text-2xl font-black mb-4">Install Requirements</h3>
-                                <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                    Open your terminal or command prompt and run this command to install the bridge dependencies.
-                                </p>
-                                <div className={`p-4 rounded-xl border font-mono text-sm mb-6 flex items-center justify-between group ${codeBg}`}>
-                                    <code className="text-[#FF4F01]">python -m pip install MetaTrader5 requests</code>
-                                    <button
-                                        onClick={() => handleCopy('python -m pip install MetaTrader5 requests')}
-                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500'}`}
-                                    >
-                                        {copied ? <Check size={14} /> : <Copy size={14} />}
-                                        <span className="text-[10px] font-bold uppercase">Copy</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 3 && (
-                            <div className="animate-in fade-in duration-300">
-                                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-8">
-                                    <Download size={32} />
-                                </div>
-                                <h3 className="text-2xl font-black mb-4">Download the Bridge</h3>
-                                <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                    Save the bridge script to your computer. You can place it anywhere (e.g., your Desktop or Documents).
-                                </p>
-                                <a
-                                    href="/jfx_bridge.py"
-                                    download="jfx_bridge.py"
-                                    className="flex items-center justify-center gap-3 w-full py-5 bg-[#FF4F01] text-white rounded-xl font-bold hover:bg-[#e64601] transition-all shadow-lg shadow-orange-500/20 hover:scale-[1.02]"
-                                >
-                                    <Code size={20} /> Download jfx_bridge.py
-                                </a>
-                            </div>
-                        )}
-
-                        {step === 4 && (
-                            <div className="animate-in fade-in duration-300">
-                                <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-8">
-                                    <Play size={32} />
-                                </div>
-                                <h3 className="text-2xl font-black mb-4">Run the Bridge</h3>
-                                <p className={`mb-6 leading-relaxed ${subTextColor}`}>
-                                    Open your terminal <b>in the folder where you saved the file</b> and run the command below.
-                                </p>
-                                <div className={`p-4 rounded-xl border font-mono text-xs break-all leading-loose mb-6 relative group ${codeBg}`}>
-                                    <div className="text-zinc-400 select-none mb-2"># Command</div>
-                                    <div className="pr-24">
-                                        <span className="text-[#FF4F01]">python jfx_bridge.py</span> --key <span className="text-emerald-500">{syncKey}</span> --url <span className="text-blue-500">{backendUrl}</span> --apikey <span className="text-purple-500">{apiKey}</span>
-                                    </div>
-                                    <button
-                                        onClick={() => handleCopy(`python jfx_bridge.py --key ${syncKey} --url ${backendUrl} --apikey ${apiKey}`)}
-                                        className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300'}`}
-                                    >
-                                        {copied ? <Check size={14} /> : <Copy size={14} />}
-                                        <span className="text-[10px] font-bold uppercase">Copy Command</span>
-                                    </button>
-                                </div>
-                                <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-4 items-start">
-                                    <AlertCircle className="text-amber-500 shrink-0" size={20} />
-                                    <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
-                                        Make sure your MT5 terminal is open and logged in before running this command. <b>Keep the terminal window open</b> while trading.
+                                    <h3 className="text-2xl font-black mb-4">Step 0: Install Python</h3>
+                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
+                                        The bridge requires Python to be installed on your computer. If you already have it, you can skip to the next step.
                                     </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {step === 5 && (
-                            <div className="animate-in fade-in duration-300 flex flex-col items-center justify-center text-center py-10">
-                                {connectionStatus === 'waiting' ? (
-                                    <>
-                                        <div className="relative mb-12">
-                                            <div className="w-24 h-24 rounded-full border-4 border-[#FF4F01]/20 border-t-[#FF4F01] animate-spin" />
-                                            <div className="absolute inset-0 flex items-center justify-center text-[#FF4F01]">
-                                                <Cpu size={32} />
+                                    <div className="space-y-4">
+                                        <a href="https://www.python.org/downloads/windows/" target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all group">
+                                            <div className="flex items-center gap-3">
+                                                <Globe size={20} />
+                                                <span className="font-bold">Download Python for Windows</span>
                                             </div>
+                                            <ExternalLink size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </a>
+                                        <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-3">
+                                            <Info className="text-amber-500 shrink-0" size={18} />
+                                            <p className="text-xs text-amber-500/80 font-medium">
+                                                IMPORTANT: During installation, check the box that says <b>"Add Python to PATH"</b> or the bridge won't run.
+                                            </p>
                                         </div>
-                                        <h3 className="text-2xl font-black mb-4">Waiting for Heartbeat...</h3>
-                                        <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
-                                            Run the script in Step 4. This screen will update automatically once the bridge connects.
-                                        </p>
-                                    </>
-                                ) : (
-                                    <div className="animate-in zoom-in duration-500">
-                                        <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mb-8 mx-auto shadow-2xl shadow-emerald-500/20">
-                                            <Check size={48} strokeWidth={3} />
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 1 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-[#FF4F01]/10 text-[#FF4F01] flex items-center justify-center mb-8">
+                                        <Shield size={32} />
+                                    </div>
+                                    <h3 className="text-2xl font-black mb-4">Your Secure Sync Key</h3>
+                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
+                                        This unique key identifies your account and allows the Python script to securely transmit your trading data.
+                                    </p>
+                                    <div className={`p-6 rounded-2xl border-2 border-dashed mb-8 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-200'}`}>
+                                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 block">Your Unique Sync Key</label>
+                                        <div className="flex items-center gap-4 relative">
+                                            <div className="flex-1 font-mono text-2xl font-black tracking-wider text-[#FF4F01]">
+                                                {syncKey}
+                                            </div>
+                                            <button
+                                                onClick={() => handleCopy(syncKey)}
+                                                className={`p-3 rounded-xl transition-all ${copied ? 'bg-emerald-500 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:scale-105'}`}
+                                            >
+                                                {copied ? <Check size={20} /> : <Copy size={20} />}
+                                            </button>
                                         </div>
-                                        <h3 className="text-3xl font-black mb-4">Bridge Connected!</h3>
-                                        <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
-                                            Connection established. Your terminal data is now streaming to JournalFX.
-                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 2 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-8">
+                                        <Command size={32} />
+                                    </div>
+                                    <h3 className="text-2xl font-black mb-4">Install Requirements</h3>
+                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
+                                        Open your terminal or command prompt and run this command to install the bridge dependencies.
+                                    </p>
+                                    <div className={`p-4 rounded-xl border font-mono text-sm mb-6 flex items-center justify-between group ${codeBg}`}>
+                                        <code className="text-[#FF4F01]">python -m pip install MetaTrader5 requests</code>
                                         <button
-                                            onClick={() => onComplete(syncKey)}
-                                            className="px-12 py-5 bg-emerald-500 text-white rounded-2xl font-black text-lg shadow-2xl shadow-emerald-500/30 hover:scale-105 transition-all"
+                                            onClick={() => handleCopy('python -m pip install MetaTrader5 requests')}
+                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500'}`}
                                         >
-                                            Go to Live Monitor
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                            <span className="text-[10px] font-bold uppercase">Copy</span>
                                         </button>
                                     </div>
+                                </div>
+                            )}
+
+                            {step === 3 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-8">
+                                        <Download size={32} />
+                                    </div>
+                                    <h3 className="text-2xl font-black mb-4">Download the Bridge</h3>
+                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
+                                        Download the <b>Standalone App</b> for the easiest experience - no Python required! Just download, run, and connect.
+                                    </p>
+                                    {/* Primary: Standalone EXE */}
+                                    <a
+                                        href="/JournalFX_Bridge.exe"
+                                        download="JournalFX_Bridge.exe"
+                                        className="flex items-center justify-center gap-4 p-6 bg-[#FF4F01] text-white rounded-xl font-bold hover:bg-[#e64601] transition-all shadow-lg shadow-orange-500/20 hover:scale-[1.02] mb-6"
+                                    >
+                                        <LayoutDashboard size={28} />
+                                        <div className="text-left">
+                                            <div className="text-lg">Download Standalone App</div>
+                                            <div className="text-xs opacity-70 font-normal">Windows • No Python Required • Recommended</div>
+                                        </div>
+                                    </a>
+
+                                    {/* Secondary: Python Scripts */}
+                                    <div className="pt-4 border-t border-zinc-500/10">
+                                        <div className={`text-[10px] font-bold uppercase tracking-widest mb-4 ${subTextColor}`}>
+                                            For Developers (Python Required)
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <a
+                                                href="/jfx_bridge_gui.py"
+                                                download="jfx_bridge_gui.py"
+                                                className="flex items-center justify-center gap-2 p-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
+                                            >
+                                                <Code size={16} />
+                                                <span>GUI Script (.py)</span>
+                                            </a>
+                                            <a
+                                                href="/jfx_bridge.py"
+                                                download="jfx_bridge.py"
+                                                className="flex items-center justify-center gap-2 p-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
+                                            >
+                                                <Terminal size={16} />
+                                                <span>CLI Script (.py)</span>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 4 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-8">
+                                        <Play size={32} />
+                                    </div>
+                                    <h3 className="text-2xl font-black mb-4">Run the Bridge</h3>
+                                    <p className={`mb-6 leading-relaxed ${subTextColor}`}>
+                                        Open your terminal <b>in the folder where you saved the file</b> and run the command below.
+                                    </p>
+                                    <div className={`p-4 rounded-xl border font-mono text-xs break-all leading-loose mb-6 relative group ${codeBg}`}>
+                                        <div className="text-zinc-400 select-none mb-2"># Command</div>
+                                        <div className="pr-24">
+                                            <span className="text-[#FF4F01]">python jfx_bridge.py</span> --key <span className="text-emerald-500">{syncKey}</span> --url <span className="text-blue-500">{backendUrl}</span> --apikey <span className="text-purple-500">{apiKey}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleCopy(`python jfx_bridge.py --key ${syncKey} --url ${backendUrl} --apikey ${apiKey}`)}
+                                            className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300'}`}
+                                        >
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                            <span className="text-[10px] font-bold uppercase">Copy Command</span>
+                                        </button>
+                                    </div>
+                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-4 items-start">
+                                        <AlertCircle className="text-amber-500 shrink-0" size={20} />
+                                        <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
+                                            Make sure your MT5 terminal is open and logged in before running this command. <b>Keep the terminal window open</b> while trading.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 5 && (
+                                <div className="animate-in fade-in duration-300 flex flex-col items-center justify-center text-center py-10">
+                                    {connectionStatus === 'waiting' ? (
+                                        <>
+                                            <div className="relative mb-12">
+                                                <div className="w-24 h-24 rounded-full border-4 border-[#FF4F01]/20 border-t-[#FF4F01] animate-spin" />
+                                                <div className="absolute inset-0 flex items-center justify-center text-[#FF4F01]">
+                                                    <Cpu size={32} />
+                                                </div>
+                                            </div>
+                                            <h3 className="text-2xl font-black mb-4">Waiting for Heartbeat...</h3>
+                                            <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
+                                                Run the script in Step 4. This screen will update automatically once the bridge connects.
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <div className="animate-in zoom-in duration-500">
+                                            <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mb-8 mx-auto shadow-2xl shadow-emerald-500/20">
+                                                <Check size={48} strokeWidth={3} />
+                                            </div>
+                                            <h3 className="text-3xl font-black mb-4">Bridge Connected!</h3>
+                                            <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
+                                                Connection established. Your terminal data is now streaming to JournalFX.
+                                            </p>
+                                            <button
+                                                onClick={() => onComplete(syncKey)}
+                                                className="px-12 py-5 bg-emerald-500 text-white rounded-2xl font-black text-lg shadow-2xl shadow-emerald-500/30 hover:scale-105 transition-all"
+                                            >
+                                                Go to Live Monitor
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="mt-auto pt-10 flex items-center justify-between">
+                                {step < 5 && (
+                                    <>
+                                        <button
+                                            onClick={() => setStep(s => Math.max(0, s - 1))}
+                                            disabled={step === 0}
+                                            className={`text-sm font-bold uppercase tracking-widest ${step === 0 ? 'opacity-0' : 'opacity-40 hover:opacity-100'}`}
+                                        >
+                                            Previous Step
+                                        </button>
+                                        <button
+                                            onClick={() => setStep(s => Math.min(5, s + 1))}
+                                            className="flex items-center gap-3 px-8 py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-xl font-black text-sm hover:translate-x-1 transition-all"
+                                        >
+                                            Next Step <ArrowRight size={18} />
+                                        </button>
+                                    </>
                                 )}
                             </div>
-                        )}
-
-                        <div className="mt-auto pt-10 flex items-center justify-between">
-                            {step < 5 && (
-                                <>
-                                    <button
-                                        onClick={() => setStep(s => Math.max(0, s - 1))}
-                                        disabled={step === 0}
-                                        className={`text-sm font-bold uppercase tracking-widest ${step === 0 ? 'opacity-0' : 'opacity-40 hover:opacity-100'}`}
-                                    >
-                                        Previous Step
-                                    </button>
-                                    <button
-                                        onClick={() => setStep(s => Math.min(5, s + 1))}
-                                        className="flex items-center gap-3 px-8 py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-xl font-black text-sm hover:translate-x-1 transition-all"
-                                    >
-                                        Next Step <ArrowRight size={18} />
-                                    </button>
-                                </>
-                            )}
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
         </div>
     );
 };
