@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     Download, Copy, Check, Info, AlertCircle,
     Terminal, Shield, Cpu, ArrowRight, Loader2,
-    Play, Command, Code, Zap, Globe,
+    Play, Command, Code, Zap, Globe, Link,
     Power, ExternalLink, Activity, Clock, PlusCircle, CheckCircle2,
     Settings, LayoutDashboard, ChevronDown
 } from 'lucide-react';
@@ -102,11 +102,11 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
 
     // Derive unique setups for the selector
     const recentSetups = useMemo(() => {
-        const setups: { id: string, name: string, pair: string }[] = [];
+        const setups: { id: string, pair: string }[] = [];
         const seenIds = new Set();
         [...trades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).forEach(t => {
             if (t.setupId && !seenIds.has(t.setupId)) {
-                setups.push({ id: t.setupId, name: t.setupName || 'Unnamed', pair: t.pair });
+                setups.push({ id: t.setupId, pair: t.pair });
                 seenIds.add(t.setupId);
             }
         });
@@ -209,8 +209,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                 tags: ['MT5_Sync'],
                 notes: `Synced from MT5. Deal #${mt5Trade.ticket} | Order #${mt5Trade.order}`,
                 planAdherence: 'No Plan',
-                setupId: activeSetup?.id,
-                setupName: activeSetup?.name
+                setupId: activeSetup?.id
             };
 
             if (!autoLog && onEditTrade) {
@@ -297,23 +296,23 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                                 setActiveSetup(null);
                                             } else {
                                                 const s = recentSetups.find(rs => rs.id === id);
-                                                if (s) setActiveSetup({ id: s.id, name: s.name });
+                                                if (s) setActiveSetup({ id: s.id });
                                             }
                                         }}
                                     >
                                         <option value="">No Active Setup (Standalone Mode)</option>
                                         {recentSetups.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name} ({s.pair})</option>
+                                            <option key={s.id} value={s.id}>Setup Cluster ({s.pair})</option>
                                         ))}
                                     </select>
                                 </div>
                                 {activeSetup && (
                                     <button 
                                         onClick={() => setActiveSetup(null)}
-                                        className="p-3 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
-                                        title="Clear Linker"
+                                        className="px-4 py-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                                        title="Unlink Setup"
                                     >
-                                        <X size={18} />
+                                        <X size={14} /> Unlink Setup
                                     </button>
                                 )}
                             </div>

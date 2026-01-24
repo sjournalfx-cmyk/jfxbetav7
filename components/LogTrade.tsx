@@ -222,7 +222,6 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
         mindset: initialTrade?.mindset || 'Neutral',
         tags: initialTrade?.tags?.join(', ') || '',
         setupId: initialTrade?.setupId || '',
-        setupName: initialTrade?.setupName || '',
     });
 
     const [metrics, setMetrics] = useState({ risk: 0, reward: 0, rr: 0 });
@@ -282,21 +281,15 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
 
     // Derive unique setups from trades for linking
     const recentSetups = useMemo(() => {
-        const setups: { id: string, name: string, pair: string, date: string }[] = [];
+        const setups: { id: string, pair: string }[] = [];
         const seenIds = new Set();
-
         [...trades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).forEach(t => {
             if (t.setupId && !seenIds.has(t.setupId)) {
-                setups.push({
-                    id: t.setupId,
-                    name: t.setupName || 'Unnamed Setup',
-                    pair: t.pair,
-                    date: t.date
-                });
+                setups.push({ id: t.setupId, pair: t.pair });
                 seenIds.add(t.setupId);
             }
         });
-        return setups.slice(0, 10); // Show last 10 unique setups
+        return setups.slice(0, 8);
     }, [trades]);
 
     useEffect(() => {
@@ -573,7 +566,6 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                 openTime: initialTrade?.openTime || `${formData.date}T${formData.time}:00`,
                 closeTime: initialTrade?.closeTime || (formData.result !== 'Pending' ? `${formData.date}T${formData.time}:00` : undefined),
                 setupId: formData.setupId,
-                setupName: formData.setupName,
             };
 
             await onSave(newTrade);
@@ -802,23 +794,21 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                                                 <button 
                                                     onClick={() => {
                                                         handleInputChange('setupId', '');
-                                                        handleInputChange('setupName', '');
                                                     }}
                                                     className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${!formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                                                 >
-                                                    New Setup
+                                                    Standalone
                                                 </button>
                                                 {recentSetups.length > 0 && (
                                                     <button 
                                                         onClick={() => {
                                                             if (recentSetups.length > 0) {
                                                                 handleInputChange('setupId', recentSetups[0].id);
-                                                                handleInputChange('setupName', recentSetups[0].name);
                                                             }
                                                         }}
                                                         className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
                                                     >
-                                                        Link Existing
+                                                        Link to Setup
                                                     </button>
                                                 )}
                                             </div>
@@ -826,14 +816,14 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
 
                                         {formData.setupId ? (
                                             <div className="space-y-4 animate-in slide-in-from-top-2">
-                                                <Label>Select Previous Setup</Label>
+                                                <Label>Select Existing Setup</Label>
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    {recentSetups.map((s) => (
+                                                    {recentSetups.map(s => (
                                                         <button
                                                             key={s.id}
+                                                            type="button"
                                                             onClick={() => {
                                                                 handleInputChange('setupId', s.id);
-                                                                handleInputChange('setupName', s.name);
                                                                 handleInputChange('pair', s.pair); // Auto-sync pair
                                                             }}
                                                             className={`p-3 rounded-xl border-2 text-left transition-all ${formData.setupId === s.id 
@@ -841,38 +831,29 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                                                                 : 'border-transparent bg-white/50 dark:bg-black/20 hover:border-zinc-300 dark:hover:border-zinc-700'
                                                             }`}
                                                         >
-                                                            <div className="font-black text-xs truncate">{s.name}</div>
+                                                            <div className="font-black text-xs truncate">Setup Cluster</div>
                                                             <div className="flex items-center justify-between mt-1">
                                                                 <span className="text-[9px] font-bold opacity-50">{s.pair}</span>
-                                                                <span className="text-[9px] font-bold opacity-50">{s.date}</span>
                                                             </div>
                                                         </button>
                                                     ))}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            handleInputChange('setupId', `setup-${Date.now()}`);
+                                                        }}
+                                                        className={`p-3 rounded-xl border-2 border-dashed text-center transition-all ${!recentSetups.some(rs => rs.id === formData.setupId) && formData.setupId
+                                                            ? 'border-violet-500 bg-violet-500/10' 
+                                                            : 'border-zinc-300 dark:border-zinc-700 hover:border-violet-500'
+                                                        }`}
+                                                    >
+                                                        <div className="font-black text-xs uppercase tracking-widest text-violet-500">+ New Cluster</div>
+                                                    </button>
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="space-y-4 animate-in slide-in-from-top-2">
-                                                <div>
-                                                    <Label>Setup Name (Optional)</Label>
-                                                    <InputWrapper>
-                                                        <StyledInput
-                                                            isDarkMode={isDarkMode}
-                                                            icon={Type}
-                                                            placeholder="e.g. Morning Scalp, H4 Breakout..."
-                                                            value={formData.setupName}
-                                                            onChange={(e: any) => {
-                                                                const name = e.target.value;
-                                                                handleInputChange('setupName', name);
-                                                                // If they typed a name but no ID, generate a temporary one
-                                                                if (name.trim() && !formData.setupId) {
-                                                                    handleInputChange('setupId', `setup-${Date.now()}`);
-                                                                } else if (!name.trim()) {
-                                                                    handleInputChange('setupId', '');
-                                                                }
-                                                            }}
-                                                        />
-                                                    </InputWrapper>
-                                                </div>
+                                            <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5 border border-dashed border-zinc-500/20 text-center">
+                                                <p className="text-[10px] font-bold opacity-40">This trade will be logged as a standalone entry.</p>
                                             </div>
                                         )}
                                     </div>

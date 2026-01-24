@@ -54,7 +54,6 @@ export interface Trade {
   beforeScreenshot?: string;
   afterScreenshot?: string;
   setupId?: string;
-  setupName?: string;
 }
 
 export interface Note {

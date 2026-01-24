@@ -5,7 +5,7 @@ import {
     TrendingUp, PieChart, Info, ArrowUpRight, ArrowDownRight, Activity,
     Target, BarChart3, Award, AlertOctagon,
     ArrowLeftRight, GitCompare, MoreVertical, Star, Coins,
-    LayoutDashboard, LineChart, ShieldAlert, X, HelpCircle, GripVertical,
+    LayoutDashboard, LineChart, ShieldAlert, X, HelpCircle, GripVertical, Link,
     ArrowRightLeft, Crown, Flame, Snowflake, Lock, Sparkles, Printer, Clock
 } from 'lucide-react';
 import { TimeAnalysis } from './analytics/TimeAnalysis';
@@ -45,10 +45,20 @@ interface AnalyticsProps {
 
 
 const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { trades: Trade[], isDarkMode: boolean, currencySymbol: string }) => {
+    const [compareMode, setCompareMode] = useState<'symbol' | 'strategy'>('symbol');
+
     const symbols = useMemo(() => {
         const uniqueSymbols = Array.from(new Set(trades.map(t => t.pair.toUpperCase()))).sort();
         return uniqueSymbols.map(s => ({ value: s, label: s }));
     }, [trades]);
+
+    const strategies = useMemo(() => {
+        const allTags = trades.flatMap(t => t.tags || []);
+        const uniqueTags = Array.from(new Set(allTags)).sort();
+        return uniqueTags.map(s => ({ value: s, label: s }));
+    }, [trades]);
+
+    const currentOptions = compareMode === 'symbol' ? symbols : strategies;
 
     const dateRanges = [
         { value: 'all', label: 'All Time' },
@@ -61,6 +71,12 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
     const [symbolB, setSymbolB] = useState(symbols[1]?.value || '');
     const [rangeA, setRangeA] = useState('all');
     const [rangeB, setRangeB] = useState('all');
+
+    // Update selections when mode changes
+    useEffect(() => {
+        setSymbolA(currentOptions[0]?.value || '');
+        setSymbolB(currentOptions[1]?.value || '');
+    }, [compareMode]);
 
     const filterByRange = (tradeList: Trade[], range: string) => {
         const sastNow = getSASTDateTime();
@@ -117,14 +133,22 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
     };
 
     const tradesA = useMemo(() => {
-        const filtered = trades.filter(t => t.pair.toUpperCase() === symbolA);
+        const filtered = trades.filter(t => 
+            compareMode === 'symbol' 
+                ? t.pair.toUpperCase() === symbolA 
+                : (t.tags || []).includes(symbolA)
+        );
         return filterByRange(filtered, rangeA);
-    }, [trades, symbolA, rangeA]);
+    }, [trades, symbolA, rangeA, compareMode]);
 
     const tradesB = useMemo(() => {
-        const filtered = trades.filter(t => t.pair.toUpperCase() === symbolB);
+        const filtered = trades.filter(t => 
+            compareMode === 'symbol' 
+                ? t.pair.toUpperCase() === symbolB 
+                : (t.tags || []).includes(symbolB)
+        );
         return filterByRange(filtered, rangeB);
-    }, [trades, symbolB, rangeB]);
+    }, [trades, symbolB, rangeB, compareMode]);
 
     const prevTradesA = useMemo(() => {
         const filtered = trades.filter(t => t.pair.toUpperCase() === symbolA);
@@ -146,7 +170,7 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
         const winRate = (wins.length / total) * 100;
         const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 9.9 : 0);
 
-        return { netProfit, winRate, profitFactor, total: tradesList.length };
+        return { netProfit, winRate, profitFactor: profitFactor.toFixed(1), total: tradesList.length };
     };
 
     const statsA = getStats(tradesA);
@@ -197,15 +221,35 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-20">
+            {/* Comparison Mode Switcher */}
+            <div className={`p-1.5 rounded-2xl border flex items-center w-fit gap-1 mx-auto ${isDarkMode ? 'bg-[#111] border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
+                <button
+                    onClick={() => setCompareMode('symbol')}
+                    className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${compareMode === 'symbol' 
+                        ? (isDarkMode ? 'bg-zinc-800 text-white shadow-lg' : 'bg-white text-black shadow-sm') 
+                        : 'text-zinc-500 hover:text-zinc-700'}`}
+                >
+                    Symbol Comparison
+                </button>
+                <button
+                    onClick={() => setCompareMode('strategy')}
+                    className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${compareMode === 'strategy' 
+                        ? (isDarkMode ? 'bg-zinc-800 text-white shadow-lg' : 'bg-white text-black shadow-sm') 
+                        : 'text-zinc-500 hover:text-zinc-700'}`}
+                >
+                    Strategy Comparison
+                </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="grid grid-cols-2 gap-4">
                     <Select
-                        label="Symbol A"
+                        label={compareMode === 'symbol' ? "Symbol A" : "Strategy A"}
                         value={symbolA}
                         onChange={setSymbolA}
-                        options={symbols}
+                        options={currentOptions}
                         isDarkMode={isDarkMode}
-                        icon={Coins}
+                        icon={compareMode === 'symbol' ? Coins : Target}
                     />
                     <Select
                         label="Period A"
@@ -217,12 +261,12 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <Select
-                        label="Symbol B"
+                        label={compareMode === 'symbol' ? "Symbol B" : "Strategy B"}
                         value={symbolB}
                         onChange={setSymbolB}
-                        options={symbols}
+                        options={currentOptions}
                         isDarkMode={isDarkMode}
-                        icon={Coins}
+                        icon={compareMode === 'symbol' ? Coins : Target}
                     />
                     <Select
                         label="Period B"
@@ -268,9 +312,11 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
                     <div key={idx} className={`p-8 rounded-[32px] border relative ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
                         <div className="flex items-center justify-between mb-8">
                             <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-xl ${panel.bg} ${panel.color}`}><BarChart3 size={20} /></div>
+                                <div className={`p-2 rounded-xl ${panel.bg} ${panel.color}`}>
+                                    {compareMode === 'symbol' ? <BarChart3 size={20} /> : <Target size={20} />}
+                                </div>
                                 <div>
-                                    <h3 className="text-xl font-bold">{panel.label || 'Select Symbol'}</h3>
+                                    <h3 className="text-xl font-bold">{panel.label || (compareMode === 'symbol' ? 'Select Symbol' : 'Select Strategy')}</h3>
                                     <p className="text-[10px] uppercase font-bold tracking-widest opacity-40">{dateRanges.find(r => r.value === panel.range)?.label}</p>
                                 </div>
                             </div>
@@ -322,14 +368,14 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
             <div className={`p-8 rounded-[32px] border ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
                 <div className="flex items-center justify-between mb-8">
                     <h3 className="text-xl font-bold tracking-tight">Comparative Equity Curve</h3>
-                    <div className="flex gap-4">
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{symbolA}</span>
+                    <div className="flex gap-3">
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 shadow-sm shadow-indigo-500/5">
+                            <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{symbolA || '---'}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-amber-500" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{symbolB}</span>
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 shadow-sm shadow-amber-500/5">
+                            <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">{symbolB || '---'}</span>
                         </div>
                     </div>
                 </div>
@@ -1199,17 +1245,52 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
     const stats = useMemo(() => {
         const sortedTrades = [...trades].sort((a, b) => new Date(`${a.date}T${a.time || '00:00'}`).getTime() - new Date(`${b.date}T${b.time || '00:00'}`).getTime());
 
+        // Group trades by setupId if they are consecutive and have the same result
+        const groupedRecent: { id: string, result: string, pair: string, isGrouped: boolean }[] = [];
+        let j = 0;
+        while (j < sortedTrades.length) {
+            const current = sortedTrades[j];
+            const setupId = current.setupId;
+            const result = current.result;
+
+            if (setupId) {
+                // Find consecutive trades with same setupId and same result
+                let count = 1;
+                while (j + count < sortedTrades.length && 
+                       sortedTrades[j + count].setupId === setupId && 
+                       sortedTrades[j + count].result === result) {
+                    count++;
+                }
+                
+                groupedRecent.push({
+                    id: `${setupId}-${j}`, // Unique key even for same setup if traded later
+                    result,
+                    pair: current.pair,
+                    isGrouped: count > 1
+                });
+                j += count;
+            } else {
+                groupedRecent.push({
+                    id: current.id,
+                    result,
+                    pair: current.pair,
+                    isGrouped: false
+                });
+                j++;
+            }
+        }
+
         let longestWin = 0;
         let longestLoss = 0;
         let tempWin = 0;
         let tempLoss = 0;
 
-        sortedTrades.forEach(t => {
-            if (t.result === 'Win') {
+        groupedRecent.forEach(item => {
+            if (item.result === 'Win') {
                 tempWin++;
                 tempLoss = 0;
                 if (tempWin > longestWin) longestWin = tempWin;
-            } else if (t.result === 'Loss') {
+            } else if (item.result === 'Loss') {
                 tempLoss++;
                 tempWin = 0;
                 if (tempLoss > longestLoss) longestLoss = tempLoss;
@@ -1219,15 +1300,15 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
             }
         });
 
-        // Current streak
+        // Current streak (based on groups)
         let currentStreakValue = 0;
-        let currentStreakType: 'Win' | 'Loss' | 'BE' | 'Pending' | null = null;
+        let currentStreakType: any = null;
 
-        const lastTrades = [...sortedTrades].reverse();
-        if (lastTrades.length > 0) {
-            currentStreakType = lastTrades[0].result;
-            for (const t of lastTrades) {
-                if (t.result === currentStreakType) {
+        const lastGroups = [...groupedRecent].reverse();
+        if (lastGroups.length > 0) {
+            currentStreakType = lastGroups[0].result;
+            for (const item of lastGroups) {
+                if (item.result === currentStreakType) {
                     currentStreakValue++;
                 } else {
                     break;
@@ -1236,9 +1317,8 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
         }
 
         // Recovery message logic
-        const wasLossStreak = lastTrades.length > 1 && lastTrades[1].result === 'Loss';
-        const isRecovery = lastTrades.length > 0 && lastTrades[0].result === 'Win' && wasLossStreak;
-        const recoveredAmount = isRecovery ? lastTrades[0].pnl : 0;
+        const wasLossStreak = lastGroups.length > 1 && lastGroups[1].result === 'Loss';
+        const isRecovery = lastGroups.length > 0 && lastGroups[0].result === 'Win' && wasLossStreak;
 
         // Weekly Progress Logic
         const now = new Date();
@@ -1251,7 +1331,7 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
         const weeklyProgress = Math.min(100, (tradesThisWeek / weeklyGoal) * 100);
 
         // Increase capacity to 60 for denser grid
-        return { longestWin, longestLoss, currentStreakType, currentStreakValue, isRecovery, tradesThisWeek, weeklyGoal, weeklyProgress, recent: sortedTrades.slice(-60) };
+        return { longestWin, longestLoss, currentStreakType, currentStreakValue, isRecovery, tradesThisWeek, weeklyGoal, weeklyProgress, recent: groupedRecent.slice(-60) };
     }, [trades]);
 
     return (
@@ -1283,16 +1363,17 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
             <div className="flex-1 flex flex-col items-center justify-center">
                 {/* Denser Grid: 15 cols mobile, 20 sm, 30 md */}
                 <div className="grid grid-cols-15 sm:grid-cols-20 md:grid-cols-30 gap-1 w-full">
-                    {stats.recent.map((t, i) => (
+                    {stats.recent.map((item, i) => (
                         <div
-                            key={t.id}
-                            className={`w-full aspect-square rounded-[2px] transition-all duration-500 group relative ${t.result === 'Win' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.1)]' :
-                                t.result === 'Loss' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.1)]' :
-                                    t.result === 'BE' ? 'bg-zinc-500 opacity-40' : 'bg-indigo-500 opacity-20'
+                            key={item.id}
+                            className={`w-full aspect-square rounded-[2px] transition-all duration-500 group relative flex items-center justify-center ${item.result === 'Win' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.1)]' :
+                                item.result === 'Loss' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.1)]' :
+                                    item.result === 'BE' ? 'bg-zinc-500 opacity-40' : 'bg-indigo-500 opacity-20'
                                 } ${i === stats.recent.length - 1 ? 'ring-1 ring-indigo-500 ring-offset-1 ring-offset-transparent animate-pulse' : 'hover:scale-125 hover:z-10 hover:brightness-110'}`}
                         >
+                            {item.isGrouped && <Link size={12} className="text-black" />}
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded bg-black text-[8px] font-bold text-white opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
-                                {t.pair}
+                                {item.pair}
                             </div>
                         </div>
                     ))}
@@ -2087,129 +2168,85 @@ const StrategyPerformanceBubbleChart = ({ trades = [], isDarkMode, currencySymbo
 
     return (
         <div 
-            onMouseMove={handleMouseMove}
             className={`p-8 rounded-[32px] border flex flex-col h-full min-h-[450px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
         >
              <div className="flex items-center justify-between mb-8">
                  <div>
-                     <h3 className="text-xl font-bold tracking-tight">Performance by Strategy</h3>
-                     <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">Win Rate vs. Net Profitability</p>
+                     <h3 className="text-xl font-bold tracking-tight">Strategy Efficiency</h3>
+                     <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">Comparative performance and consistency analysis</p>
+                 </div>
+                 <div className="p-2 rounded-xl bg-violet-500/10 text-violet-500">
+                    <Target size={20} />
                  </div>
              </div>
 
-            <div className="flex-1 relative mt-4 mb-12 ml-12 mr-4">
-                {/* Y-Axis (PnL) Labels */}
-                <div className="absolute -left-12 inset-y-0 w-10 flex flex-col justify-between text-[9px] font-mono font-bold opacity-30 text-right">
-                    <span>+{currencySymbol}{Math.round(maxPnl)}</span>
-                    <span>{currencySymbol}0</span>
-                    <span>-{currencySymbol}{Math.round(maxPnl)}</span>
-                </div>
+            <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar pr-2">
+                {strategyData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center opacity-20 text-sm font-bold uppercase tracking-widest">Insufficient Strategy Data</div>
+                ) : (
+                    strategyData.sort((a, b) => b.pnl - a.pnl).map((d, i) => {
+                        const efficiency = (d.winRate * (d.pnl > 0 ? 1 : 0.5)).toFixed(0);
+                        
+                        return (
+                            <div key={i} className={`p-5 rounded-2xl border transition-all hover:scale-[1.01] ${isDarkMode ? 'bg-white/[0.03] border-white/5 hover:bg-white/[0.05]' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}>
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${
+                                            d.pnl >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+                                        }`}>
+                                            {d.name.substring(0, 2).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <h4 className="font-black text-sm uppercase tracking-wide">{d.name}</h4>
+                                            <p className="text-[10px] font-bold opacity-40 uppercase">{d.count} Trades Logged</p>
+                                        </div>
+                                    </div>
 
-                {/* X-Axis (Win Rate) Labels */}
-                <div className="absolute inset-x-0 -bottom-8 h-6 flex justify-between text-[9px] font-mono font-bold opacity-30">
-                    <span>0% WR</span>
-                    <span>25%</span>
-                    <span>50%</span>
-                    <span>75%</span>
-                    <span>100% WR</span>
-                </div>
+                                    <div className="flex items-center gap-6">
+                                        <div className="text-right">
+                                            <p className="text-[9px] font-black uppercase opacity-30 tracking-tighter">Win Rate</p>
+                                            <p className="text-sm font-black font-mono">{d.winRate.toFixed(1)}%</p>
+                                        </div>
+                                        <div className="w-px h-8 bg-current opacity-10" />
+                                        <div className="text-right">
+                                            <p className="text-[9px] font-black uppercase opacity-30 tracking-tighter">Net Profit</p>
+                                            <p className={`text-sm font-black font-mono ${d.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                {d.pnl >= 0 ? '+' : ''}{currencySymbol}{d.pnl.toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
 
-                {/* Grid Lines */}
-                <div className="absolute inset-0 border-l border-b border-white/5">
-                    <div className="absolute inset-x-0 h-px bg-white/10" style={{ top: '50%' }} />
-                    <div className="absolute inset-y-0 w-px bg-white/10" style={{ left: '50%' }} />
-                </div>
-
-                {/* Bubbles */}
-                {strategyData.map((d, i) => {
-                    const x = d.winRate; // 0 to 100
-                    // Normalize Y: 0 is bottom (-maxPnl), 50 is center (0), 100 is top (+maxPnl)
-                    const y = 50 + (d.pnl / (maxPnl * 2)) * 100;
-                    const size = Math.max(20, (d.count / maxCount) * 60);
-                    const isHovered = hoveredStrategy?.name === d.name;
-
-                    return (
-                        <div
-                            key={i}
-                            className="absolute transition-all duration-500 cursor-pointer"
-                            onMouseEnter={() => setHoveredStrategy(d)}
-                            onMouseLeave={() => setHoveredStrategy(null)}
-                            style={{
-                                left: `${x}%`,
-                                bottom: `${y}%`,
-                                transform: 'translate(-50%, 50%)',
-                                zIndex: isHovered ? 40 : 10
-                            }}
-                        >
-                            <div 
-                                className={`rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                                    d.pnl >= 0 
-                                    ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-500' 
-                                    : 'bg-rose-500/20 border-rose-500/50 text-rose-500'
-                                } ${isHovered ? 'scale-125 brightness-125 shadow-[0_0_20px_rgba(99,102,241,0.3)]' : 'opacity-80'}`}
-                                style={{
-                                    width: `${size}px`,
-                                    height: `${size}px`,
-                                }}
-                            >
-                                <span className="text-[8px] font-black uppercase tracking-tighter truncate px-1">{d.name}</span>
+                                <div className="space-y-3">
+                                    <div className="relative h-2 w-full bg-black/10 dark:bg-white/5 rounded-full overflow-hidden">
+                                        <div 
+                                            className={`absolute inset-y-0 left-0 transition-all duration-1000 ${d.pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                            style={{ width: `${d.winRate}%` }}
+                                        />
+                                    </div>
+                                    <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
+                                        <span className="opacity-40">Consistency Meter</span>
+                                        <span className={d.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                                            Efficiency Score: {efficiency}%
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    );
-                })}
+                        );
+                    })
+                )}
             </div>
 
-            {/* Tooltip Overlay */}
-            {hoveredStrategy && (
-                <div 
-                    className="absolute pointer-events-none z-50"
-                    style={{ 
-                        left: mousePos.x + 20, 
-                        top: mousePos.y - 40
-                    }}
-                >
-                    <div className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md animate-in fade-in zoom-in duration-200 min-w-[180px] ${isDarkMode ? 'bg-[#09090b]/95 border-zinc-700' : 'bg-white/95 border-slate-200'}`}>
-                        <div className="flex items-center gap-2 mb-3 border-b border-white/10 pb-2">
-                            <div className={`w-2 h-2 rounded-full ${hoveredStrategy.pnl >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                            <div className="font-black text-sm uppercase tracking-wide">{hoveredStrategy.name}</div>
-                        </div>
-                        <div className="space-y-2 text-xs">
-                            <div className="flex justify-between items-center">
-                                <span className="opacity-60 font-bold uppercase text-[9px]">Total P&L</span>
-                                <span className={`font-black ${hoveredStrategy.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                    {hoveredStrategy.pnl >= 0 ? '+' : ''}{currencySymbol}{hoveredStrategy.pnl.toLocaleString()}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="opacity-60 font-bold uppercase text-[9px]">Win Rate</span>
-                                <span className="font-black">{hoveredStrategy.winRate.toFixed(1)}%</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="opacity-60 font-bold uppercase text-[9px]">Trade Volume</span>
-                                <span className="font-black">{hoveredStrategy.count} Trades</span>
-                            </div>
-                            <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                                <span className="opacity-60 font-bold uppercase text-[9px]">Avg / Trade</span>
-                                <span className="font-black">{currencySymbol}{hoveredStrategy.avgPnl.toFixed(2)}</span>
-                            </div>
-                        </div>
-                    </div>
+            <div className="mt-6 flex items-center justify-between p-4 rounded-2xl bg-violet-500/5 border border-violet-500/10">
+                <div className="flex items-center gap-3">
+                    <Award size={16} className="text-violet-500" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-violet-500">Top Performer</span>
                 </div>
-            )}
-
-            <div className="mt-4 flex items-center justify-center gap-6 text-[10px] font-bold uppercase tracking-widest opacity-40">
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span>Profitable Strategy</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-rose-500" />
-                    <span>Losing Strategy</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full border border-current opacity-50" />
-                    <span>Bubble Size = Volume</span>
-                </div>
+                {strategyData.length > 0 && (
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-60">
+                        {strategyData.sort((a, b) => b.pnl - a.pnl)[0].name}
+                    </span>
+                )}
             </div>
         </div>
     );
@@ -2354,7 +2391,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProf
         return {
             netProfit, grossProfit, grossLoss,
             winRate: winRate.toFixed(1),
-            profitFactor: profitFactor.toFixed(2),
+            profitFactor: profitFactor.toFixed(1),
             avgWin, avgLoss,
             rrRatio: riskRewardRatio.toFixed(2),
             totalTrades: safeTrades.length

@@ -22,7 +22,6 @@ interface JournalProps {
 interface GroupedTrade {
     type: 'standalone' | 'setup';
     setupId?: string;
-    setupName?: string;
     trades: Trade[];
     date: string; // Latest trade date
     id: string; // for React key
@@ -335,14 +334,20 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
     const [expandedSetupIds, setExpandedSetupIds] = useState<string[]>([]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-    const [newSetupName, setNewSetupName] = useState('');
     
+    const selectedTrades = useMemo(() => trades.filter(t => selectedIds.includes(t.id)), [trades, selectedIds]);
+    const areAllLinkedToSameSetup = useMemo(() => {
+        if (selectedTrades.length < 1) return false;
+        const firstSetupId = selectedTrades[0].setupId;
+        if (!firstSetupId) return false;
+        return selectedTrades.every(t => t.setupId === firstSetupId);
+    }, [selectedTrades]);
+
     const groupedTrades = useMemo(() => {
         const filtered = trades.filter(t => 
             t.pair.toLowerCase().includes(searchTerm.toLowerCase()) || 
             t.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            t.assetType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (t.setupName && t.setupName.toLowerCase().includes(searchTerm.toLowerCase()))
+            t.assetType.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
         const groups: Record<string, GroupedTrade> = {};
@@ -354,7 +359,6 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                     groups[trade.setupId] = {
                         type: 'setup',
                         setupId: trade.setupId,
-                        setupName: trade.setupName,
                         trades: [],
                         date: trade.date,
                         id: trade.setupId
@@ -406,21 +410,32 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
     const handleBulkDelete = () => { if (selectedIds.length === 0) return; onDeleteTrades(selectedIds); setSelectedIds([]); };
 
     const handleLinkSelected = async () => {
-        if (selectedIds.length < 2 || !newSetupName.trim()) return;
+        if (selectedIds.length < 2) return;
         
         const setupId = `setup-${Date.now()}`;
         const tradesToUpdate = trades
             .filter(t => selectedIds.includes(t.id))
             .map(t => ({
                 ...t,
-                setupId,
-                setupName: newSetupName.trim()
+                setupId
             }));
 
         await onBatchUpdateTrades(tradesToUpdate);
         setSelectedIds([]);
-        setNewSetupName('');
         setIsLinkModalOpen(false);
+    };
+
+    const handleDetachSelected = async () => {
+        if (selectedIds.length === 0) return;
+        const tradesToUpdate = trades
+            .filter(t => selectedIds.includes(t.id))
+            .map(t => ({
+                ...t,
+                setupId: ''
+            }));
+
+        await onBatchUpdateTrades(tradesToUpdate);
+        setSelectedIds([]);
     };
 
     const handleBreakCluster = async (setupId: string) => {
@@ -428,8 +443,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             .filter(t => t.setupId === setupId)
             .map(t => ({
                 ...t,
-                setupId: '',
-                setupName: ''
+                setupId: ''
             }));
 
         await onBatchUpdateTrades(tradesToUpdate);
@@ -602,13 +616,31 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
         </div>
     );
 
-    const renderTradeRow = (trade: Trade, isGrouped = false) => (
+    const renderTradeRow = (trade: Trade, isGrouped = false, isFirst = false, isLast = false) => (
         <React.Fragment key={trade.id}>
-            <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl mt-1 ${isGrouped ? 'ml-8 bg-zinc-500/5' : ''} ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
-                <div className="col-span-1 flex items-center justify-center">
-                    <button onClick={() => handleSelectOne(trade.id)} className={`${selectedIds.includes(trade.id) ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                        {selectedIds.includes(trade.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                    </button>
+            <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl ${isGrouped ? (isDarkMode ? 'bg-white/[0.02] mt-0 rounded-none first:rounded-t-xl last:rounded-b-xl last:border-b-0' : 'bg-black/[0.01] mt-0 rounded-none first:rounded-t-xl last:rounded-b-xl last:border-b-0') : 'mt-1'} ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
+                <div className="col-span-1 flex items-center justify-center self-stretch relative min-h-[64px]">
+                    {isGrouped ? (
+                        <div className="absolute inset-0 flex flex-col items-center">
+                            {/* Connector Line - Full height for middle items, half for first/last */}
+                            <div className={`w-0.5 flex-1 ${isFirst ? 'bg-transparent' : 'bg-violet-500/40'}`} />
+                            
+                            {/* Dot for First and Last */}
+                            <div className="relative flex items-center justify-center h-4">
+                                {(isFirst || isLast) ? (
+                                    <div className="w-2.5 h-2.5 rounded-full bg-violet-500 shadow-[0_0_10px_rgba(139,92,246,0.5)] z-20" />
+                                ) : (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-violet-500/40 z-20" />
+                                )}
+                            </div>
+                            
+                            <div className={`w-0.5 flex-1 ${isLast ? 'bg-transparent' : 'bg-violet-500/40'}`} />
+                        </div>
+                    ) : (
+                        <button onClick={() => handleSelectOne(trade.id)} className={`${selectedIds.includes(trade.id) ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                            {selectedIds.includes(trade.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                        </button>
+                    )}
                 </div>
                 <div className="col-span-1 pl-2 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
                     <p className="font-bold text-sm">{trade.date}</p>
@@ -683,10 +715,18 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                         <span className="text-sm font-bold opacity-60 mr-2">{selectedIds.length} Selected</span>
                         {selectedIds.length >= 2 && (
                             <button 
-                                onClick={() => setIsLinkModalOpen(true)}
-                                className="p-2 px-4 rounded flex items-center gap-2 text-xs font-bold transition-all bg-violet-600 text-white hover:bg-violet-700 shadow-lg shadow-violet-500/20"
+                                onClick={() => areAllLinkedToSameSetup ? handleDetachSelected() : setIsLinkModalOpen(true)}
+                                className={`p-2 px-4 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-lg ${
+                                    areAllLinkedToSameSetup 
+                                    ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-500/20' 
+                                    : 'bg-violet-600 text-white hover:bg-violet-700 shadow-violet-500/20'
+                                }`}
                             >
-                                <Link size={16} /> Link to Setup
+                                {areAllLinkedToSameSetup ? (
+                                    <><Unlink size={16} /> Unlink Setup</>
+                                ) : (
+                                    <><Link size={16} /> Link to Setup</>
+                                )}
                             </button>
                         )}
                         <button onClick={() => setSelectedIds([])} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Cancel</button>
@@ -757,26 +797,32 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                         {allSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                                                     </button>
                                                 </div>
-                                                <div className="col-span-2 pl-2 flex items-center gap-3 cursor-pointer" onClick={() => toggleSetupExpand(group.setupId!)}>
-                                                    <div className="p-2 rounded-lg bg-violet-500/20 text-violet-500">
-                                                        <Layers size={16} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-black text-xs uppercase tracking-widest text-violet-500">Setup Cluster</p>
-                                                        <p className="font-bold text-sm">{group.setupName}</p>
-                                                    </div>
+                                                <div className="col-span-1 pl-2 cursor-pointer flex flex-col justify-center" onClick={() => toggleSetupExpand(group.setupId!)}>
+                                                    <p className="font-bold text-sm">{group.date}</p>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 leading-none mt-1">Setup Cluster</p>
                                                 </div>
-                                                <div className="col-span-1 font-bold opacity-60 italic">{group.trades[0].pair}</div>
-                                                <div className="col-span-1 text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-500 px-2 py-1 rounded-full text-center w-fit">
-                                                    {group.trades.length} Positions
+                                                <div className="col-span-1 font-bold text-sm">{group.trades[0].pair}</div>
+                                                <div className="col-span-1 text-xs opacity-70">{group.trades[0].assetType}</div>
+                                                <div className="col-span-1">
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${group.trades[0].direction === 'Long' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                                                        {group.trades[0].direction === 'Long' ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {group.trades[0].direction}
+                                                    </span>
                                                 </div>
-                                                <div className="col-span-1 text-xs opacity-50">{group.date}</div>
-                                                <div className="col-span-3"></div>
+                                                <div className="col-span-1 text-xs opacity-80">{group.trades[0].session}</div>
+                                                <div className="col-span-1 text-xs opacity-50">---</div>
+                                                <div className="col-span-1 flex flex-wrap gap-1">
+                                                    {group.trades[0].tags.slice(0, 1).map((tag, i) => (
+                                                        <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
+                                                    ))}
+                                                </div>
+                                                <div className="col-span-1">
+                                                    <ReadOnlyStarRating rating={group.trades[0].rating || 0} isDarkMode={isDarkMode} />
+                                                </div>
                                                 <div className="col-span-1 text-right pr-2">
                                                     <p className={`font-mono font-black text-sm ${totalPnL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                                         {totalPnL >= 0 ? '+' : ''}{userProfile.currencySymbol}{totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </p>
-                                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Net Cluster P&L</p>
+                                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Cluster P&L</p>
                                                 </div>
                                                 <div className="col-span-1 flex justify-center gap-2">
                                                     <button 
@@ -797,8 +843,8 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 </div>
                                             </div>
                                             {isExpanded && (
-                                                <div className="animate-in slide-in-from-top-2 duration-300 space-y-1 py-2">
-                                                    {group.trades.map(trade => renderTradeRow(trade, true))}
+                                                <div className="animate-in slide-in-from-top-2 duration-300 space-y-0 py-0.5">
+                                                    {group.trades.map((trade, idx) => renderTradeRow(trade, true, idx === 0, idx === group.trades.length - 1))}
                                                 </div>
                                             )}
                                         </div>
@@ -812,38 +858,30 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
 
             {/* Link Setup Modal */}
             {isLinkModalOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className={`w-full max-w-md p-8 rounded-[32px] border shadow-2xl animate-in zoom-in-95 duration-300 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200'}`}>
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsLinkModalOpen(false)} />
+                    <div className={`relative w-full max-w-md p-8 rounded-[32px] border shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-8 duration-300 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200'}`}>
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-2.5 rounded-2xl bg-violet-500/10 text-violet-500">
-                                <Layers size={24} />
+                                <Link size={24} />
                             </div>
-                            <h3 className="text-2xl font-black tracking-tight">Group Selected Trades</h3>
+                            <h3 className="text-2xl font-black tracking-tight">Link Trades</h3>
                         </div>
-                        <p className={`text-sm mb-6 font-medium ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
-                            Enter a name for this setup. These {selectedIds.length} trades will be linked together in your journal.
+                        <p className={`text-sm mb-8 leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                            These {selectedIds.length} trades will be linked together into a strategic cluster in your journal.
                         </p>
-                        <input 
-                            autoFocus
-                            placeholder="e.g. Morning Trendline Break"
-                            value={newSetupName}
-                            onChange={(e) => setNewSetupName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleLinkSelected()}
-                            className={`w-full px-4 py-3 rounded-xl border mb-8 outline-none transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 focus:border-violet-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-violet-500'}`}
-                        />
                         <div className="flex gap-3">
                             <button 
                                 onClick={() => setIsLinkModalOpen(false)}
-                                className={`flex-1 py-4 rounded-2xl font-bold text-sm transition-all ${isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                className={`flex-1 py-4 rounded-2xl font-black text-sm transition-all ${isDarkMode ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                             >
                                 Cancel
                             </button>
                             <button 
                                 onClick={handleLinkSelected}
-                                disabled={!newSetupName.trim()}
-                                className="flex-1 py-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-violet-500/20"
+                                className="flex-1 py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-violet-500/20"
                             >
-                                Create Cluster
+                                Link Now
                             </button>
                         </div>
                     </div>

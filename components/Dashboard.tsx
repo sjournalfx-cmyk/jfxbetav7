@@ -18,6 +18,7 @@ import {
 
 import { Trade, DailyBias, UserProfile } from '../types';
 import SessionClock from './SessionClock';
+import DailyQuote from './DailyQuote';
 import { SortableWidget } from './ui/SortableWidget';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { dataService } from '../services/dataService';
@@ -540,6 +541,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
 
             {/* Session Clock Widget (Fixed at Top) */}
             <SessionClock isDarkMode={isDarkMode} />
+
+            {/* Daily Quote Insight */}
+            <DailyQuote isDarkMode={isDarkMode} />
 
             {/* Stats Row (Fixed) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

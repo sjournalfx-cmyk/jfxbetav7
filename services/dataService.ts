@@ -34,7 +34,6 @@ export const mapTradeFromDB = (dbTrade: any): Trade => ({
   beforeScreenshot: dbTrade.before_screenshot,
   afterScreenshot: dbTrade.after_screenshot,
   setupId: dbTrade.setup_id,
-  setupName: dbTrade.setup_name,
 });
 
 // Helper to map App Trade to DB Trade
@@ -68,7 +67,6 @@ const mapTradeToDB = (trade: Trade, userId: string) => ({
   before_screenshot: trade.beforeScreenshot,
   after_screenshot: trade.afterScreenshot,
   setup_id: trade.setupId,
-  setup_name: trade.setupName,
 });
 
 // Helper to map DB Goal to App Goal
