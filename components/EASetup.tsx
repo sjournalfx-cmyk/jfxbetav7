@@ -20,9 +20,10 @@ interface BridgeProps {
     eaSession?: any;
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
+    trades: Trade[];
 }
 
-const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade }) => {
+const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade, trades }) => {
     const [isInternalConnected, setIsInternalConnected] = useState(userProfile.eaConnected);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
     const [liveData, setLiveData] = useState<any>(eaSession?.data || null);
@@ -68,6 +69,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
                 }}
                 onTradeAdded={onTradeAdded}
                 onEditTrade={onEditTrade}
+                trades={trades}
             />
         );
     }
@@ -88,14 +90,28 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
 };
 
 /* --- SUB-COMPONENT: BRIDGE MONITOR (The "Connected" Page) --- */
-const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade }: any) => {
+const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades }: any) => {
     const [activeTab, setActiveTab] = useState<'monitor' | 'settings'>('monitor');
     const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
     const [autoLog, setAutoLog] = useLocalStorage('bridge_auto_log', false);
+    const [activeSetup, setActiveSetup] = useState<{ id: string, name: string } | null>(null);
     const [now, setNow] = useState(new Date());
     const [savedTrades, setSavedTrades] = useState<Trade[]>([]);
     const [isSavingTrade, setIsSavingTrade] = useState<string | null>(null); // Track specific trade being saved
     const [copied, setCopied] = useState(false);
+
+    // Derive unique setups for the selector
+    const recentSetups = useMemo(() => {
+        const setups: { id: string, name: string, pair: string }[] = [];
+        const seenIds = new Set();
+        [...trades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).forEach(t => {
+            if (t.setupId && !seenIds.has(t.setupId)) {
+                setups.push({ id: t.setupId, name: t.setupName || 'Unnamed', pair: t.pair });
+                seenIds.add(t.setupId);
+            }
+        });
+        return setups.slice(0, 8);
+    }, [trades]);
 
     const cardBg = isDarkMode ? 'bg-[#111] border-zinc-800' : 'bg-white border-zinc-100 shadow-sm';
     const subTextColor = isDarkMode ? 'text-zinc-500' : 'text-[#666666]';
@@ -155,8 +171,18 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
             // For a perfect journal, we need the Net PnL.
             const netPnL = Number((mt5Trade.profit + (mt5Trade.swap || 0) + (mt5Trade.commission || 0)).toFixed(2));
 
-            const tradeDate = new Date(mt5Trade.time * 1000);
-            const entryDate = new Date(mt5Trade.entry_time * 1000);
+            // Validate timestamps before creating Date objects
+            const tradeTimestamp = mt5Trade.time && !isNaN(mt5Trade.time) ? mt5Trade.time * 1000 : Date.now();
+            const entryTimestamp = mt5Trade.entry_time && !isNaN(mt5Trade.entry_time) ? mt5Trade.entry_time * 1000 : Date.now();
+            
+            const tradeDate = new Date(tradeTimestamp);
+            const entryDate = new Date(entryTimestamp);
+            
+            // Additional validation - ensure dates are valid
+            if (isNaN(tradeDate.getTime()) || isNaN(entryDate.getTime())) {
+                throw new Error('Invalid date values in trade data');
+            }
+            
             const sast = getSASTDateTime(tradeDate);
             const sastEntry = getSASTDateTime(entryDate);
 
@@ -182,7 +208,9 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                 rating: 0,
                 tags: ['MT5_Sync'],
                 notes: `Synced from MT5. Deal #${mt5Trade.ticket} | Order #${mt5Trade.order}`,
-                planAdherence: 'No Plan'
+                planAdherence: 'No Plan',
+                setupId: activeSetup?.id,
+                setupName: activeSetup?.name
             };
 
             if (!autoLog && onEditTrade) {
@@ -245,6 +273,51 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
 
                 {activeTab === 'monitor' ? (
                     <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+
+                        {/* Setup Linker Strip */}
+                        <div className={`p-6 rounded-[32px] border-2 border-dashed flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${activeSetup ? 'bg-violet-500/10 border-violet-500/30' : 'bg-zinc-500/5 border-zinc-500/10'}`}>
+                            <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${activeSetup ? 'bg-violet-500 text-white shadow-violet-500/20' : 'bg-zinc-500/20 text-zinc-500'}`}>
+                                    <Link size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black uppercase tracking-widest leading-none mb-1">Active Setup Linker</h3>
+                                    <p className="text-[10px] font-bold opacity-50">Automatically group all incoming MT5 trades.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                <div className="flex-1 md:w-64">
+                                    <select 
+                                        className={`w-full px-4 py-3 rounded-xl border text-xs font-bold outline-none appearance-none cursor-pointer transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 focus:border-violet-500' : 'bg-white border-zinc-200 text-zinc-700 focus:border-violet-500'}`}
+                                        value={activeSetup?.id || ''}
+                                        onChange={(e) => {
+                                            const id = e.target.value;
+                                            if (!id) {
+                                                setActiveSetup(null);
+                                            } else {
+                                                const s = recentSetups.find(rs => rs.id === id);
+                                                if (s) setActiveSetup({ id: s.id, name: s.name });
+                                            }
+                                        }}
+                                    >
+                                        <option value="">No Active Setup (Standalone Mode)</option>
+                                        {recentSetups.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name} ({s.pair})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {activeSetup && (
+                                    <button 
+                                        onClick={() => setActiveSetup(null)}
+                                        className="p-3 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all"
+                                        title="Clear Linker"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
                         {/* Primary Metrics Strip (Immediate Visibility) */}
                         <div className={`p-6 rounded-[32px] border-2 flex flex-wrap items-center justify-between gap-8 ${cardBg}`}>
@@ -509,7 +582,9 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                             <Activity size={40} className="text-emerald-500 animate-pulse" />
                                         </div>
                                     ) : (
-                                        <Activity size={40} className="text-rose-500" />
+                                        <div className="relative flex items-center justify-center">
+                                            <Activity size={40} className="text-rose-500" />
+                                        </div>
                                     )}
                                 </div>
                             </div>
@@ -591,7 +666,6 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
     const [step, setStep] = useState(0);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
     const [copied, setCopied] = useState(false);
-    const [isVerifying, setIsVerifying] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'waiting' | 'success' | 'error'>('waiting');
 
     useEffect(() => {
@@ -606,7 +680,7 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
     }, []);
 
     useEffect(() => {
-        if (step === 5 && connectionStatus === 'waiting' && syncKey) {
+        if (step === 2 && connectionStatus === 'waiting' && syncKey) {
             const channel = supabase
                 .channel('ea_session_changes')
                 .on('postgres_changes', {
@@ -630,9 +704,6 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
 
     const cardBg = isDarkMode ? 'bg-[#111] border-zinc-800' : 'bg-white border-zinc-100 shadow-sm';
     const subTextColor = isDarkMode ? 'text-zinc-500' : 'text-[#666666]';
-    const codeBg = isDarkMode ? 'bg-[#000] border-zinc-800' : 'bg-zinc-100 border-zinc-200';
-    const backendUrl = `${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/sync-trades`;
-    const apiKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
@@ -640,7 +711,7 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                 <div className="mb-12">
                     <h1 className="text-5xl font-black tracking-tight mb-4 italic">Desktop Bridge</h1>
                     <div className="flex items-center gap-4">
-                        <p className={`text-lg ${subTextColor}`}>Connect MT5 to JournalFX using our secure Python bridge.</p>
+                        <p className={`text-lg ${subTextColor}`}>Connect MT5 to JournalFX using our secure Desktop App.</p>
                         <div className="px-3 py-1 rounded bg-blue-500/10 text-blue-500 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
                             Windows Only
                         </div>
@@ -650,12 +721,9 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                     <div className="lg:col-span-4 space-y-3">
                         {[
-                            { id: 0, label: 'Install Python', icon: Terminal },
-                            { id: 1, label: 'Get Sync Key', icon: Shield },
-                            { id: 2, label: 'Setup Libraries', icon: Command },
-                            { id: 3, label: 'Download Bridge', icon: Download },
-                            { id: 4, label: 'Run Script', icon: Play },
-                            { id: 5, label: 'Live Connection', icon: Cpu },
+                            { id: 0, label: 'Download Bridge', icon: Download },
+                            { id: 1, label: 'Launch & Login', icon: Play },
+                            { id: 2, label: 'Live Connection', icon: Cpu },
                         ].map((s) => (
                             <div
                                 key={s.id}
@@ -679,89 +747,14 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
 
                             {step === 0 && (
                                 <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center mb-8">
-                                        <Terminal size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Step 0: Install Python</h3>
-                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                        The bridge requires Python to be installed on your computer. If you already have it, you can skip to the next step.
-                                    </p>
-                                    <div className="space-y-4">
-                                        <a href="https://www.python.org/downloads/windows/" target="_blank" rel="noreferrer" className="flex items-center justify-between p-4 rounded-2xl bg-blue-500/10 text-blue-500 border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all group">
-                                            <div className="flex items-center gap-3">
-                                                <Globe size={20} />
-                                                <span className="font-bold">Download Python for Windows</span>
-                                            </div>
-                                            <ExternalLink size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </a>
-                                        <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-3">
-                                            <Info className="text-amber-500 shrink-0" size={18} />
-                                            <p className="text-xs text-amber-500/80 font-medium">
-                                                IMPORTANT: During installation, check the box that says <b>"Add Python to PATH"</b> or the bridge won't run.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {step === 1 && (
-                                <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-[#FF4F01]/10 text-[#FF4F01] flex items-center justify-center mb-8">
-                                        <Shield size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Your Secure Sync Key</h3>
-                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                        This unique key identifies your account and allows the Python script to securely transmit your trading data.
-                                    </p>
-                                    <div className={`p-6 rounded-2xl border-2 border-dashed mb-8 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-200'}`}>
-                                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 block">Your Unique Sync Key</label>
-                                        <div className="flex items-center gap-4 relative">
-                                            <div className="flex-1 font-mono text-2xl font-black tracking-wider text-[#FF4F01]">
-                                                {syncKey}
-                                            </div>
-                                            <button
-                                                onClick={() => handleCopy(syncKey)}
-                                                className={`p-3 rounded-xl transition-all ${copied ? 'bg-emerald-500 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:scale-105'}`}
-                                            >
-                                                {copied ? <Check size={20} /> : <Copy size={20} />}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {step === 2 && (
-                                <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-8">
-                                        <Command size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Install Requirements</h3>
-                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                        Open your terminal or command prompt and run this command to install the bridge dependencies.
-                                    </p>
-                                    <div className={`p-4 rounded-xl border font-mono text-sm mb-6 flex items-center justify-between group ${codeBg}`}>
-                                        <code className="text-[#FF4F01]">python -m pip install MetaTrader5 requests</code>
-                                        <button
-                                            onClick={() => handleCopy('python -m pip install MetaTrader5 requests')}
-                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-500'}`}
-                                        >
-                                            {copied ? <Check size={14} /> : <Copy size={14} />}
-                                            <span className="text-[10px] font-bold uppercase">Copy</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {step === 3 && (
-                                <div className="animate-in fade-in duration-300">
                                     <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-8">
                                         <Download size={32} />
                                     </div>
-                                    <h3 className="text-2xl font-black mb-4">Download the Bridge</h3>
+                                    <h3 className="text-2xl font-black mb-4">Step 1: Download the Bridge</h3>
                                     <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                        Download the <b>Standalone App</b> for the easiest experience - no Python required! Just download, run, and connect.
+                                        Download the <b>Standalone App</b> for the easiest experience. It's self-contained and doesn't require Python or any manual setup.
                                     </p>
-                                    {/* Primary: Standalone EXE */}
+
                                     <a
                                         href="/JournalFX_Bridge.exe"
                                         download="JournalFX_Bridge.exe"
@@ -770,69 +763,54 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                                         <LayoutDashboard size={28} />
                                         <div className="text-left">
                                             <div className="text-lg">Download Standalone App</div>
-                                            <div className="text-xs opacity-70 font-normal">Windows • No Python Required • Recommended</div>
+                                            <div className="text-xs opacity-70 font-normal">Windows • v2.0.0 • Recommended</div>
                                         </div>
                                     </a>
 
-                                    {/* Secondary: Python Scripts */}
-                                    <div className="pt-4 border-t border-zinc-500/10">
-                                        <div className={`text-[10px] font-bold uppercase tracking-widest mb-4 ${subTextColor}`}>
-                                            For Developers (Python Required)
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <a
-                                                href="/jfx_bridge_gui.py"
-                                                download="jfx_bridge_gui.py"
-                                                className="flex items-center justify-center gap-2 p-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
-                                            >
-                                                <Code size={16} />
-                                                <span>GUI Script (.py)</span>
-                                            </a>
-                                            <a
-                                                href="/jfx_bridge.py"
-                                                download="jfx_bridge.py"
-                                                className="flex items-center justify-center gap-2 p-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-lg text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all"
-                                            >
-                                                <Terminal size={16} />
-                                                <span>CLI Script (.py)</span>
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {step === 4 && (
-                                <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-8">
-                                        <Play size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Run the Bridge</h3>
-                                    <p className={`mb-6 leading-relaxed ${subTextColor}`}>
-                                        Open your terminal <b>in the folder where you saved the file</b> and run the command below.
-                                    </p>
-                                    <div className={`p-4 rounded-xl border font-mono text-xs break-all leading-loose mb-6 relative group ${codeBg}`}>
-                                        <div className="text-zinc-400 select-none mb-2"># Command</div>
-                                        <div className="pr-24">
-                                            <span className="text-[#FF4F01]">python jfx_bridge.py</span> --key <span className="text-emerald-500">{syncKey}</span> --url <span className="text-blue-500">{backendUrl}</span> --apikey <span className="text-purple-500">{apiKey}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => handleCopy(`python jfx_bridge.py --key ${syncKey} --url ${backendUrl} --apikey ${apiKey}`)}
-                                            className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${copied ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300'}`}
-                                        >
-                                            {copied ? <Check size={14} /> : <Copy size={14} />}
-                                            <span className="text-[10px] font-bold uppercase">Copy Command</span>
-                                        </button>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-4 items-start">
-                                        <AlertCircle className="text-amber-500 shrink-0" size={20} />
-                                        <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
-                                            Make sure your MT5 terminal is open and logged in before running this command. <b>Keep the terminal window open</b> while trading.
+                                    <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/10 flex gap-3">
+                                        <Info className="text-blue-500 shrink-0" size={18} />
+                                        <p className="text-xs text-blue-500/80 font-medium">
+                                            The app is portable. You can run it from any folder on your computer.
                                         </p>
                                     </div>
                                 </div>
                             )}
 
-                            {step === 5 && (
+                            {step === 1 && (
+                                <div className="animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-8">
+                                        <Play size={32} />
+                                    </div>
+                                    <h3 className="text-2xl font-black mb-4">Step 2: Launch & Login</h3>
+                                    <p className={`mb-6 leading-relaxed ${subTextColor}`}>
+                                        Run the <b>JournalFX_Bridge.exe</b> file you just downloaded.
+                                    </p>
+
+                                    <div className="space-y-4 mb-8">
+                                        <div className="flex items-start gap-3">
+                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</div>
+                                            <p className="text-sm">Sign in using your <b>JournalFX Email & Password</b>.</p>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</div>
+                                            <p className="text-sm">Ensure your <b>MetaTrader 5</b> terminal is open and logged in.</p>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</div>
+                                            <p className="text-sm">Click <b>"Start Bridge"</b> in the app.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-4 items-start">
+                                        <AlertCircle className="text-amber-500 shrink-0" size={20} />
+                                        <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
+                                            The app will automatically fetch your Sync Key. You don't need to copy or paste anything.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step === 2 && (
                                 <div className="animate-in fade-in duration-300 flex flex-col items-center justify-center text-center py-10">
                                     {connectionStatus === 'waiting' ? (
                                         <>
@@ -842,9 +820,9 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                                                     <Cpu size={32} />
                                                 </div>
                                             </div>
-                                            <h3 className="text-2xl font-black mb-4">Waiting for Heartbeat...</h3>
+                                            <h3 className="text-2xl font-black mb-4">Waiting for Connection...</h3>
                                             <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
-                                                Run the script in Step 4. This screen will update automatically once the bridge connects.
+                                                Once you click "Start Bridge" in the desktop app, this screen will update automatically.
                                             </p>
                                         </>
                                     ) : (
@@ -868,7 +846,7 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                             )}
 
                             <div className="mt-auto pt-10 flex items-center justify-between">
-                                {step < 5 && (
+                                {step < 2 && (
                                     <>
                                         <button
                                             onClick={() => setStep(s => Math.max(0, s - 1))}
@@ -878,7 +856,7 @@ const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: 
                                             Previous Step
                                         </button>
                                         <button
-                                            onClick={() => setStep(s => Math.min(5, s + 1))}
+                                            onClick={() => setStep(s => Math.min(2, s + 1))}
                                             className="flex items-center gap-3 px-8 py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-xl font-black text-sm hover:translate-x-1 transition-all"
                                         >
                                             Next Step <ArrowRight size={18} />

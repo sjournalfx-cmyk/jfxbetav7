@@ -1,5 +1,8 @@
 
 export const getSASTDateTime = (date = new Date()) => {
+    // Validate date - if invalid, use current date
+    const validDate = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+    
     // 1. Get components in SAST
     const sastFormatter = new Intl.DateTimeFormat('en-ZA', {
         timeZone: 'Africa/Johannesburg',
@@ -12,7 +15,7 @@ export const getSASTDateTime = (date = new Date()) => {
         hour12: false
     });
     
-    const parts = sastFormatter.formatToParts(date);
+    const parts = sastFormatter.formatToParts(validDate);
     const getPart = (type: string) => parts.find(p => p.type === type)?.value;
     
     const year = getPart('year');

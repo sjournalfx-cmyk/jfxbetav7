@@ -4,7 +4,7 @@ import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Activity, 
   Brain, ShieldCheck, ArrowUpRight, ArrowDownRight, Edit3, 
   ChevronDown, Clock, CheckCircle2, Trash2, CheckSquare, Square, 
-  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye
+  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye, Layers, Link, Unlink
 } from 'lucide-react';
 import { Trade, UserProfile } from '../types';
 import { getSASTDateTime } from '../lib/timeUtils';
@@ -13,15 +13,24 @@ interface JournalProps {
   isDarkMode: boolean;
   trades: Trade[];
   onUpdateTrade: (trade: Trade) => void;
+  onBatchUpdateTrades: (trades: Trade[]) => Promise<void>;
   onDeleteTrades: (tradeIds: string[]) => void;
   onEditTrade: (trade: Trade) => void;
   userProfile: UserProfile;
 }
 
+interface GroupedTrade {
+    type: 'standalone' | 'setup';
+    setupId?: string;
+    setupName?: string;
+    trades: Trade[];
+    date: string; // Latest trade date
+    id: string; // for React key
+}
+
 const formatDuration = (openTime?: string, closeTime?: string) => {
     if (!openTime || !closeTime) return null;
     try {
-        // Handle potential space instead of T in some date strings
         const startStr = openTime.includes(' ') && !openTime.includes('T') ? openTime.replace(' ', 'T') : openTime;
         const endStr = closeTime.includes(' ') && !closeTime.includes('T') ? closeTime.replace(' ', 'T') : closeTime;
         
@@ -31,12 +40,9 @@ const formatDuration = (openTime?: string, closeTime?: string) => {
         if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
         
         const diff = end.getTime() - start.getTime();
-        
-        if (diff < 0) return '0s'; // Or handle negative duration if exit is before entry
+        if (diff < 0) return '0s';
         
         const totalSeconds = Math.floor(diff / 1000);
-        if (totalSeconds === 0) return '0s';
-        
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
@@ -157,13 +163,6 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     }, [trades, year, month]);
 
     const isToday = (day: number) => { 
-        const sast = getSASTDateTime();
-        // Since year and month are already from currentDate (which might be in the past/future)
-        // We only care if year and month match current SAST and day matches current SAST day
-        const sastDate = new Date(); // Temporary to parse parts
-        const sastFull = getSASTDateTime(sastDate);
-        
-        // Let's make it simpler: match strings
         const currentSASTDate = getSASTDateTime().date;
         const targetDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         return currentSASTDate === targetDate;
@@ -329,30 +328,114 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     );
 };
 
-const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onDeleteTrades, onEditTrade, userProfile }) => {
+const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
+    const [expandedSetupIds, setExpandedSetupIds] = useState<string[]>([]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+    const [newSetupName, setNewSetupName] = useState('');
     
-    const filteredTrades = useMemo(() => {
-        let result = trades.filter(t => 
+    const groupedTrades = useMemo(() => {
+        const filtered = trades.filter(t => 
             t.pair.toLowerCase().includes(searchTerm.toLowerCase()) || 
             t.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            t.assetType.toLowerCase().includes(searchTerm.toLowerCase())
+            t.assetType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.setupName && t.setupName.toLowerCase().includes(searchTerm.toLowerCase()))
         );
 
-        return result.sort((a, b) => {
-            const dateA = new Date(`${a.date}T${a.time || '00:00:00'}`);
-            const dateB = new Date(`${b.date}T${b.time || '00:00:00'}`);
-            return dateB.getTime() - dateA.getTime();
+        const groups: Record<string, GroupedTrade> = {};
+        const result: GroupedTrade[] = [];
+
+        filtered.forEach(trade => {
+            if (trade.setupId) {
+                if (!groups[trade.setupId]) {
+                    groups[trade.setupId] = {
+                        type: 'setup',
+                        setupId: trade.setupId,
+                        setupName: trade.setupName,
+                        trades: [],
+                        date: trade.date,
+                        id: trade.setupId
+                    };
+                    result.push(groups[trade.setupId]);
+                }
+                groups[trade.setupId].trades.push(trade);
+                if (new Date(trade.date) > new Date(groups[trade.setupId].date)) {
+                    groups[trade.setupId].date = trade.date;
+                }
+            } else {
+                result.push({
+                    type: 'standalone',
+                    trades: [trade],
+                    date: trade.date,
+                    id: trade.id
+                });
+            }
         });
+
+        return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [trades, searchTerm]);
 
     const toggleExpand = (id: string) => { setExpandedTradeId(expandedTradeId === id ? null : id); };
-    const handleSelectAll = () => { if (selectedIds.length === filteredTrades.length) setSelectedIds([]); else setSelectedIds(filteredTrades.map(t => t.id)); };
+    const toggleSetupExpand = (id: string) => {
+        if (expandedSetupIds.includes(id)) {
+            setExpandedSetupIds(prev => prev.filter(sid => sid !== id));
+        } else {
+            setExpandedSetupIds(prev => [...prev, id]);
+        }
+    };
+
+    const handleSelectAll = () => { 
+        const allTradeIds = trades.map(t => t.id);
+        if (selectedIds.length === allTradeIds.length) setSelectedIds([]); 
+        else setSelectedIds(allTradeIds); 
+    };
+
     const handleSelectOne = (id: string) => { if (selectedIds.includes(id)) setSelectedIds(prev => prev.filter(item => item !== id)); else setSelectedIds(prev => [...prev, id]); };
+    const handleSelectSetup = (setupId: string, tradeIds: string[]) => {
+        const allSelected = tradeIds.every(id => selectedIds.includes(id));
+        if (allSelected) {
+            setSelectedIds(prev => prev.filter(id => !tradeIds.includes(id)));
+        } else {
+            setSelectedIds(prev => Array.from(new Set([...prev, ...tradeIds])));
+        }
+    };
+
     const handleBulkDelete = () => { if (selectedIds.length === 0) return; onDeleteTrades(selectedIds); setSelectedIds([]); };
+
+    const handleLinkSelected = async () => {
+        if (selectedIds.length < 2 || !newSetupName.trim()) return;
+        
+        const setupId = `setup-${Date.now()}`;
+        const tradesToUpdate = trades
+            .filter(t => selectedIds.includes(t.id))
+            .map(t => ({
+                ...t,
+                setupId,
+                setupName: newSetupName.trim()
+            }));
+
+        await onBatchUpdateTrades(tradesToUpdate);
+        setSelectedIds([]);
+        setNewSetupName('');
+        setIsLinkModalOpen(false);
+    };
+
+    const handleBreakCluster = async (setupId: string) => {
+        const tradesToUpdate = trades
+            .filter(t => t.setupId === setupId)
+            .map(t => ({
+                ...t,
+                setupId: '',
+                setupName: ''
+            }));
+
+        await onBatchUpdateTrades(tradesToUpdate);
+        setExpandedSetupIds(prev => prev.filter(id => id !== setupId));
+    };
+
     const handleUpload = (trade: Trade, type: 'before' | 'after', e: React.ChangeEvent<HTMLInputElement>) => { if (!e.target.files || !e.target.files[0]) return; const file = e.target.files[0]; const reader = new FileReader(); reader.onloadend = () => { onUpdateTrade({ ...trade, [type === 'before' ? 'beforeScreenshot' : 'afterScreenshot']: reader.result as string }); }; reader.readAsDataURL(file); };
     const handleDeleteImage = (trade: Trade, type: 'before' | 'after') => {
         onUpdateTrade({
@@ -364,7 +447,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
     const [previewImage, setPreviewImage] = useState<{ url: string, title: string } | null>(null);
 
     const renderTradeDetails = (trade: Trade) => (
-        <div className={`col-span-8 mt-1 mb-6 rounded-2xl overflow-hidden border animate-in slide-in-from-top-2 duration-300 shadow-xl relative ${isDarkMode ? 'bg-[#09090b] border-[#27272a] shadow-black' : 'bg-white border-slate-200'}`}>
+        <div key={`details-${trade.id}`} className={`col-span-11 mx-6 mt-1 mb-6 rounded-2xl overflow-hidden border animate-in slide-in-from-top-2 duration-300 shadow-xl relative ${isDarkMode ? 'bg-[#09090b] border-[#27272a] shadow-black' : 'bg-white border-slate-200'}`}>
             <div className={`relative px-6 py-4 border-b flex flex-wrap items-center justify-between gap-4 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50/50 border-slate-100'}`}>
                 <div className="flex items-center gap-6">
                     <div>
@@ -519,9 +602,58 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
         </div>
     );
 
+    const renderTradeRow = (trade: Trade, isGrouped = false) => (
+        <React.Fragment key={trade.id}>
+            <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl mt-1 ${isGrouped ? 'ml-8 bg-zinc-500/5' : ''} ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
+                <div className="col-span-1 flex items-center justify-center">
+                    <button onClick={() => handleSelectOne(trade.id)} className={`${selectedIds.includes(trade.id) ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                        {selectedIds.includes(trade.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </button>
+                </div>
+                <div className="col-span-1 pl-2 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    <p className="font-bold text-sm">{trade.date}</p>
+                    <p className="text-xs opacity-50">{trade.time}</p>
+                </div>
+                <div className="col-span-1 font-bold cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.pair}</div>
+                <div className="col-span-1 text-xs opacity-70 cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.assetType}</div>
+                <div className="col-span-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${trade.direction === 'Long' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                        {trade.direction === 'Long' ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {trade.direction}
+                    </span>
+                </div>
+                <div className="col-span-1 text-xs opacity-80 cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.session}</div>
+                <div className="col-span-1 text-xs font-mono font-bold opacity-60 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    {formatDuration(trade.openTime, trade.closeTime) || '---'}
+                </div>
+                <div className="col-span-1 flex flex-wrap gap-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    {trade.tags.slice(0, 2).map((tag, i) => (
+                        <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
+                    ))}
+                    {trade.tags.length > 2 && <span className="text-[10px] opacity-50">+{trade.tags.length - 2}</span>}
+                </div>
+                <div className="col-span-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
+                </div>
+                <div className="col-span-1 text-right cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+                    <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
+                        {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className={`text-[10px] font-bold uppercase ${trade.result === 'Win' ? 'text-emerald-500' : trade.result === 'Loss' ? 'text-rose-500' : 'text-zinc-500'}`}>
+                        {trade.result} {trade.rr > 0 ? `(${trade.rr}R)` : ''}
+                    </p>
+                </div>
+                <div className="col-span-1 flex justify-center">
+                    <div onClick={() => toggleExpand(trade.id)} className={`p-1 rounded-full cursor-pointer transition-all ${expandedTradeId === trade.id ? 'rotate-180 bg-indigo-500 text-white' : isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
+                        <ChevronDown size={18} />
+                    </div>
+                </div>
+            </div>
+            {expandedTradeId === trade.id && renderTradeDetails(trade)}
+        </React.Fragment>
+    );
+
     return (
         <div className={`w-full h-full overflow-hidden flex flex-col p-8 pb-0 ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-slate-50 text-slate-900'}`}>
-            {/* Image Preview Modal */}
             {previewImage && (
                 <div 
                     className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-sm flex flex-col p-4 animate-in fade-in duration-200"
@@ -549,6 +681,14 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                 {selectedIds.length > 0 ? (
                     <div className="flex items-center gap-3 animate-in slide-in-from-right-4">
                         <span className="text-sm font-bold opacity-60 mr-2">{selectedIds.length} Selected</span>
+                        {selectedIds.length >= 2 && (
+                            <button 
+                                onClick={() => setIsLinkModalOpen(true)}
+                                className="p-2 px-4 rounded flex items-center gap-2 text-xs font-bold transition-all bg-violet-600 text-white hover:bg-violet-700 shadow-lg shadow-violet-500/20"
+                            >
+                                <Link size={16} /> Link to Setup
+                            </button>
+                        )}
                         <button onClick={() => setSelectedIds([])} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Cancel</button>
                         <button onClick={handleBulkDelete} className="p-2 rounded flex items-center gap-2 text-xs font-bold transition-all bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20"><Trash2 size={16} /> Delete Selected</button>
                     </div>
@@ -579,7 +719,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                         <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-6 py-4 border-b text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'border-[#27272a] text-zinc-500' : 'border-slate-100 text-slate-400'}`}>
                             <div className="col-span-1 flex items-center justify-center">
                                 <button onClick={handleSelectAll} className="opacity-50 hover:opacity-100">
-                                    {selectedIds.length > 0 && selectedIds.length === filteredTrades.length ? <CheckSquare size={16} /> : <Square size={16} />}
+                                    {selectedIds.length > 0 && selectedIds.length === trades.length ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                             </div>
                             <div className="col-span-1 pl-2">Date/Time</div>
@@ -594,65 +734,121 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             <div className="col-span-1"></div>
                         </div>
                         <div className="overflow-y-auto custom-scrollbar flex-1 px-4">
-                            {filteredTrades.length === 0 ? (
+                            {groupedTrades.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-30">
                                     <h3 className="text-xl font-bold">No Trades Found</h3>
                                 </div>
                             ) : (
-                                filteredTrades.map(trade => (
-                                    <React.Fragment key={trade.id}>
-                                        <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl mt-1 ${expandedTradeId === trade.id ? (isDarkMode ? 'bg-zinc-800/50 border-indigo-500/50' : 'bg-slate-50 border-indigo-200 shadow-inner') : (isDarkMode ? 'border-[#27272a] hover:bg-zinc-800/30' : 'border-slate-100 hover:bg-slate-50')} ${selectedIds.includes(trade.id) ? (isDarkMode ? 'bg-indigo-900/10' : 'bg-indigo-50') : ''}`}>
-                                            <div className="col-span-1 flex items-center justify-center">
-                                                <button onClick={() => handleSelectOne(trade.id)} className={`${selectedIds.includes(trade.id) ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                                                    {selectedIds.includes(trade.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                                                </button>
-                                            </div>
-                                            <div className="col-span-1 pl-2 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                <p className="font-bold text-sm">{trade.date}</p>
-                                                <p className="text-xs opacity-50">{trade.time}</p>
-                                            </div>
-                                            <div className="col-span-1 font-bold cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.pair}</div>
-                                            <div className="col-span-1 text-xs opacity-70 cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.assetType}</div>
-                                            <div className="col-span-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${trade.direction === 'Long' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                                                    {trade.direction === 'Long' ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {trade.direction}
-                                                </span>
-                                            </div>
-                                            <div className="col-span-1 text-xs opacity-80 cursor-pointer" onClick={() => toggleExpand(trade.id)}>{trade.session}</div>
-                                            <div className="col-span-1 text-xs font-mono font-bold opacity-60 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                {formatDuration(trade.openTime, trade.closeTime) || '---'}
-                                            </div>
-                                            <div className="col-span-1 flex flex-wrap gap-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                {trade.tags.slice(0, 2).map((tag, i) => (
-                                                    <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
-                                                ))}
-                                                {trade.tags.length > 2 && <span className="text-[10px] opacity-50">+{trade.tags.length - 2}</span>}
-                                            </div>
-                                            <div className="col-span-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
-                                            </div>
-                                            <div className="col-span-1 text-right cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                                                <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
-                                                    {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </p>
-                                                <p className={`text-[10px] font-bold uppercase ${trade.result === 'Win' ? 'text-emerald-500' : trade.result === 'Loss' ? 'text-rose-500' : 'text-zinc-500'}`}>
-                                                    {trade.result} {trade.rr > 0 ? `(${trade.rr}R)` : ''}
-                                                </p>
-                                            </div>
-                                            <div className="col-span-1 flex justify-center">
-                                                <div onClick={() => toggleExpand(trade.id)} className={`p-1 rounded-full cursor-pointer transition-all ${expandedTradeId === trade.id ? 'rotate-180 bg-indigo-500 text-white' : isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
-                                                    <ChevronDown size={18} />
+                                groupedTrades.map(group => {
+                                    if (group.type === 'standalone') {
+                                        return renderTradeRow(group.trades[0]);
+                                    }
+
+                                    const isExpanded = expandedSetupIds.includes(group.setupId!);
+                                    const totalPnL = group.trades.reduce((acc, t) => acc + t.pnl, 0);
+                                    const tradeIds = group.trades.map(t => t.id);
+                                    const allSelected = tradeIds.every(id => selectedIds.includes(id));
+
+                                    return (
+                                        <div key={group.id} className="mt-1 border-b dark:border-zinc-800/50 pb-1">
+                                            <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 items-center transition-all rounded-xl bg-violet-500/5 border-2 ${isExpanded ? 'border-violet-500/30' : 'border-transparent'}`}>
+                                                <div className="col-span-1 flex items-center justify-center">
+                                                    <button onClick={() => handleSelectSetup(group.setupId!, tradeIds)} className={`${allSelected ? 'text-indigo-500' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                                                        {allSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                                                    </button>
+                                                </div>
+                                                <div className="col-span-2 pl-2 flex items-center gap-3 cursor-pointer" onClick={() => toggleSetupExpand(group.setupId!)}>
+                                                    <div className="p-2 rounded-lg bg-violet-500/20 text-violet-500">
+                                                        <Layers size={16} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-black text-xs uppercase tracking-widest text-violet-500">Setup Cluster</p>
+                                                        <p className="font-bold text-sm">{group.setupName}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="col-span-1 font-bold opacity-60 italic">{group.trades[0].pair}</div>
+                                                <div className="col-span-1 text-[10px] font-black uppercase tracking-widest bg-violet-500/10 text-violet-500 px-2 py-1 rounded-full text-center w-fit">
+                                                    {group.trades.length} Positions
+                                                </div>
+                                                <div className="col-span-1 text-xs opacity-50">{group.date}</div>
+                                                <div className="col-span-3"></div>
+                                                <div className="col-span-1 text-right pr-2">
+                                                    <p className={`font-mono font-black text-sm ${totalPnL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                        {totalPnL >= 0 ? '+' : ''}{userProfile.currencySymbol}{totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </p>
+                                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Net Cluster P&L</p>
+                                                </div>
+                                                <div className="col-span-1 flex justify-center gap-2">
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (window.confirm('Break this cluster? Individual trades will be kept but unlinked.')) {
+                                                                handleBreakCluster(group.setupId!);
+                                                            }
+                                                        }}
+                                                        className="p-1.5 rounded-full hover:bg-rose-500/10 text-rose-500 transition-all opacity-0 group-hover:opacity-100"
+                                                        title="Break Cluster"
+                                                    >
+                                                        <Unlink size={16} />
+                                                    </button>
+                                                    <button onClick={() => toggleSetupExpand(group.setupId!)} className={`p-1.5 rounded-full transition-all ${isExpanded ? 'rotate-180 bg-violet-500 text-white' : 'hover:bg-violet-500/20 text-violet-500'}`}>
+                                                        <ChevronDown size={18} />
+                                                    </button>
                                                 </div>
                                             </div>
+                                            {isExpanded && (
+                                                <div className="animate-in slide-in-from-top-2 duration-300 space-y-1 py-2">
+                                                    {group.trades.map(trade => renderTradeRow(trade, true))}
+                                                </div>
+                                            )}
                                         </div>
-                                        {expandedTradeId === trade.id && renderTradeDetails(trade)}
-                                    </React.Fragment>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </>
                 )}
             </div>
+
+            {/* Link Setup Modal */}
+            {isLinkModalOpen && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className={`w-full max-w-md p-8 rounded-[32px] border shadow-2xl animate-in zoom-in-95 duration-300 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200'}`}>
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2.5 rounded-2xl bg-violet-500/10 text-violet-500">
+                                <Layers size={24} />
+                            </div>
+                            <h3 className="text-2xl font-black tracking-tight">Group Selected Trades</h3>
+                        </div>
+                        <p className={`text-sm mb-6 font-medium ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                            Enter a name for this setup. These {selectedIds.length} trades will be linked together in your journal.
+                        </p>
+                        <input 
+                            autoFocus
+                            placeholder="e.g. Morning Trendline Break"
+                            value={newSetupName}
+                            onChange={(e) => setNewSetupName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleLinkSelected()}
+                            className={`w-full px-4 py-3 rounded-xl border mb-8 outline-none transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 focus:border-violet-500 text-white' : 'bg-slate-50 border-slate-200 focus:border-violet-500'}`}
+                        />
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setIsLinkModalOpen(false)}
+                                className={`flex-1 py-4 rounded-2xl font-bold text-sm transition-all ${isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleLinkSelected}
+                                disabled={!newSetupName.trim()}
+                                className="flex-1 py-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-violet-500/20"
+                            >
+                                Create Cluster
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Smartphone, Monitor, construction, Hammer, Timer } from 'lucide-react';
+import { Smartphone, Monitor, Construction, Hammer, Timer } from 'lucide-react';
 
 interface MobileBlockerProps {
   isDarkMode: boolean;

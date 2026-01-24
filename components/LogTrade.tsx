@@ -17,6 +17,7 @@ interface LogTradeProps {
     onCancel?: () => void;
     currencySymbol: string;
     userProfile?: UserProfile | null;
+    trades: Trade[];
 }
 
 // --- Helper Functions ---
@@ -169,7 +170,7 @@ const StepIndicator = ({ current, total, isDarkMode }: { current: number, total:
     </div>
 );
 
-const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, initialTrade, onCancel, currencySymbol, userProfile }) => {
+const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, initialTrade, onCancel, currencySymbol, userProfile, trades }) => {
     const [step, setStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
     const { addToast } = useToast();
@@ -220,6 +221,8 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
         tradingMistake: initialTrade?.tradingMistake || 'None',
         mindset: initialTrade?.mindset || 'Neutral',
         tags: initialTrade?.tags?.join(', ') || '',
+        setupId: initialTrade?.setupId || '',
+        setupName: initialTrade?.setupName || '',
     });
 
     const [metrics, setMetrics] = useState({ risk: 0, reward: 0, rr: 0 });
@@ -276,6 +279,25 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
     });
 
     const [previewImage, setPreviewImage] = useState<{ url: string, title: string } | null>(null);
+
+    // Derive unique setups from trades for linking
+    const recentSetups = useMemo(() => {
+        const setups: { id: string, name: string, pair: string, date: string }[] = [];
+        const seenIds = new Set();
+
+        [...trades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).forEach(t => {
+            if (t.setupId && !seenIds.has(t.setupId)) {
+                setups.push({
+                    id: t.setupId,
+                    name: t.setupName || 'Unnamed Setup',
+                    pair: t.pair,
+                    date: t.date
+                });
+                seenIds.add(t.setupId);
+            }
+        });
+        return setups.slice(0, 10); // Show last 10 unique setups
+    }, [trades]);
 
     useEffect(() => {
         const entry = parseFloat(formData.entryPrice);
@@ -550,6 +572,8 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                 afterScreenshot: screenshots.after,
                 openTime: initialTrade?.openTime || `${formData.date}T${formData.time}:00`,
                 closeTime: initialTrade?.closeTime || (formData.result !== 'Pending' ? `${formData.date}T${formData.time}:00` : undefined),
+                setupId: formData.setupId,
+                setupName: formData.setupName,
             };
 
             await onSave(newTrade);
@@ -764,6 +788,93 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                                                 onChange={(e: any) => handleInputChange('time', e.target.value)}
                                             />
                                         </InputWrapper>
+                                    </div>
+
+                                    <div className="col-span-2 p-6 rounded-2xl border-2 border-dashed border-violet-500/20 bg-violet-500/5 animate-in zoom-in-95 duration-500">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                                            <div>
+                                                <h3 className="text-sm font-black uppercase tracking-widest text-violet-500 flex items-center gap-2">
+                                                    <Link size={16} /> Setup Linking
+                                                </h3>
+                                                <p className="text-[10px] font-bold opacity-50 mt-1">Group multiple entries into a single strategic idea.</p>
+                                            </div>
+                                            <div className="flex rounded-lg border overflow-hidden p-1 gap-1 bg-white/50 dark:bg-black/20">
+                                                <button 
+                                                    onClick={() => {
+                                                        handleInputChange('setupId', '');
+                                                        handleInputChange('setupName', '');
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${!formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                                                >
+                                                    New Setup
+                                                </button>
+                                                {recentSetups.length > 0 && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (recentSetups.length > 0) {
+                                                                handleInputChange('setupId', recentSetups[0].id);
+                                                                handleInputChange('setupName', recentSetups[0].name);
+                                                            }
+                                                        }}
+                                                        className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                                                    >
+                                                        Link Existing
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {formData.setupId ? (
+                                            <div className="space-y-4 animate-in slide-in-from-top-2">
+                                                <Label>Select Previous Setup</Label>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    {recentSetups.map((s) => (
+                                                        <button
+                                                            key={s.id}
+                                                            onClick={() => {
+                                                                handleInputChange('setupId', s.id);
+                                                                handleInputChange('setupName', s.name);
+                                                                handleInputChange('pair', s.pair); // Auto-sync pair
+                                                            }}
+                                                            className={`p-3 rounded-xl border-2 text-left transition-all ${formData.setupId === s.id 
+                                                                ? 'border-violet-500 bg-violet-500/10' 
+                                                                : 'border-transparent bg-white/50 dark:bg-black/20 hover:border-zinc-300 dark:hover:border-zinc-700'
+                                                            }`}
+                                                        >
+                                                            <div className="font-black text-xs truncate">{s.name}</div>
+                                                            <div className="flex items-center justify-between mt-1">
+                                                                <span className="text-[9px] font-bold opacity-50">{s.pair}</span>
+                                                                <span className="text-[9px] font-bold opacity-50">{s.date}</span>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4 animate-in slide-in-from-top-2">
+                                                <div>
+                                                    <Label>Setup Name (Optional)</Label>
+                                                    <InputWrapper>
+                                                        <StyledInput
+                                                            isDarkMode={isDarkMode}
+                                                            icon={Type}
+                                                            placeholder="e.g. Morning Scalp, H4 Breakout..."
+                                                            value={formData.setupName}
+                                                            onChange={(e: any) => {
+                                                                const name = e.target.value;
+                                                                handleInputChange('setupName', name);
+                                                                // If they typed a name but no ID, generate a temporary one
+                                                                if (name.trim() && !formData.setupId) {
+                                                                    handleInputChange('setupId', `setup-${Date.now()}`);
+                                                                } else if (!name.trim()) {
+                                                                    handleInputChange('setupId', '');
+                                                                }
+                                                            }}
+                                                        />
+                                                    </InputWrapper>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="col-span-2">

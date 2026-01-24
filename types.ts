@@ -53,6 +53,8 @@ export interface Trade {
   exitComment?: string;
   beforeScreenshot?: string;
   afterScreenshot?: string;
+  setupId?: string;
+  setupName?: string;
 }
 
 export interface Note {

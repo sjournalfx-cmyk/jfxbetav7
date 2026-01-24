@@ -6,10 +6,10 @@ import {
   Workflow, ChevronRight, CandlestickChart, LogOut,
   Settings, Sun, Moon, Link, Activity, Lock, Bell, X, CheckCircle2, AlertCircle, AlertTriangle, Info, Trash2, Globe, Medal
 } from 'lucide-react';
-import { 
-  IconPower, 
-  IconBell, 
-  IconMoon, 
+import {
+  IconPower,
+  IconBell,
+  IconMoon,
   IconSun,
   IconSettings,
   IconLayoutDashboard,
@@ -42,6 +42,7 @@ interface SidebarProps {
   onLogout: () => void;
   userProfile?: UserProfile | null;
   trades?: Trade[];
+  eaSession?: any;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -54,7 +55,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenQuickLog,
   onLogout,
   userProfile,
-  trades = []
+  trades = [],
+  eaSession
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -62,12 +64,32 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
   const isBasicTier = !PLAN_FEATURES[currentPlan].advancedAnalytics;
-  
+
   const { notifications, clearNotifications } = useToast();
 
   const tradeCount = trades.length;
-  
 
+  // Bridge Health Logic
+  const [isBridgeOnline, setIsBridgeOnline] = useState(false);
+
+  useEffect(() => {
+    const checkHealth = () => {
+      if (!userProfile?.eaConnected || !eaSession?.last_updated) {
+        setIsBridgeOnline(false);
+        return;
+      }
+      
+      const lastUpdate = new Date(eaSession.last_updated).getTime();
+      const now = new Date().getTime();
+      const diffSeconds = (now - lastUpdate) / 1000;
+      
+      setIsBridgeOnline(diffSeconds < 30); // 30 second threshold for Sidebar indicator
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => clearInterval(interval);
+  }, [eaSession, userProfile?.eaConnected]);
 
   // Close notifications on click outside
   useEffect(() => {
@@ -98,12 +120,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
   ];
 
+  const filteredMenuItems = menuItems.filter(item => {
+    if (item.id === 'log-trade' && !isBasicTier) return false;
+    return true;
+  });
+
   const systemItems = [
-    { 
-      id: 'notifications', 
-      icon: IconBell, 
-      label: 'Notifications', 
-      onClick: () => setShowNotifications(!showNotifications), 
+    {
+      id: 'notifications',
+      icon: IconBell,
+      label: 'Notifications',
+      onClick: () => setShowNotifications(!showNotifications),
       badge: notifications.length > 0,
       isActive: showNotifications,
       secondaryAction: notifications.length > 0 ? {
@@ -112,15 +139,15 @@ const Sidebar: React.FC<SidebarProps> = ({
       } : undefined
     },
     { id: 'theme', icon: isDarkMode ? IconSun : IconMoon, label: isDarkMode ? 'Light Mode' : 'Dark Mode', onClick: onToggleTheme },
-    { 
-      id: 'settings', 
-      icon: IconSettings, 
-      label: 'Settings', 
+    {
+      id: 'settings',
+      icon: IconSettings,
+      label: 'Settings',
       onClick: () => {
         onSettingsTabChange?.('profile');
         onViewChange('settings');
-      }, 
-      isActive: currentView === 'settings' 
+      },
+      isActive: currentView === 'settings'
     },
     { id: 'logout', icon: IconPower, label: 'Log Out', onClick: onLogout, variant: 'danger' },
   ];
@@ -163,7 +190,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest mt-0.5">{notifications.length} recent alerts</p>
               </div>
               {notifications.length > 0 && (
-                <button 
+                <button
                   onClick={clearNotifications}
                   className="p-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all text-[10px] font-black uppercase tracking-widest"
                 >
@@ -175,18 +202,16 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
               {notifications.length > 0 ? (
                 notifications.map((n) => (
-                  <div 
-                    key={n.id} 
-                    className={`p-4 rounded-2xl border flex items-start gap-3 transition-all hover:scale-[1.02] ${
-                      isDarkMode ? 'bg-zinc-900/30 border-zinc-800 hover:border-zinc-700' : 'bg-slate-50 border-slate-100 hover:border-slate-200'
-                    }`}
+                  <div
+                    key={n.id}
+                    className={`p-4 rounded-2xl border flex items-start gap-3 transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 hover:border-zinc-700' : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                      }`}
                   >
-                    <div className={`mt-0.5 p-1.5 rounded-lg ${
-                      n.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' :
-                      n.type === 'error' ? 'bg-rose-500/10 text-rose-500' :
-                      n.type === 'warning' ? 'bg-amber-500/10 text-amber-500' :
-                      'bg-indigo-500/10 text-indigo-500'
-                    }`}>
+                    <div className={`mt-0.5 p-1.5 rounded-lg ${n.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' :
+                        n.type === 'error' ? 'bg-rose-500/10 text-rose-500' :
+                          n.type === 'warning' ? 'bg-amber-500/10 text-amber-500' :
+                            'bg-indigo-500/10 text-indigo-500'
+                      }`}>
                       {n.type === 'success' && <CheckCircle2 size={14} />}
                       {n.type === 'error' && <AlertCircle size={14} />}
                       {n.type === 'warning' && <AlertTriangle size={14} />}
@@ -219,8 +244,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Live Pulse Animation (Top Fixed) */}
       <div className={`flex items-center w-full mb-4 px-3 shrink-0 ${isExpanded ? 'justify-start' : 'justify-center'}`}>
-        <div className={`w-9 h-9 rounded-full border flex items-center justify-center relative transition-colors duration-500 ${userProfile?.eaConnected ? 'border-emerald-500/30' : 'border-rose-500/30'}`}>
-          {userProfile?.eaConnected ? (
+        <div className={`w-9 h-9 rounded-full border flex items-center justify-center relative transition-colors duration-500 ${isBridgeOnline ? 'border-emerald-500/30' : 'border-rose-500/30'}`}>
+          {isBridgeOnline ? (
             <div className="relative flex items-center justify-center" style={{ animation: 'heartbeat 2s infinite ease-in-out' }}>
               <svg width="20" height="12" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
@@ -240,8 +265,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <Activity size={16} className="text-rose-500" />
           )}
-          
-          {userProfile?.eaConnected ? (
+
+          {isBridgeOnline ? (
             <div className="absolute inset-0 rounded-full border-4 border-emerald-500/60 animate-ping" />
           ) : (
             <div className="absolute inset-0 rounded-full border-4 border-rose-500/60" />
@@ -250,8 +275,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         {isExpanded && (
           <div className="ml-2 flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
             <div className="flex flex-col">
-              <div className="text-[9px] font-black uppercase tracking-widest text-emerald-500 leading-none">Live Status</div>
-              <div className="text-[11px] font-bold mt-0.5">{userProfile?.eaConnected ? 'Bridge' : 'Disconnected'}</div>
+              <div className={`text-[9px] font-black uppercase tracking-widest leading-none ${isBridgeOnline ? 'text-emerald-500' : 'text-rose-500'}`}>Live Status</div>
+              <div className="text-[11px] font-bold mt-0.5">{isBridgeOnline ? 'Bridge Active' : (userProfile?.eaConnected ? 'Bridge Offline' : 'Disconnected')}</div>
             </div>
 
           </div>
@@ -261,8 +286,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Main Navigation */}
       <nav className={`flex-1 flex flex-col justify-center w-full overflow-y-visible ${!isExpanded ? 'items-center px-0' : 'px-3'}`}>
         <div className="w-full">
-          <FloatingDock 
-            items={menuItems.map(item => ({
+          <FloatingDock
+            items={filteredMenuItems.map(item => ({
               title: item.label,
               icon: (
                 <div className="relative">
@@ -290,20 +315,20 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* System Actions (Bottom Fixed) */}
       <div className={`mt-auto w-full px-3 pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-800/50 ${!isExpanded ? 'flex flex-col items-center px-0' : ''}`}>
-                  <FloatingDock 
-                    items={systemItems.map(item => ({
-                      title: item.label,
-                      icon: <item.icon size={18} className={item.variant === 'danger' ? 'text-rose-500' : ''} />,
-                      onClick: item.onClick,
-                      isActive: item.isActive,
-                      badge: item.badge,
-                      secondaryAction: item.secondaryAction,
-                      type: 'item' as const
-                    }))}
-                    desktopClassName="bg-transparent border-none px-0"
-                    showLabels={isExpanded}
-                  />
-        
+        <FloatingDock
+          items={systemItems.map(item => ({
+            title: item.label,
+            icon: <item.icon size={18} className={item.variant === 'danger' ? 'text-rose-500' : ''} />,
+            onClick: item.onClick,
+            isActive: item.isActive,
+            badge: item.badge,
+            secondaryAction: item.secondaryAction,
+            type: 'item' as const
+          }))}
+          desktopClassName="bg-transparent border-none px-0"
+          showLabels={isExpanded}
+        />
+
       </div>
     </div>
   );

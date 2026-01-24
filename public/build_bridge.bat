@@ -17,9 +17,9 @@ echo.
 pyinstaller --noconfirm --onefile --windowed ^
     --name "JournalFX_Bridge" ^
     --icon "NONE" ^
-    --add-data "bridge_config.json;." ^
     --hidden-import "tkinter" ^
     --hidden-import "requests" ^
+    --hidden-import "MetaTrader5" ^
     jfx_bridge_gui.py
 
 echo.

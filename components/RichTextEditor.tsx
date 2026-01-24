@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { useEditor, EditorContent, ReactNodeViewRenderer, Node } from '@tiptap/react';
+import { useEditor, EditorContent, ReactNodeViewRenderer, Node as TiptapNode } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { StarterKit } from '@tiptap/starter-kit';
 import { TaskList } from '@tiptap/extension-task-list';
@@ -157,7 +157,7 @@ const CustomImage = Image.extend({
   },
 });
 
-const FloatingText = Node.create({
+const FloatingText = TiptapNode.create({
   name: 'floatingText',
   group: 'block',
   content: 'inline*',
@@ -188,13 +188,13 @@ const FloatingText = Node.create({
 
   addCommands() {
     return {
-      insertFloatingText: (attributes) => ({ commands }) => {
+      insertFloatingText: (attributes: any) => ({ commands }: { commands: any }) => {
         return commands.insertContent({
           type: this.name,
           attrs: attributes,
         });
       },
-    };
+    } as any;
   },
 });
 

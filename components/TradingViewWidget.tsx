@@ -71,6 +71,14 @@ function TradingViewWidget({
           "hide_side_toolbar": !showToolbar,
           "hide_volume": true,
           "disabled_features": ["create_volume_indicator_by_default"],
+          "enabled_features": [
+            "side_toolbar_as_default_active",
+            "drawing_templates",
+            "header_settings",
+            "header_indicators",
+            "header_compare",
+            "header_undo_redo"
+          ],
           "allow_symbol_change": true,
           "container_id": widgetId,
           "save_image": true,
@@ -82,7 +90,8 @@ function TradingViewWidget({
           "studies_overrides": {},
           "overrides": {
             "paneProperties.vertGridProperties.color": showGrid ? (theme === 'dark' ? "rgba(42, 46, 57, 0.6)" : "rgba(240, 243, 250, 0.6)") : "rgba(0,0,0,0)",
-            "paneProperties.horzGridProperties.color": showGrid ? (theme === 'dark' ? "rgba(42, 46, 57, 0.6)" : "rgba(240, 243, 250, 0.6)") : "rgba(0,0,0,0)"
+            "paneProperties.horzGridProperties.color": showGrid ? (theme === 'dark' ? "rgba(42, 46, 57, 0.6)" : "rgba(240, 243, 250, 0.6)") : "rgba(0,0,0,0)",
+            "paneProperties.legendProperties.showLegend": showLegend
           }
         });
       }

@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, messagebox, scrolledtext
 import MetaTrader5 as mt5
 import requests
 import threading
@@ -9,195 +9,275 @@ import os
 import sys
 from datetime import datetime, timezone
 
-# --- Configuration & Styling ---
-COLORS = {
-    "bg": "#0A0A0A",
-    "card": "#141414",
-    "primary": "#FF4F01",
-    "text": "#FFFFFF",
-    "text_dim": "#888888",
-    "success": "#10B981",
-    "error": "#EF4444",
-    "border": "#262626"
+# --- Constants ---
+APP_NAME = "JournalFX Bridge"
+VERSION = "2.0.0"
+CONFIG_FILE = "bridge_session.json"
+
+# HARDCODED CONFIGURATION (Hidden from User)
+SUPABASE_URL = "https://lwlikhjgwazyrahucatl.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3bGlraGpnd2F6eXJhaHVjYXRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTM5OTgsImV4cCI6MjA4Mjk4OTk5OH0.E-Gb2DIkSOrNNK4gfQRkAcDRRaMOcMM0fh0XFRRUx3Q"
+SYNC_ENDPOINT = f"{SUPABASE_URL}/functions/v1/sync-trades"
+
+# --- Theme & Styling ---
+THEME = {
+    "bg_dark": "#0f172a",      # Main Background (Slate-900)
+    "bg_card": "#1e293b",      # Card Background (Slate-800)
+    "primary": "#FF4F01",      # Brand Orange
+    "primary_hover": "#e64600",
+    "text_main": "#f8fafc",    # Slate-50
+    "text_dim": "#94a3b8",     # Slate-400
+    "success": "#10b981",      # Emerald-500
+    "error": "#ef4444",        # Red-500
+    "border": "#334155",       # Slate-700
+    "input_bg": "#020617"      # Slate-950
 }
 
-CONFIG_FILE = "bridge_config.json"
+class SupabaseClient:
+    def __init__(self):
+        self.session = None
+        self.user_profile = None
 
-# Default API endpoint and key (pre-filled for convenience)
-DEFAULT_API_URL = "https://lwlikhjgwazyrahucatl.supabase.co/functions/v1/sync-trades"
-DEFAULT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3bGlraGpnd2F6eXJhaHVjYXRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTM5OTgsImV4cCI6MjA4Mjk4OTk5OH0.E-Gb2DIkSOrNNK4gfQRkAcDRRaMOcMM0fh0XFRRUx3Q"
-
-class JournalFXBridgeGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("JournalFX Desktop Bridge v1.0")
-        self.root.geometry("600x700")
-        self.root.configure(bg=COLORS["bg"])
+    def login(self, email, password):
+        url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
+        headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+        payload = {"email": email, "password": password}
         
-        self.is_running = False
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                self.session = response.json()
+                return True, None
+            else:
+                return False, response.json().get("error_description", "Login failed")
+        except Exception as e:
+            return False, str(e)
+
+    def get_user_profile(self):
+        if not self.session: return None
+        
+        user_id = self.session["user"]["id"]
+        token = self.session["access_token"]
+        
+        url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=*"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200 and len(response.json()) > 0:
+                self.user_profile = response.json()[0]
+                return self.user_profile
+            return None
+        except:
+            return None
+
+# --- UI Components ---
+
+class ModernButton(tk.Button):
+    def __init__(self, master, **kwargs):
+        bg = kwargs.pop('bg', THEME["primary"])
+        fg = kwargs.pop('fg', "white")
+        font = kwargs.pop('font', ("Segoe UI", 10, "bold"))
+        super().__init__(master, bg=bg, fg=fg, font=font, activebackground=THEME["primary_hover"], activeforeground="white", borderwidth=0, cursor="hand2", **kwargs)
+
+class ModernEntry(tk.Entry):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, bg=THEME["input_bg"], fg=THEME["text_main"], insertbackground="white", borderwidth=0, relief="flat", font=("Segoe UI", 11), **kwargs)
+        self.configure(highlightthickness=1, highlightbackground=THEME["border"], highlightcolor=THEME["primary"])
+
+class JournalFXApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title(f"{APP_NAME} v{VERSION}")
+        self.geometry("450x650")
+        self.configure(bg=THEME["bg_dark"])
+        self.resizable(False, False)
+        
+        # Initialize Logic
+        self.client = SupabaseClient()
+        self.bridge_running = False
         self.sync_thread = None
         
-        self.setup_ui()
-        self.load_config()
+        # Container for screens
+        self.container = tk.Frame(self, bg=THEME["bg_dark"])
+        self.container.pack(fill="both", expand=True)
         
-    def setup_ui(self):
-        # Main Container
-        main_frame = tk.Frame(self.root, bg=COLORS["bg"], padx=30, pady=30)
-        main_frame.pack(fill="both", expand=True)
+        self.show_login_screen()
+        self.check_saved_session()
+
+    def clear_screen(self):
+        for widget in self.container.winfo_children():
+            widget.destroy()
+
+    def check_saved_session(self):
+        # Auto-login logic could go here if we saved tokens securely
+        pass
+
+    # --- LOGIN SCREEN ---
+    def show_login_screen(self):
+        self.clear_screen()
+        self.geometry("400x550")
+        
+        frame = tk.Frame(self.container, bg=THEME["bg_dark"], padx=40, pady=40)
+        frame.pack(fill="both", expand=True)
+        
+        # Logo / Title
+        tk.Label(frame, text="JOURNALFX", font=("Segoe UI", 28, "bold italic"), fg=THEME["primary"], bg=THEME["bg_dark"]).pack(pady=(20, 5))
+        tk.Label(frame, text="Desktop Bridge", font=("Segoe UI", 12), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(pady=(0, 40))
+        
+        # Form
+        tk.Label(frame, text="Email Address", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(0, 5))
+        self.email_entry = ModernEntry(frame)
+        self.email_entry.pack(fill="x", ipady=8, pady=(0, 20))
+        
+        tk.Label(frame, text="Password", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(0, 5))
+        self.pass_entry = ModernEntry(frame, show="•")
+        self.pass_entry.pack(fill="x", ipady=8, pady=(0, 30))
+        
+        # Login Button
+        self.btn_login = ModernButton(frame, text="SIGN IN", command=self.handle_login)
+        self.btn_login.pack(fill="x", ipady=10)
+        
+        # Footer
+        tk.Label(frame, text="v" + VERSION, font=("Segoe UI", 8), fg=THEME["border"], bg=THEME["bg_dark"]).pack(side="bottom", pady=20)
+
+    def handle_login(self):
+        email = self.email_entry.get()
+        password = self.pass_entry.get()
+        
+        if not email or not password:
+            messagebox.showwarning("Input Required", "Please enter both email and password.")
+            return
+            
+        self.btn_login.config(text="AUTHENTICATING...", state="disabled")
+        self.update()
+        
+        success, error = self.client.login(email, password)
+        
+        if success:
+            # Fetch Profile for Sync Key
+            profile = self.client.get_user_profile()
+            if profile and profile.get("sync_key"):
+                self.show_dashboard(profile)
+            else:
+                messagebox.showerror("Profile Error", "Could not retrieve Sync Key. Please check your web dashboard.")
+                self.btn_login.config(text="SIGN IN", state="normal")
+        else:
+            messagebox.showerror("Login Failed", f"Error: {error}")
+            self.btn_login.config(text="SIGN IN", state="normal")
+
+    # --- DASHBOARD SCREEN ---
+    def show_dashboard(self, profile):
+        self.clear_screen()
+        self.geometry("500x700")
+        
+        self.current_profile = profile
+        self.sync_key = profile.get("sync_key")
         
         # Header
-        header_label = tk.Label(
-            main_frame, text="JOURNALFX", 
-            fg=COLORS["primary"], bg=COLORS["bg"],
-            font=("Arial", 24, "bold italic")
-        )
-        header_label.pack(anchor="w")
+        header = tk.Frame(self.container, bg=THEME["bg_card"], height=80, padx=20, pady=15)
+        header.pack(fill="x")
         
-        sub_label = tk.Label(
-            main_frame, text="Desktop Bridge • Real-time MT5 Sync", 
-            fg=COLORS["text_dim"], bg=COLORS["bg"],
-            font=("Arial", 10)
-        )
-        sub_label.pack(anchor="w", pady=(0, 30))
+        tk.Label(header, text="CONNECTED AS", font=("Segoe UI", 8, "bold"), fg=THEME["text_dim"], bg=THEME["bg_card"]).pack(anchor="w")
+        tk.Label(header, text=profile.get("email", "User"), font=("Segoe UI", 12, "bold"), fg=THEME["text_main"], bg=THEME["bg_card"]).pack(anchor="w")
         
-        # --- Input Section ---
-        input_card = tk.Frame(main_frame, bg=COLORS["card"], padx=20, pady=20, highlightbackground=COLORS["border"], highlightthickness=1)
-        input_card.pack(fill="x", pady=(0, 20))
+        logout_btn = tk.Button(header, text="Logout", font=("Segoe UI", 9), bg=THEME["bg_card"], fg=THEME["error"], bd=0, cursor="hand2", command=self.logout)
+        logout_btn.place(relx=1.0, rely=0.5, anchor="e", x=-10)
+
+        # Main Content
+        content = tk.Frame(self.container, bg=THEME["bg_dark"], padx=20, pady=20)
+        content.pack(fill="both", expand=True)
+
+        # Status Cards
+        status_grid = tk.Frame(content, bg=THEME["bg_dark"])
+        status_grid.pack(fill="x", pady=(0, 20))
         
-        tk.Label(input_card, text="SYNC KEY", fg=COLORS["text_dim"], bg=COLORS["card"], font=("Arial", 8, "bold")).pack(anchor="w")
-        self.key_entry = tk.Entry(
-            input_card, bg="#1A1A1A", fg=COLORS["primary"], 
-            insertbackground="white", borderwidth=0, 
-            font=("Consolas", 12, "bold")
-        )
-        self.key_entry.pack(fill="x", pady=(5, 15), ipady=8)
+        self.card_mt5 = self.create_status_card(status_grid, "MT5 STATUS", "Disconnected", THEME["error"], 0)
+        self.card_server = self.create_status_card(status_grid, "SERVER LINK", "Standby", THEME["text_dim"], 1)
+
+        # Sync Key Display (Read Only)
+        tk.Label(content, text="ACTIVE SYNC KEY", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(10, 5))
+        key_frame = tk.Frame(content, bg=THEME["bg_card"], padx=15, pady=10)
+        key_frame.pack(fill="x", pady=(0, 20))
+        tk.Label(key_frame, text=self.sync_key, font=("Consolas", 14, "bold"), fg=THEME["primary"], bg=THEME["bg_card"]).pack(anchor="w")
+
+        # Control Button
+        self.btn_toggle = ModernButton(content, text="START BRIDGE", font=("Segoe UI", 14, "bold"), command=self.toggle_bridge)
+        self.btn_toggle.pack(fill="x", ipady=15, pady=(0, 20))
+
+        # Log Area
+        tk.Label(content, text="LIVE ACTIVITY LOG", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(0, 5))
+        self.log_area = scrolledtext.ScrolledText(content, bg=THEME["input_bg"], fg=THEME["text_dim"], font=("Consolas", 9), height=10, borderwidth=0, highlightthickness=1, highlightbackground=THEME["border"])
+        self.log_area.pack(fill="both", expand=True)
+
+    def create_status_card(self, parent, title, value, color, col):
+        card = tk.Frame(parent, bg=THEME["bg_card"], padx=15, pady=15)
+        card.grid(row=0, column=col, sticky="ew", padx=5 if col == 1 else (0, 5))
+        parent.grid_columnconfigure(col, weight=1)
         
-        tk.Label(input_card, text="API URL", fg=COLORS["text_dim"], bg=COLORS["card"], font=("Arial", 8, "bold")).pack(anchor="w")
-        self.url_entry = tk.Entry(
-            input_card, bg="#1A1A1A", fg=COLORS["text"], 
-            insertbackground="white", borderwidth=0, 
-            font=("Consolas", 10)
-        )
-        self.url_entry.pack(fill="x", pady=(5, 15), ipady=8)
-        
-        tk.Label(input_card, text="API KEY (ANON)", fg=COLORS["text_dim"], bg=COLORS["card"], font=("Arial", 8, "bold")).pack(anchor="w")
-        self.api_entry = tk.Entry(
-            input_card, bg="#1A1A1A", fg=COLORS["text"], 
-            insertbackground="white", borderwidth=0, 
-            font=("Consolas", 10), show="*"
-        )
-        self.api_entry.pack(fill="x", pady=(5, 10), ipady=8)
-        
-        # --- Status Section ---
-        status_frame = tk.Frame(main_frame, bg=COLORS["bg"])
-        status_frame.pack(fill="x", pady=10)
-        
-        self.mt5_status = tk.Label(status_frame, text="MT5: Disconnected", fg=COLORS["error"], bg=COLORS["bg"], font=("Arial", 9, "bold"))
-        self.mt5_status.pack(side="left")
-        
-        self.server_status = tk.Label(status_frame, text="Server: Offline", fg=COLORS["error"], bg=COLORS["bg"], font=("Arial", 9, "bold"), padx=20)
-        self.server_status.pack(side="left")
-        
-        # --- Action Button ---
-        self.btn_connect = tk.Button(
-            main_frame, text="START BRIDGE", 
-            bg=COLORS["primary"], fg="white", 
-            font=("Arial", 12, "bold"), 
-            borderwidth=0, cursor="hand2",
-            command=self.toggle_bridge
-        )
-        self.btn_connect.pack(fill="x", pady=20, ipady=12)
-        
-        # --- Log Section ---
-        tk.Label(main_frame, text="ACTIVITY LOG", fg=COLORS["text_dim"], bg=COLORS["bg"], font=("Arial", 8, "bold")).pack(anchor="w")
-        self.log_area = scrolledtext.ScrolledText(
-            main_frame, bg="#050505", fg="#CCCCCC", 
-            font=("Consolas", 9), borderwidth=0,
-            highlightbackground=COLORS["border"], highlightthickness=1
-        )
-        self.log_area.pack(fill="both", expand=True, pady=(5, 0))
-        
+        tk.Label(card, text=title, font=("Segoe UI", 8, "bold"), fg=THEME["text_dim"], bg=THEME["bg_card"]).pack(anchor="w")
+        val_label = tk.Label(card, text=value, font=("Segoe UI", 11, "bold"), fg=color, bg=THEME["bg_card"])
+        val_label.pack(anchor="w", pady=(5, 0))
+        return val_label
+
+    def update_status(self, widget, text, color_key):
+        widget.config(text=text, fg=THEME[color_key])
+
+    def logout(self):
+        if self.bridge_running:
+            self.stop_bridge()
+        self.client.session = None
+        self.show_login_screen()
+
     def log(self, message, type="info"):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_area.insert(tk.END, f"[{timestamp}] {message}\n")
         self.log_area.see(tk.END)
-        
-    def load_config(self):
-        config_loaded = False
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    config = json.load(f)
-                    self.key_entry.insert(0, config.get("key", ""))
-                    self.url_entry.insert(0, config.get("url", DEFAULT_API_URL))
-                    self.api_entry.insert(0, config.get("api_key", DEFAULT_API_KEY))
-                    config_loaded = True
-            except:
-                pass
-        
-        # Pre-fill defaults if no config was loaded
-        if not config_loaded:
-            self.url_entry.insert(0, DEFAULT_API_URL)
-            self.api_entry.insert(0, DEFAULT_API_KEY)
 
-    def save_config(self):
-        config = {
-            "key": self.key_entry.get(),
-            "url": self.url_entry.get(),
-            "api_key": self.api_entry.get()
-        }
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-
+    # --- BRIDGE LOGIC ---
     def toggle_bridge(self):
-        if not self.is_running:
+        if not self.bridge_running:
             self.start_bridge()
         else:
             self.stop_bridge()
 
     def start_bridge(self):
-        key = self.key_entry.get()
-        url = self.url_entry.get()
-        api_key = self.api_entry.get()
-        
-        if not key or not url or not api_key:
-            messagebox.showerror("Error", "Please fill in all connection details.")
-            return
-            
-        self.save_config()
-        self.is_running = True
-        self.btn_connect.config(text="STOP BRIDGE", bg=COLORS["error"])
+        self.bridge_running = True
+        self.btn_toggle.config(text="STOP BRIDGE", bg=THEME["error"])
         self.log("Initializing bridge...", "info")
         
-        self.sync_thread = threading.Thread(target=self.bridge_loop, args=(key, url, api_key), daemon=True)
+        self.sync_thread = threading.Thread(target=self.bridge_loop, daemon=True)
         self.sync_thread.start()
 
     def stop_bridge(self):
-        self.is_running = False
-        self.btn_connect.config(text="START BRIDGE", bg=COLORS["primary"])
-        self.mt5_status.config(text="MT5: Disconnected", fg=COLORS["error"])
-        self.server_status.config(text="Server: Offline", fg=COLORS["error"])
+        self.bridge_running = False
+        self.btn_toggle.config(text="START BRIDGE", bg=THEME["primary"])
+        self.update_status(self.card_mt5, "Disconnected", "error")
+        self.update_status(self.card_server, "Standby", "text_dim")
         self.log("Bridge stopped.", "info")
         mt5.shutdown()
 
-    def bridge_loop(self, key, url, api_key):
+    def bridge_loop(self):
         if not mt5.initialize():
             self.log(f"MT5 Init Failed: {mt5.last_error()}", "error")
-            self.root.after(0, lambda: self.stop_bridge())
+            self.after(0, self.stop_bridge)
             return
 
-        self.root.after(0, lambda: self.mt5_status.config(text="MT5: Connected", fg=COLORS["success"]))
+        self.after(0, lambda: self.update_status(self.card_mt5, "Connected", "success"))
         self.log("Connected to MetaTrader 5")
         
         headers = {
             "Content-Type": "application/json",
-            "Sync-Key": key,
-            "Authorization": f"Bearer {api_key}"
+            "Sync-Key": self.sync_key,
+            "Authorization": f"Bearer {SUPABASE_KEY}"
         }
 
-        while self.is_running:
+        while self.bridge_running:
             try:
-                # Get Data
                 account = self.get_account_info()
                 positions = self.get_positions()
                 trades = self.get_history()
@@ -210,39 +290,38 @@ class JournalFXBridgeGUI:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
 
-                response = requests.post(url, json=payload, headers=headers, timeout=10)
+                response = requests.post(SYNC_ENDPOINT, json=payload, headers=headers, timeout=10)
                 
                 if response.status_code == 200:
-                    self.root.after(0, lambda: self.server_status.config(text="Server: Online", fg=COLORS["success"]))
+                    self.after(0, lambda: self.update_status(self.card_server, "Online", "success"))
                     if account:
                         self.log(f"Sync OK | Equity: {account['equity']:.2f}")
                 else:
                     self.log(f"Server Error: {response.status_code}", "error")
-                    self.root.after(0, lambda: self.server_status.config(text="Server: Error", fg=COLORS["error"]))
+                    self.after(0, lambda: self.update_status(self.card_server, "Error", "error"))
 
             except Exception as e:
                 self.log(f"Loop Error: {str(e)}", "error")
-                self.root.after(0, lambda: self.server_status.config(text="Server: Offline", fg=COLORS["error"]))
+                self.after(0, lambda: self.update_status(self.card_server, "Offline", "error"))
             
             time.sleep(2)
 
+    # --- MT5 HELPERS ---
     def get_account_info(self):
         acc = mt5.account_info()
         if not acc: return None
-        return {"login": acc.login, "balance": acc.balance, "equity": acc.equity, "profit": acc.profit, "margin": acc.margin, "margin_level": acc.margin_level, "server": acc.server, "company": acc.company, "is_demo": acc.trade_mode != mt5.ACCOUNT_TRADE_MODE_REAL}
+        return {"login": acc.login, "balance": acc.balance, "equity": acc.equity, "profit": acc.profit, "margin": acc.margin, "server": acc.server, "is_demo": acc.trade_mode != mt5.ACCOUNT_TRADE_MODE_REAL}
 
     def get_positions(self):
         pos = mt5.positions_get()
         if not pos: return []
-        return [{"ticket": p.ticket, "symbol": p.symbol, "type": "BUY" if p.type == 0 else "SELL", "volume": p.volume, "profit": p.profit} for p in pos]
+        return [{"ticket": p.ticket, "symbol": p.symbol, "type": "BUY" if p.type == 0 else "SELL", "volume": p.volume, "profit": p.profit, "price": p.price_open} for p in pos]
 
     def get_history(self):
         from_date = datetime.now().timestamp() - (30 * 24 * 60 * 60)
         to_date = datetime.now().timestamp() + 86400
         deals = mt5.history_deals_get(from_date, to_date)
         if not deals: return []
-        
-        # Simplified for GUI log
         res = []
         for d in deals:
             if d.entry in [1, 2]:
@@ -250,6 +329,5 @@ class JournalFXBridgeGUI:
         return res[:50]
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = JournalFXBridgeGUI(root)
-    root.mainloop()
+    app = JournalFXApp()
+    app.mainloop()

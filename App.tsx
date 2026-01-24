@@ -6,7 +6,8 @@ import Dashboard from './components/Dashboard';
 import Journal from './components/Journal';
 import Analytics from './components/Analytics';
 import Auth from './components/Auth';
-import { PartyPopper, MessageSquare, AlertCircle, Trash2, LogOut, X, Wallet, Activity, ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { PartyPopper, MessageSquare, AlertCircle, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { UserProfile, Trade, Note, DailyBias, Goal } from './types';
 
 import Goals from './components/Goals';
 import Notes from './components/Notes';
@@ -26,7 +27,7 @@ import { APP_CONSTANTS, PLAN_FEATURES } from './lib/constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { getSASTDateTime } from './lib/timeUtils';
 import { authService } from './services/authService';
-import { dataService, mapTradeFromDB } from './services/dataService';
+import { dataService, mapTradeFromDB, mapGoalFromDB } from './services/dataService';
 import { supabase } from './lib/supabase';
 import { ToastProvider, useToast } from './components/ui/Toast';
 
@@ -203,7 +204,10 @@ const AppContent: React.FC = () => {
           filter: `user_id=eq.${userId}`
         }, (payload) => {
           if (payload.eventType === 'INSERT') {
-            setTrades(prev => [mapTradeFromDB(payload.new), ...prev]);
+            setTrades(prev => {
+              if (prev.some(t => t.id === payload.new.id)) return prev;
+              return [mapTradeFromDB(payload.new), ...prev];
+            });
           } else if (payload.eventType === 'UPDATE') {
             setTrades(prev => prev.map(t => t.id === payload.new.id ? mapTradeFromDB(payload.new) : t));
           } else if (payload.eventType === 'DELETE') {
@@ -216,7 +220,12 @@ const AppContent: React.FC = () => {
       const notesChannel = supabase
         .channel('notes_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') setNotes(prev => [{ ...payload.new, isPinned: (payload.new as any).is_pinned }, ...prev]);
+          if (payload.eventType === 'INSERT') {
+            setNotes(prev => {
+              if (prev.some(n => n.id === payload.new.id)) return prev;
+              return [{ ...payload.new, isPinned: (payload.new as any).is_pinned } as Note, ...prev];
+            });
+          }
           else if (payload.eventType === 'UPDATE') setNotes(prev => prev.map(n => n.id === payload.new.id ? { ...payload.new, isPinned: (payload.new as any).is_pinned } as Note : n));
           else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== payload.old.id));
         }).subscribe();
@@ -225,7 +234,12 @@ const AppContent: React.FC = () => {
       const biasChannel = supabase
         .channel('bias_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_bias', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') setDailyBias(prev => [...prev, { ...payload.new, actualOutcome: (payload.new as any).actual_outcome } as DailyBias]);
+          if (payload.eventType === 'INSERT') {
+            setDailyBias(prev => {
+              if (prev.some(b => b.date === payload.new.date)) return prev;
+              return [...prev, { ...payload.new, actualOutcome: (payload.new as any).actual_outcome } as DailyBias];
+            });
+          }
           else if (payload.eventType === 'UPDATE') setDailyBias(prev => prev.map(b => b.date === payload.new.date ? { ...payload.new, actualOutcome: (payload.new as any).actual_outcome } as DailyBias : b));
         }).subscribe();
 
@@ -233,14 +247,13 @@ const AppContent: React.FC = () => {
       const goalsChannel = supabase
         .channel('goals_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'goals', filter: `user_id=eq.${userId}` }, (payload) => {
-          // Re-using dataService mapping would be better but let's do a quick map here or refactor
-          const mapGoal = (g: any): Goal => ({
-            id: g.id, title: g.title, description: g.description, type: g.type, metric: g.metric,
-            targetValue: g.target_value, startValue: g.start_value, startDate: g.start_date, endDate: g.end_date,
-            status: g.status, createdAt: g.created_at, milestones: g.milestones || [], manualProgress: g.current_value
-          });
-          if (payload.eventType === 'INSERT') setGoals(prev => [mapGoal(payload.new), ...prev]);
-          else if (payload.eventType === 'UPDATE') setGoals(prev => prev.map(g => g.id === payload.new.id ? mapGoal(payload.new) : g));
+          if (payload.eventType === 'INSERT') {
+            setGoals(prev => {
+              if (prev.some(g => g.id === payload.new.id)) return prev;
+              return [mapGoalFromDB(payload.new), ...prev];
+            });
+          }
+          else if (payload.eventType === 'UPDATE') setGoals(prev => prev.map(g => g.id === payload.new.id ? mapGoalFromDB(payload.new) : g));
           else if (payload.eventType === 'DELETE') setGoals(prev => prev.filter(g => g.id !== payload.old.id));
         }).subscribe();
 
@@ -341,38 +354,37 @@ const AppContent: React.FC = () => {
         setTrades(trades.map(t => t.id === trade.id ? trade : t));
         setEditingTrade(null);
       } else {
-        // Enforce Plan Limits
+        // Enforce Plan Limits (Server-side check)
         const sastNow = getSASTDateTime();
         const [year, month] = sastNow.date.split('-').map(Number);
-        const currentMonth = month - 1; // 0-indexed
-        const currentYear = year;
-
-        const tradesThisMonth = trades.filter(t => {
-          const [tYear, tMonth] = t.date.split('-').map(Number);
-          return (tMonth - 1) === currentMonth && tYear === currentYear;
-        }).length;
-
+        
         const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
         const features = PLAN_FEATURES[currentPlan] || PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
 
-        if (features.maxTradesPerMonth !== Infinity && tradesThisMonth >= features.maxTradesPerMonth) {
-          setConfirmModal({
-            isOpen: true,
-            title: 'Monthly Limit Reached',
-            description: `You have reached the limit of ${features.maxTradesPerMonth} trades per month for the ${currentPlan}. Upgrade your plan for more capacity.`,
-            confirmText: 'Upgrade Plan',
-            cancelText: 'Maybe Later',
-            variant: 'warning',
-            onConfirm: () => {
-              setCurrentView('settings');
-              setConfirmModal(prev => ({ ...prev, isOpen: false }));
-            },
-          });
-          return;
+        // Check against DB for accuracy
+        if (userId && features.maxTradesPerMonth !== Infinity) {
+          const dbTradesThisMonth = await dataService.getMonthlyTradeCount(userId, year, month);
+          
+          if (dbTradesThisMonth >= features.maxTradesPerMonth) {
+            setConfirmModal({
+              isOpen: true,
+              title: 'Monthly Limit Reached',
+              description: `You have reached the limit of ${features.maxTradesPerMonth} trades per month for the ${currentPlan}. Upgrade your plan for more capacity.`,
+              confirmText: 'Upgrade Plan',
+              cancelText: 'Maybe Later',
+              variant: 'warning',
+              onConfirm: () => {
+                setCurrentView('settings');
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+              },
+            });
+            return;
+          }
         }
 
         const newTrade = await dataService.addTrade(trade);
         setTrades([newTrade, ...trades]);
+        dataService.logActivity('ADD_TRADE', { pair: newTrade.pair, pnl: newTrade.pnl });
       }
       setCurrentView('history');
     } catch (error) {
@@ -431,6 +443,24 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const handleBatchUpdateTrades = async (updatedTrades: Trade[]) => {
+    try {
+      await dataService.batchUpdateTrades(updatedTrades);
+      const updatedIds = updatedTrades.map(ut => ut.id);
+      setTrades(prev => prev.map(t => {
+        const matching = updatedTrades.find(ut => ut.id === t.id);
+        return matching || t;
+      }));
+    } catch (error) {
+      console.error("Error batch updating trades:", error);
+      addToast({
+        type: 'error',
+        title: 'Update Failed',
+        message: 'Could not link trades. Please try again.'
+      });
+    }
+  };
+
   const handleDeleteTrades = async (tradeIds: string[]) => {
     const tradesToDelete = trades.filter(t => tradeIds.includes(t.id));
 
@@ -445,6 +475,7 @@ const AppContent: React.FC = () => {
           await dataService.deleteTrades(tradeIds);
           setTrades(prev => prev.filter(t => !tradeIds.includes(t.id)));
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          dataService.logActivity('DELETE_TRADES', { count: tradeIds.length, ids: tradeIds });
 
           addToast({
             type: 'success',
@@ -648,17 +679,7 @@ const AppContent: React.FC = () => {
     if (currentView !== 'charts') {
       setIsFocusMode(false);
     }
-
-    // Auto-refresh data when switching to critical views
-    if (isAuthenticated && userId) {
-      if (currentView === 'history') {
-        dataService.getTrades().then(setTrades).catch(console.error);
-      } else if (currentView === 'dashboard') {
-        dataService.getTrades().then(setTrades).catch(console.error);
-        dataService.getDailyBias().then(setDailyBias).catch(console.error);
-      }
-    }
-  }, [currentView, isAuthenticated, userId]);
+  }, [currentView]);
 
   if (isMobile) {
     return <MobileBlocker isDarkMode={isDarkMode} />;
@@ -720,21 +741,19 @@ const AppContent: React.FC = () => {
   const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
   const isPro = userProfile?.plan === 'PRO TIER (ANALYSTS)';
   // Centralized currentBalance logic: use bridge balance if connected, otherwise fallback to journal PnL
-  // For PRO users, if not connected, balance is effectively 0 until sync
   const currentBalance = eaSession?.data?.account?.balance !== undefined
     ? eaSession.data.account.balance
-    : (isPro ? 0 : (userProfile.initialBalance + totalPnL));
+    : (userProfile.initialBalance + totalPnL);
 
   // Calculate Usage Stats
-  const sastNow = getSASTDateTime();
-  const [sYear, sMonth] = sastNow.date.split('-').map(Number);
-  const currentMonth = sMonth - 1;
-  const currentYear = sYear;
+  const { date: sastDate } = getSASTDateTime();
+  const [year, month] = sastDate.split('-').map(Number);
   
   const tradesThisMonth = trades.filter(t => {
     const [tYear, tMonth] = t.date.split('-').map(Number);
-    return (tMonth - 1) === currentMonth && tYear === currentYear;
+    return tMonth === month && tYear === year;
   }).length;
+
   const totalNotes = notes.length;
   const totalImages = trades.reduce((acc, t) => {
     let count = 0;
@@ -769,6 +788,7 @@ const AppContent: React.FC = () => {
             onLogout={handleLogout}
             userProfile={userProfile}
             trades={trades}
+            eaSession={eaSession}
           />
         )}
 
@@ -794,6 +814,7 @@ const AppContent: React.FC = () => {
               onCancel={() => { setEditingTrade(null); setCurrentView('history'); }}
               currencySymbol={userProfile.currencySymbol}
               userProfile={userProfile}
+              trades={trades}
             />
           )}
           {currentView === 'history' && (
@@ -801,6 +822,7 @@ const AppContent: React.FC = () => {
               isDarkMode={isDarkMode}
               trades={trades}
               onUpdateTrade={handleUpdateTrade}
+              onBatchUpdateTrades={handleBatchUpdateTrades}
               onDeleteTrades={handleDeleteTrades}
               onEditTrade={handleEditTrade}
               userProfile={userProfile}
@@ -875,6 +897,7 @@ const AppContent: React.FC = () => {
               eaSession={eaSession}
               onTradeAdded={(newTrade) => setTrades(prev => [newTrade, ...prev])}
               onEditTrade={handleEditTrade}
+              trades={trades}
             />
           )}
           {currentView === 'broker' && userProfile && (

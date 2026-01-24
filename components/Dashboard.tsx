@@ -354,10 +354,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const isPro = userProfile.plan === 'PRO TIER (ANALYSTS)';
     
     // If EA Session exists, use bridge balance as the source of truth for current balance
-    // For PRO users, if not connected, show 0.00
     const currentBalance = eaSession?.data?.account?.balance !== undefined
         ? eaSession.data.account.balance
-        : (isPro ? 0 : (userProfile.initialBalance + totalPnL));
+        : (userProfile.initialBalance + totalPnL);
 
     const wins = trades.filter(t => t.result === 'Win');
     const losses = trades.filter(t => t.result === 'Loss');
@@ -380,7 +379,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     }, [trades]);
 
     const totalFloatingPnL = useMemo(() => {
-        return (eaSession?.data?.openPositions || []).reduce((sum: number, pos: any) => sum + pos.profit, 0);
+        return (eaSession?.data?.openPositions || []).reduce((sum: number, pos: any) => sum + Number(pos.profit || 0), 0);
     }, [eaSession]);
 
     const planBadge = useMemo(() => {

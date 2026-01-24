@@ -5,20 +5,36 @@ import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
 
 // Helper to map DB Trade to App Trade
 export const mapTradeFromDB = (dbTrade: any): Trade => ({
-  ...dbTrade,
+  id: dbTrade.id,
   ticketId: dbTrade.ticket_id,
+  pair: dbTrade.pair,
   assetType: dbTrade.asset_type,
-  entryPrice: dbTrade.entry_price,
-  exitPrice: dbTrade.exit_price,
-  stopLoss: dbTrade.stop_loss,
-  takeProfit: dbTrade.take_profit,
+  date: dbTrade.date,
+  time: dbTrade.time,
+  session: dbTrade.session,
+  direction: dbTrade.direction,
+  entryPrice: Number(dbTrade.entry_price || 0),
+  exitPrice: dbTrade.exit_price ? Number(dbTrade.exit_price) : undefined,
+  stopLoss: Number(dbTrade.stop_loss || 0),
+  takeProfit: Number(dbTrade.take_profit || 0),
+  lots: Number(dbTrade.lots || 0),
+  result: dbTrade.result,
+  pnl: Number(dbTrade.pnl || 0),
+  rr: Number(dbTrade.rr || 0),
+  rating: Number(dbTrade.rating || 0),
+  tags: dbTrade.tags,
+  notes: dbTrade.notes,
+  emotions: dbTrade.emotions,
   planAdherence: dbTrade.plan_adherence,
   tradingMistake: dbTrade.trading_mistake,
+  mindset: dbTrade.mindset,
   exitComment: dbTrade.exit_comment,
   openTime: dbTrade.open_time,
   closeTime: dbTrade.close_time,
   beforeScreenshot: dbTrade.before_screenshot,
   afterScreenshot: dbTrade.after_screenshot,
+  setupId: dbTrade.setup_id,
+  setupName: dbTrade.setup_name,
 });
 
 // Helper to map App Trade to DB Trade
@@ -51,6 +67,27 @@ const mapTradeToDB = (trade: Trade, userId: string) => ({
   close_time: trade.closeTime,
   before_screenshot: trade.beforeScreenshot,
   after_screenshot: trade.afterScreenshot,
+  setup_id: trade.setupId,
+  setup_name: trade.setupName,
+});
+
+// Helper to map DB Goal to App Goal
+export const mapGoalFromDB = (dbGoal: any): Goal => ({
+  id: dbGoal.id,
+  title: dbGoal.title,
+  description: dbGoal.description,
+  type: dbGoal.type,
+  metric: dbGoal.metric,
+  targetValue: Number(dbGoal.target_value || 0),
+  startValue: Number(dbGoal.start_value || 0),
+  startDate: dbGoal.start_date,
+  endDate: dbGoal.end_date,
+  status: dbGoal.status,
+  createdAt: dbGoal.created_at,
+  milestones: dbGoal.milestones || [],
+  manualProgress: Number(dbGoal.current_value || 0),
+  autoTrackRule: dbGoal.auto_track_rule,
+  manualEntries: dbGoal.manual_entries || []
 });
 
 const uploadImage = async (userId: string, imageSource: string | undefined, type: 'before' | 'after'): Promise<string | undefined> => {
@@ -61,7 +98,12 @@ const uploadImage = async (userId: string, imageSource: string | undefined, type
     const response = await fetch(imageSource);
     const blob = await response.blob();
 
-    const fileExt = 'png'; // Default to png for base64 transfers
+    // 1MB Limit check for sanity
+    if (blob.size > 1024 * 1024) {
+      console.warn(`Image ${type} is too large (${(blob.size / 1024).toFixed(1)}KB). Consider compressing.`);
+    }
+
+    const fileExt = 'png'; 
     const fileName = `${userId}/${Date.now()}-${type}.${fileExt}`;
 
     const { data, error } = await supabase.storage
@@ -73,8 +115,7 @@ const uploadImage = async (userId: string, imageSource: string | undefined, type
 
     if (error) {
       if (error.message === 'The resource was not found') {
-        // Attempt to create bucket if it doesn't exist (might fail due to permissions)
-        console.warn('trade-images bucket not found, please create it in Supabase dashboard');
+        throw new Error('Storage bucket "trade-images" not found. Please create it in Supabase.');
       }
       throw error;
     }
@@ -86,7 +127,12 @@ const uploadImage = async (userId: string, imageSource: string | undefined, type
     return publicUrl;
   } catch (err) {
     console.error(`Error uploading ${type} screenshot:`, err);
-    return imageSource; // Fallback to base64 if upload fails
+    // If it's a base64 string and upload failed, we only return it if it's small enough
+    // to avoid DB payload errors (limit to ~100KB for inline storage)
+    if (imageSource.length < 150000) {
+      return imageSource; 
+    }
+    return undefined; // Drop it rather than crashing the DB save
   }
 };
 
@@ -152,26 +198,25 @@ const deleteImageFile = async (imageUrl: string | undefined) => {
   }
 };
 
-// Helper to map DB Goal to App Goal
-const mapGoalFromDB = (dbGoal: any): Goal => ({
-  id: dbGoal.id,
-  title: dbGoal.title,
-  description: dbGoal.description,
-  type: dbGoal.type,
-  metric: dbGoal.metric,
-  targetValue: dbGoal.target_value,
-  startValue: dbGoal.start_value,
-  startDate: dbGoal.start_date,
-  endDate: dbGoal.end_date,
-  status: dbGoal.status,
-  createdAt: dbGoal.created_at,
-  milestones: dbGoal.milestones || [],
-  manualProgress: dbGoal.current_value,
-  autoTrackRule: dbGoal.auto_track_rule,
-  manualEntries: dbGoal.manual_entries || []
-});
-
 export const dataService = {
+  // --- Audit Logs ---
+  async logActivity(action: string, details: any) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        action,
+        details,
+        ip_address: 'client-side', // Placeholder
+        user_agent: navigator.userAgent
+      });
+    } catch (err) {
+      console.error('Failed to log activity:', err);
+    }
+  },
+
   // --- Trades ---
   async getTrades() {
     const { data, error } = await supabase
@@ -181,6 +226,23 @@ export const dataService = {
 
     if (error) throw error;
     return (data || []).map(mapTradeFromDB);
+  },
+
+  async getMonthlyTradeCount(userId: string, year: number, month: number) {
+    // Month is 1-indexed for the DB query (YYYY-MM-DD)
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+
+    const { count, error } = await supabase
+      .from('trades')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('date', startDate)
+      .lte('date', endDate);
+
+    if (error) throw error;
+    return count || 0;
   },
 
   async addTrade(trade: Trade) {
@@ -253,12 +315,66 @@ export const dataService = {
       afterScreenshot: afterUrl,
     };
 
-    const { error } = await supabase
-      .from('trades')
-      .update(mapTradeToDB(tradeToUpdate, user.id))
-      .eq('id', trade.id);
+    let updateData = mapTradeToDB(tradeToUpdate, user.id);
+    
+    // Recursive update function to handle missing columns
+    const performUpdate = async (data: any): Promise<void> => {
+      const { error } = await supabase.from('trades').update(data).eq('id', trade.id);
+      
+      if (error) {
+        if (error.code === '42703' || error.code === 'PGRST204' || (error.status === 400 && error.message.includes('column'))) {
+          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
+          if (fieldMatch && fieldMatch[1]) {
+            const missingField = fieldMatch[1].replace(/"/g, '');
+            console.warn(`Column ${missingField} missing. Retrying without it.`);
+            const { [missingField]: _, ...safeData } = data;
+            return performUpdate(safeData);
+          }
+        }
+        throw error;
+      }
+    };
 
-    if (error) throw error;
+    await performUpdate(updateData);
+  },
+
+  async batchUpdateTrades(trades: Trade[]) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const performBatch = async (dataList: any[]): Promise<void> => {
+      const promises = dataList.map(item => 
+        supabase.from('trades').update(item.data).eq('id', item.id)
+      );
+
+      const results = await Promise.all(promises);
+      const failedResult = results.find(r => r.error);
+      
+      if (failedResult && failedResult.error) {
+        const error = failedResult.error;
+        if (error.code === '42703' || error.code === 'PGRST204' || (error.status === 400 && error.message.includes('column'))) {
+          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
+          if (fieldMatch && fieldMatch[1]) {
+            const missingField = fieldMatch[1].replace(/"/g, '');
+            console.warn(`Batch: Column ${missingField} missing. Stripping and retrying.`);
+            
+            const nextDataList = dataList.map(item => {
+              const { [missingField]: _, ...safeData } = item.data;
+              return { id: item.id, data: safeData };
+            });
+            return performBatch(nextDataList);
+          }
+        }
+        throw error;
+      }
+    };
+
+    const initialDataList = trades.map(t => ({
+      id: t.id,
+      data: mapTradeToDB(t, user.id)
+    }));
+
+    await performBatch(initialDataList);
   },
 
   async deleteTrades(tradeIds: string[]) {
@@ -459,7 +575,7 @@ export const dataService = {
     if (profile.name !== undefined) dbProfile.name = profile.name;
     if (profile.country !== undefined) dbProfile.country = profile.country;
     if (profile.accountName !== undefined) dbProfile.account_name = profile.accountName;
-    if (profile.initialBalance !== undefined) dbProfile.initial_balance = profile.initialBalance;
+    if (profile.initialBalance !== undefined) dbProfile.initial_balance = Number(profile.initialBalance);
     if (profile.currency !== undefined) dbProfile.currency = profile.currency;
     if (profile.currencySymbol !== undefined) dbProfile.currency_symbol = profile.currencySymbol;
     if (profile.syncMethod !== undefined) dbProfile.sync_method = profile.syncMethod;
@@ -469,40 +585,40 @@ export const dataService = {
     if (profile.plan !== undefined) dbProfile.plan = profile.plan;
     if (profile.syncKey !== undefined) dbProfile.sync_key = profile.syncKey;
     if (profile.eaConnected !== undefined) dbProfile.ea_connected = profile.eaConnected;
+    if (profile.autoJournal !== undefined) dbProfile.auto_journal = profile.autoJournal;
     if (profile.avatarUrl !== undefined) dbProfile.avatar_url = profile.avatarUrl;
     if (profile.themePreference !== undefined) dbProfile.theme_preference = profile.themePreference;
     if (profile.chartConfig !== undefined) dbProfile.chart_config = profile.chartConfig;
     if (profile.keepChartsAlive !== undefined) dbProfile.keep_charts_alive = profile.keepChartsAlive;
-
-    // Always update updated_at if possible, but we'll let the DB handle it if the column exists
-    // To be safe against the reported error, we only include it if we are sure it's needed 
-    // or we can just omit it and let the DB trigger handle it once the user runs the SQL fix.
+    if (profile.isBetaTester !== undefined) dbProfile.is_beta_tester = profile.isBetaTester;
+    if (profile.feedbackSent !== undefined) dbProfile.feedback_sent = profile.feedbackSent;
 
     const { error } = await supabase
       .from('profiles')
       .upsert({
         id: user.id,
-        ...dbProfile
+        ...dbProfile,
+        updated_at: new Date().toISOString()
       });
 
     if (error) {
-      // 42703 is the PostgreSQL error code for 'column does not exist'
-      // If theme_preference is the issue, retry without it
-      if ((error as any).code === '42703' && dbProfile.theme_preference !== undefined) {
-        console.warn('theme_preference column missing, retrying update without it');
-        const { theme_preference, ...safeProfile } = dbProfile;
-        const { error: retryError } = await supabase
-          .from('profiles')
-          .upsert({
-            id: user.id,
-            ...safeProfile
-          });
-        if (retryError) throw retryError;
-      } else {
-        throw error;
+      console.error('Error updating profile:', error);
+      // Fallback for missing columns (common in beta migrations)
+      if ((error as any).code === '42703') {
+        const fieldMatch = error.message.match(/column "(.+)" of relation "profiles" does not exist/);
+        if (fieldMatch && fieldMatch[1]) {
+          const missingField = fieldMatch[1];
+          console.warn(`Column ${missingField} missing in profiles table. Retrying without it.`);
+          const { [missingField]: _, ...safeProfile } = dbProfile;
+          const { error: retryError } = await supabase
+            .from('profiles')
+            .upsert({ id: user.id, ...safeProfile });
+          if (retryError) throw retryError;
+          return;
+        }
       }
+      throw error;
     }
-
   },
 
   // --- EA Session ---
