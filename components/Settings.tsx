@@ -418,6 +418,30 @@ const Settings: React.FC<SettingsProps> = ({
                       </div>
                     </div>
                   )}
+
+                  <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex items-center gap-3 mb-6">
+                      <Zap size={20} className="text-[#FF4F01]" />
+                      <h3 className="text-lg font-bold">Backtest Lab Config</h3>
+                    </div>
+                    
+                    <div className="group">
+                      <label className={labelClasses}>Default Risk:Reward Ratio (1:X)</label>
+                      <div className="relative">
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-xl">1:</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={formData.defaultRR || 2.0}
+                          onChange={(e) => setFormData({ ...formData, defaultRR: parseFloat(e.target.value) })}
+                          className={inputClasses + " pl-8 font-mono"}
+                          placeholder="2.0"
+                        />
+                      </div>
+                      <p className="mt-2 text-[10px] opacity-50 font-medium italic">This will be the initial target distance when placing Long/Short tools.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

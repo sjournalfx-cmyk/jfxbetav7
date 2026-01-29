@@ -15,11 +15,10 @@ export interface UserProfile {
   eaConnected?: boolean;
   autoJournal?: boolean;
   avatarUrl?: string;
-  themePreference?: 'default' | 'midnight';
+  themePreference: 'default' | 'midnight' | 'cosmic';
   chartConfig?: any;
   keepChartsAlive?: boolean;
-  isBetaTester?: boolean;
-  feedbackSent?: boolean;
+  defaultRR?: number;
 }
 
 export type AssetType = 'Forex' | 'Indices' | 'Commodities' | 'Crypto' | 'Stocks';

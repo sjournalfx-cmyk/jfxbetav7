@@ -216,10 +216,11 @@ export const dataService = {
   },
 
   // --- Trades ---
-  async getTrades() {
+  async getTrades(userId: string) {
     const { data, error } = await supabase
       .from('trades')
       .select('*')
+      .eq('user_id', userId)
       .order('date', { ascending: false });
 
     if (error) throw error;
@@ -320,7 +321,7 @@ export const dataService = {
       const { error } = await supabase.from('trades').update(data).eq('id', trade.id);
       
       if (error) {
-        if (error.code === '42703' || error.code === 'PGRST204' || (error.status === 400 && error.message.includes('column'))) {
+        if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
           const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
           if (fieldMatch && fieldMatch[1]) {
             const missingField = fieldMatch[1].replace(/"/g, '');
@@ -350,7 +351,7 @@ export const dataService = {
       
       if (failedResult && failedResult.error) {
         const error = failedResult.error;
-        if (error.code === '42703' || error.code === 'PGRST204' || (error.status === 400 && error.message.includes('column'))) {
+        if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
           const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
           if (fieldMatch && fieldMatch[1]) {
             const missingField = fieldMatch[1].replace(/"/g, '');
@@ -385,10 +386,11 @@ export const dataService = {
   },
 
   // --- Notes ---
-  async getNotes() {
+  async getNotes(userId: string) {
     const { data, error } = await supabase
       .from('notes')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -445,10 +447,11 @@ export const dataService = {
   },
 
   // --- Daily Bias ---
-  async getDailyBias() {
+  async getDailyBias(userId: string) {
     const { data, error } = await supabase
       .from('daily_bias')
-      .select('*');
+      .select('*')
+      .eq('user_id', userId);
 
     if (error) throw error;
     return data.map((bias: any) => ({
@@ -493,10 +496,11 @@ export const dataService = {
   },
 
   // --- Goals ---
-  async getGoals() {
+  async getGoals(userId: string) {
     const { data, error } = await supabase
       .from('goals')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -632,10 +636,11 @@ export const dataService = {
   },
 
   // --- Strategy Diagrams ---
-  async getDiagrams() {
+  async getDiagrams(userId: string) {
     const { data, error } = await supabase
       .from('strategy_diagrams')
       .select('*')
+      .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
@@ -689,6 +694,43 @@ export const dataService = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+  },
+
+  // --- Backtest Sessions ---
+  async saveBacktestSession(session: { symbol: string, timeframe: string, data: any[], drawings: any[], trades: any[] }) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('backtest_sessions')
+      .upsert({
+        user_id: user.id,
+        symbol: session.symbol,
+        timeframe: session.timeframe,
+        data: session.data,
+        drawings: session.drawings,
+        trades: session.trades,
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async getBacktestSessions() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('backtest_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
   }
 };
 

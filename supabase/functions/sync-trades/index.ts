@@ -103,16 +103,20 @@ serve(async (req) => {
 
         // 4. Sync Trades History to 'trades' table (Only if Auto-Journal is enabled)
         if (profile.auto_journal && trades && trades.length > 0) {
-            // Get existing trade ticket IDs for this user to avoid duplicates
+            // Get existing trade ticket IDs for this user among the ones we just received
+            // to avoid duplicates more efficiently and reliably
+            const ticketIdsToSync = trades.map((t: any) => String(t.ticket));
+
             const { data: recentTrades } = await supabaseClient
                 .from('trades')
                 .select('ticket_id')
                 .eq('user_id', profile.id)
-                .not('ticket_id', 'is', null);
+                .in('ticket_id', ticketIdsToSync);
 
             const existingTickets = new Set(recentTrades?.map((t: any) => String(t.ticket_id)));
 
             const newTrades = [];
+
 
             for (const trade of trades) {
                 // Skip if we already processed this ticket

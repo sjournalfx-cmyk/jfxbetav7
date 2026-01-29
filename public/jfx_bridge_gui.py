@@ -318,15 +318,52 @@ class JournalFXApp(tk.Tk):
         return [{"ticket": p.ticket, "symbol": p.symbol, "type": "BUY" if p.type == 0 else "SELL", "volume": p.volume, "profit": p.profit, "price": p.price_open} for p in pos]
 
     def get_history(self):
+        # Add 24h buffer to to_date to handle broker server timezones that are ahead of local time
         from_date = datetime.now().timestamp() - (30 * 24 * 60 * 60)
-        to_date = datetime.now().timestamp() + 86400
+        to_date = datetime.now().timestamp() + (24 * 60 * 60)
         deals = mt5.history_deals_get(from_date, to_date)
-        if not deals: return []
-        res = []
-        for d in deals:
-            if d.entry in [1, 2]:
-                res.append({"ticket": d.ticket, "symbol": d.symbol, "profit": d.profit, "time": d.time, "type": "BUY" if d.type == 0 else "SELL", "volume": d.volume, "entry": d.entry, "price": d.price})
-        return res[:50]
+        
+        if deals is None: return []
+
+        result = []
+        
+        # Pre-fetch all entry deals to map opening prices and times by position ID
+        entry_deals = {}
+        for deal in deals:
+            if deal.entry == 0: # Entry In
+                entry_deals[deal.position_id] = {
+                    "price": deal.price,
+                    "time": deal.time
+                }
+
+        for deal in deals:
+            # We process 'Out' deals (Exit) as the completion of a trade
+            if deal.entry == 1 or deal.entry == 2: # Entry Out or In/Out
+                entry_data = entry_deals.get(deal.position_id, {"price": deal.price, "time": deal.time})
+                entry_price = entry_data["price"]
+                entry_time = entry_data["time"] # Exact opening time
+                
+                result.append({
+                    "ticket": deal.ticket,
+                    "order": deal.order,
+                    "position_id": deal.position_id,
+                    "time": deal.time, # Exit time
+                    "entry_time": entry_time, # Opening time
+                    "type": "BUY" if deal.type == 0 else "SELL", 
+                    "entry": deal.entry,
+                    "symbol": deal.symbol,
+                    "volume": deal.volume,
+                    "price": deal.price, # Exit Price
+                    "entry_price": entry_price, # True Entry Price
+                    "profit": deal.profit,
+                    "swap": deal.swap,
+                    "commission": deal.commission,
+                    "comment": deal.comment
+                })
+                
+        # Sort by time desc and limit to last 50
+        result.sort(key=lambda x: x['time'], reverse=True)
+        return result[:50]
 
 if __name__ == "__main__":
     app = JournalFXApp()

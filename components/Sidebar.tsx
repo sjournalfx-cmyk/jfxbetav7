@@ -23,7 +23,8 @@ import {
   IconGitMerge,
   IconTargetArrow,
   IconCalculator,
-  IconMessage
+  IconMessage,
+  IconTerminal2
 } from '@tabler/icons-react';
 import { UserProfile, Trade } from '../types';
 import { useToast } from './ui/Toast';
@@ -78,11 +79,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         setIsBridgeOnline(false);
         return;
       }
-      
+
       const lastUpdate = new Date(eaSession.last_updated).getTime();
       const now = new Date().getTime();
       const diffSeconds = (now - lastUpdate) / 1000;
-      
+
       setIsBridgeOnline(diffSeconds < 30); // 30 second threshold for Sidebar indicator
     };
 
@@ -118,6 +119,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'diagrams', icon: IconGitMerge, label: 'Strategy Maps', restricted: true },
     { id: 'goals', icon: IconTargetArrow, label: 'Goals', restricted: true },
     { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
+    { id: 'backtest-lab', icon: IconChartCandle, label: 'Backtest Lab', restricted: true },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {
@@ -208,9 +210,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                       }`}
                   >
                     <div className={`mt-0.5 p-1.5 rounded-lg ${n.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' :
-                        n.type === 'error' ? 'bg-rose-500/10 text-rose-500' :
-                          n.type === 'warning' ? 'bg-amber-500/10 text-amber-500' :
-                            'bg-indigo-500/10 text-indigo-500'
+                      n.type === 'error' ? 'bg-rose-500/10 text-rose-500' :
+                        n.type === 'warning' ? 'bg-amber-500/10 text-amber-500' :
+                          'bg-indigo-500/10 text-indigo-500'
                       }`}>
                       {n.type === 'success' && <CheckCircle2 size={14} />}
                       {n.type === 'error' && <AlertCircle size={14} />}

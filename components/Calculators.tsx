@@ -5,6 +5,7 @@ import {
     ChevronLeft, RefreshCw, BarChart2, Info, Coins, Layers,
     Briefcase, Target, Divide, X
 } from 'lucide-react';
+import NewCalculators from './NewCalculators';
 
 interface CalculatorsProps {
     isDarkMode: boolean;
@@ -140,9 +141,9 @@ const GrowthCalc = ({ isDarkMode, currencySymbol }: { isDarkMode: boolean, curre
     const final = data[data.length - 1];
     const profit = final - startBalance;
 
-    const periodLabel = timeframe === 'Days' ? 'Daily' : 
-                      timeframe === 'Years' ? 'Yearly' :
-                      timeframe === 'Months' ? 'Monthly' : 'Weekly';
+    const periodLabel = timeframe === 'Days' ? 'Daily' :
+        timeframe === 'Years' ? 'Yearly' :
+            timeframe === 'Months' ? 'Monthly' : 'Weekly';
 
     const getTimeframeLabel = (idx: number) => {
         const unit = timeframe.slice(0, -1);
@@ -218,7 +219,9 @@ const RRCalc = ({ isDarkMode }: { isDarkMode: boolean }) => {
 }
 
 const Calculators: React.FC<CalculatorsProps> = ({ isDarkMode, currencySymbol }) => {
+    const [activeTab, setActiveTab] = useState<'classic' | 'advanced'>('classic');
     const [activeId, setActiveId] = useState<CalculatorType | null>(null);
+
     const renderActiveCalculator = () => {
         switch (activeId) {
             case 'growth': return <GrowthCalc isDarkMode={isDarkMode} currencySymbol={currencySymbol} />;
@@ -229,10 +232,64 @@ const Calculators: React.FC<CalculatorsProps> = ({ isDarkMode, currencySymbol })
             default: return null;
         }
     };
+
     const activeCalcData = CALCULATORS.find(c => c.id === activeId);
+
+    if (activeTab === 'advanced') {
+        return (
+            <div className="w-full h-full flex flex-col">
+                <div className={`px-8 pt-6 ${isDarkMode ? 'bg-[#09090b]' : 'bg-[#F8FAFC]'}`}>
+                    <div className={`flex p-1 rounded-xl w-fit ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-slate-100 border border-slate-200'}`}>
+                        <button
+                            onClick={() => setActiveTab('classic')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            Classic
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('advanced')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isDarkMode ? 'bg-zinc-800 text-white shadow-lg' : 'bg-white text-indigo-600 shadow-sm'}`}
+                        >
+                            Advanced (New)
+                        </button>
+                    </div>
+                </div>
+                <NewCalculators isDarkMode={isDarkMode} />
+            </div>
+        );
+    }
+
     return (
         <div className={`w-full h-full overflow-hidden flex flex-col font-sans ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-[#F8FAFC] text-slate-900'}`}>
-            <div className={`shrink-0 px-8 py-8 border-b ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-white border-slate-200'}`}><div className="flex flex-col md:flex-row md:items-end justify-between gap-6"><div><div className="flex items-center gap-2 mb-2">{activeId && (<button onClick={() => setActiveId(null)} className={`p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors mr-1`}><ChevronLeft size={20} /></button>)}<h1 className="text-3xl font-black tracking-tight">{activeId ? activeCalcData?.title : 'Trading Calculators'}</h1></div><p className={`text-sm max-w-2xl leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{activeId ? activeCalcData?.desc : 'Precision tools for risk management, position sizing, and performance forecasting.'}</p></div></div></div>
+            <div className={`shrink-0 px-8 py-8 border-b ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-white border-slate-200'}`}>
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                    <div>
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className={`flex p-1 rounded-xl ${isDarkMode ? 'bg-zinc-900 border border-zinc-800' : 'bg-slate-100 border border-slate-200'}`}>
+                                <button
+                                    onClick={() => setActiveTab('classic')}
+                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isDarkMode ? 'bg-zinc-800 text-white shadow-lg' : 'bg-white text-indigo-600 shadow-sm'}`}
+                                >
+                                    Classic
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('advanced')}
+                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    Advanced (New)
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 mb-2">
+                            {activeId && (
+                                <button onClick={() => setActiveId(null)} className={`p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors mr-1`}><ChevronLeft size={20} /></button>
+                            )}
+                            <h1 className="text-3xl font-black tracking-tight">{activeId ? activeCalcData?.title : 'Trading Calculators'}</h1>
+                        </div>
+                        <p className={`text-sm max-w-2xl leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{activeId ? activeCalcData?.desc : 'Precision tools for risk management, position sizing, and performance forecasting.'}</p>
+                    </div>
+                </div>
+            </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
                 {!activeId ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

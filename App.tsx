@@ -23,6 +23,7 @@ import MobileBlocker from './components/MobileBlocker';
 import ConfirmationModal from './components/ConfirmationModal';
 import QuickLogModal from './components/QuickLogModal';
 import ErrorBoundary from './components/ErrorBoundary';
+import BacktestLab from './components/BacktestLab';
 import { APP_CONSTANTS, PLAN_FEATURES } from './lib/constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { getSASTDateTime } from './lib/timeUtils';
@@ -301,10 +302,10 @@ const AppContent: React.FC = () => {
       }
 
       const [fetchedTrades, fetchedNotes, fetchedBias, fetchedGoals] = await Promise.all([
-        dataService.getTrades(),
-        dataService.getNotes(),
-        dataService.getDailyBias(),
-        dataService.getGoals()
+        dataService.getTrades(userId),
+        dataService.getNotes(userId),
+        dataService.getDailyBias(userId),
+        dataService.getGoals(userId)
       ]);
 
       setTrades(fetchedTrades);
@@ -383,7 +384,7 @@ const AppContent: React.FC = () => {
         }
 
         const newTrade = await dataService.addTrade(trade);
-        setTrades([newTrade, ...trades]);
+        // setTrades([newTrade, ...trades]); // Removed to prevent duplicates with realtime sync
         dataService.logActivity('ADD_TRADE', { pair: newTrade.pair, pnl: newTrade.pnl });
       }
       setCurrentView('history');
@@ -409,11 +410,7 @@ const AppContent: React.FC = () => {
   const handleBatchAddTrades = async (newTrades: Trade[]) => {
     try {
       const addedTrades = await dataService.batchAddTrades(newTrades);
-      setTrades(prev => [...addedTrades, ...prev].sort((a, b) => {
-        const dateA = new Date(`${a.date}T${a.time || '00:00:00'}`);
-        const dateB = new Date(`${b.date}T${b.time || '00:00:00'}`);
-        return dateB.getTime() - dateA.getTime();
-      }));
+      // Realtime sync will handle the state update
 
       addToast({
         type: 'success',
@@ -437,7 +434,7 @@ const AppContent: React.FC = () => {
   const handleUpdateTrade = async (updatedTrade: Trade) => {
     try {
       await dataService.updateTrade(updatedTrade);
-      setTrades(trades.map(t => t.id === updatedTrade.id ? updatedTrade : t));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating trade:", error);
     }
@@ -446,11 +443,7 @@ const AppContent: React.FC = () => {
   const handleBatchUpdateTrades = async (updatedTrades: Trade[]) => {
     try {
       await dataService.batchUpdateTrades(updatedTrades);
-      const updatedIds = updatedTrades.map(ut => ut.id);
-      setTrades(prev => prev.map(t => {
-        const matching = updatedTrades.find(ut => ut.id === t.id);
-        return matching || t;
-      }));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error batch updating trades:", error);
       addToast({
@@ -473,7 +466,7 @@ const AppContent: React.FC = () => {
       onConfirm: async () => {
         try {
           await dataService.deleteTrades(tradeIds);
-          setTrades(prev => prev.filter(t => !tradeIds.includes(t.id)));
+          // setTrades(prev => prev.filter(t => !tradeIds.includes(t.id))); // Removed to rely on realtime sync
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
           dataService.logActivity('DELETE_TRADES', { count: tradeIds.length, ids: tradeIds });
 
@@ -524,14 +517,7 @@ const AppContent: React.FC = () => {
   const handleUpdateBias = async (bias: DailyBias) => {
     try {
       await dataService.updateBias(bias);
-      const existing = dailyBias.findIndex(b => b.date === bias.date);
-      if (existing > -1) {
-        const updated = [...dailyBias];
-        updated[existing] = bias;
-        setDailyBias(updated);
-      } else {
-        setDailyBias([...dailyBias, bias]);
-      }
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating bias:", error);
     }
@@ -541,7 +527,7 @@ const AppContent: React.FC = () => {
   const handleAddNote = async (note: Note) => {
     try {
       const newNote = await dataService.addNote(note);
-      setNotes([newNote, ...notes]);
+      // setNotes([newNote, ...notes]); // Removed to prevent duplicates with realtime sync
       return newNote;
     } catch (error) {
       console.error("Error adding note:", error);
@@ -552,7 +538,7 @@ const AppContent: React.FC = () => {
   const handleUpdateNote = async (note: Note) => {
     try {
       await dataService.updateNote(note);
-      setNotes(notes.map(n => n.id === note.id ? note : n));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating note:", error);
     }
@@ -561,7 +547,7 @@ const AppContent: React.FC = () => {
   const handleDeleteNote = async (noteId: string) => {
     try {
       await dataService.deleteNote(noteId);
-      setNotes(notes.filter(n => n.id !== noteId));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error deleting note:", error);
     }
@@ -571,7 +557,7 @@ const AppContent: React.FC = () => {
   const handleAddGoal = async (goal: Goal) => {
     try {
       const newGoal = await dataService.addGoal(goal);
-      setGoals(prev => [newGoal, ...prev]);
+      // setGoals(prev => [newGoal, ...prev]); // Removed to prevent duplicates with realtime sync
     } catch (error) {
       console.error("Error adding goal:", error);
     }
@@ -580,7 +566,7 @@ const AppContent: React.FC = () => {
   const handleUpdateGoal = async (goal: Goal) => {
     try {
       await dataService.updateGoal(goal);
-      setGoals(prev => prev.map(g => g.id === goal.id ? goal : g));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating goal:", error);
     }
@@ -589,7 +575,7 @@ const AppContent: React.FC = () => {
   const handleDeleteGoal = async (goalId: string) => {
     try {
       await dataService.deleteGoal(goalId);
-      setGoals(prev => prev.filter(g => g.id !== goalId));
+      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error deleting goal:", error);
     }
@@ -809,13 +795,15 @@ const AppContent: React.FC = () => {
             <LogTrade
               isDarkMode={isDarkMode}
               onSave={handleAddTrade}
-              onBatchSave={handleBatchAddTrades}
-              initialTrade={editingTrade || undefined}
-              onCancel={() => { setEditingTrade(null); setCurrentView('history'); }}
+              onCancel={() => setCurrentView('dashboard')}
+              initialTrade={editingTrade}
               currencySymbol={userProfile.currencySymbol}
-              userProfile={userProfile}
               trades={trades}
+              userProfile={userProfile}
             />
+          )}
+          {currentView === 'backtest-lab' && userProfile && (
+            <BacktestLab isDarkMode={isDarkMode} userProfile={userProfile} />
           )}
           {currentView === 'history' && (
             <Journal
@@ -888,16 +876,17 @@ const AppContent: React.FC = () => {
             )
           )}
 
-          {currentView === 'diagrams' && <DiagramEditor isDarkMode={isDarkMode} />}
-          {currentView === 'ea-setup' && userProfile && (
+          {currentView === 'diagrams' && userId && <DiagramEditor isDarkMode={isDarkMode} userId={userId} />}
+          {currentView === 'ea-setup' && userProfile && userId && (
             <EASetup
               isDarkMode={isDarkMode}
               userProfile={userProfile}
               onUpdateProfile={handleUpdateProfile}
               eaSession={eaSession}
-              onTradeAdded={(newTrade) => setTrades(prev => [newTrade, ...prev])}
+              onTradeAdded={(newTrade) => { /* Realtime sync handles this */ }}
               onEditTrade={handleEditTrade}
               trades={trades}
+              userId={userId}
             />
           )}
           {currentView === 'broker' && userProfile && (

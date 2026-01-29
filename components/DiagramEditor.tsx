@@ -14,6 +14,7 @@ import { useToast } from './ui/Toast';
 
 interface DiagramEditorProps {
   isDarkMode: boolean;
+  userId: string;
 }
 
 interface Template {
@@ -357,7 +358,7 @@ const TEMPLATES: Template[] = [
   }
 ];
 
-const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode }) => {
+const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => {
   const { addToast } = useToast();
   const [code, setCode] = useState<string>(TEMPLATES[0].code);
   const [prompt, setPrompt] = useState('');
@@ -388,11 +389,11 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode }) => {
   // Load saved diagrams on mount
   useEffect(() => {
     fetchSavedDiagrams();
-  }, []);
+  }, [userId]);
 
   const fetchSavedDiagrams = async () => {
     try {
-      const data = await dataService.getDiagrams();
+      const data = await dataService.getDiagrams(userId);
       setSavedDiagrams(data);
     } catch (err) {
       console.error("Failed to fetch diagrams:", err);

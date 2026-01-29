@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     Download, Copy, Check, Info, AlertCircle,
     Terminal, Shield, Cpu, ArrowRight, Loader2,
-    Play, Command, Code, Zap, Globe, Link,
+    Play, Command, Code, Zap, Globe, Link, X,
     Power, ExternalLink, Activity, Clock, PlusCircle, CheckCircle2,
     Settings, LayoutDashboard, ChevronDown
 } from 'lucide-react';
@@ -21,9 +21,10 @@ interface BridgeProps {
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
     trades: Trade[];
+    userId: string;
 }
 
-const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade, trades }) => {
+const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade, trades, userId }) => {
     const [isInternalConnected, setIsInternalConnected] = useState(userProfile.eaConnected);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
     const [liveData, setLiveData] = useState<any>(eaSession?.data || null);
@@ -70,6 +71,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
                 onTradeAdded={onTradeAdded}
                 onEditTrade={onEditTrade}
                 trades={trades}
+                userId={userId}
             />
         );
     }
@@ -90,7 +92,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
 };
 
 /* --- SUB-COMPONENT: BRIDGE MONITOR (The "Connected" Page) --- */
-const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades }: any) => {
+const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades, userId }: any) => {
     const [activeTab, setActiveTab] = useState<'monitor' | 'settings'>('monitor');
     const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
     const [autoLog, setAutoLog] = useLocalStorage('bridge_auto_log', false);
@@ -133,15 +135,16 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
     // Load saved trades to compare
     useEffect(() => {
         const loadSavedTrades = async () => {
+            if (!userId) return;
             try {
-                const trades = await dataService.getTrades();
+                const trades = await dataService.getTrades(userId);
                 setSavedTrades(trades);
             } catch (err) {
                 console.error("Failed to load saved trades:", err);
             }
         };
         loadSavedTrades();
-    }, [liveData]); // Reload when live data updates to reflect new saves
+    }, [liveData, userId]); // Reload when live data updates to reflect new saves
 
     const timeAgo = lastHeartbeat ? Math.floor((now.getTime() - lastHeartbeat.getTime()) / 1000) : null;
     const isOnline = timeAgo !== null && timeAgo < 15; // 15s threshold for 'offline'
@@ -296,7 +299,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
                                                 setActiveSetup(null);
                                             } else {
                                                 const s = recentSetups.find(rs => rs.id === id);
-                                                if (s) setActiveSetup({ id: s.id });
+                                                if (s) setActiveSetup({ id: s.id, name: `Setup Cluster (${s.pair})` });
                                             }
                                         }}
                                     >

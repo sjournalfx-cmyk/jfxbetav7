@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { ArrowUpRight, ArrowDownRight, Activity, TrendingUp, DollarSign, BarChart2, Zap, Coins, GripVertical, UserCircle, Wallet, Layout, Cpu, ArrowRight, Lock, Info, X } from 'lucide-react';
 import {
@@ -276,6 +275,8 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
     );
 };
 
+
+
 const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading }) => {
     // Robust free tier check
     const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
@@ -332,7 +333,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
         'dailyBias',
         'recentTrades',
         'equityCurve',
-        'openPositions'
+        'openPositions',
     ]);
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -389,7 +390,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
             return { label: 'FREE', color: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' };
         }
         if (plan === 'PRO TIER (ANALYSTS)') {
-            return { label: 'PRO', color: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' };
+            return { label: 'PRO', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' };
         }
         if (plan === 'PREMIUM (MASTERS)') {
             return { label: 'PREMIUM', color: 'bg-[#FF4F01]/10 text-[#FF4F01] border-[#FF4F01]/20' };
@@ -448,7 +449,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-100 shadow-md'}`}>
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-bold flex items-center gap-2"><Activity size={18} className="text-emerald-500" /> Open Positions</h3>
-                            {/* Display Total Floating P/L here */}
                             <div className="text-right">
                                 <div className={`text-lg font-black font-mono leading-none ${totalFloatingPnL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                     {totalFloatingPnL >= 0 ? '+' : ''}{userProfile.currencySymbol}{totalFloatingPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

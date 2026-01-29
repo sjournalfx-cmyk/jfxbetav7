@@ -181,8 +181,7 @@ function IconContainer({
 
   return (
     <div className="flex items-center w-full group/btn relative">
-      <button 
-        onClick={isLocked ? undefined : onClick} 
+      <div 
         className={cn(
           "flex items-center w-full outline-none transition-all duration-300",
           showLabels ? "gap-3 justify-start" : "justify-center"
@@ -193,8 +192,9 @@ function IconContainer({
           style={{ width, height }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
+          onClick={isLocked ? undefined : onClick}
           className={cn(
-            "relative flex aspect-square items-center justify-center rounded-full transition-colors shrink-0",
+            "relative flex aspect-square items-center justify-center rounded-full transition-colors shrink-0 cursor-pointer",
             isActive 
               ? "bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/30" 
               : "bg-gray-100 dark:bg-neutral-900 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
@@ -262,7 +262,7 @@ function IconContainer({
             )}
           </div>
         )}
-      </button>
+      </div>
     </div>
   );
 }
