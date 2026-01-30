@@ -1,0 +1,8 @@
+{
+  "track_id": "fix_backtest_drawing_20260130",
+  "type": "bug",
+  "status": "new",
+  "created_at": "2026-01-30T11:05:00Z",
+  "updated_at": "2026-01-30T11:05:00Z",
+  "description": "Fix Backtest Drawing Layer: Resolve trendline placement/movement bugs and ensure drawings remain anchored to the canvas during interaction."
+}
