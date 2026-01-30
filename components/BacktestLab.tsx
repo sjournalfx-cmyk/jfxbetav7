@@ -12,7 +12,8 @@ import { DrawingLayer } from './backtest/DrawingLayer';
 import { Drawing, Point, ToolType } from './backtest/types';
 import { useMT5Bridge } from '../hooks/useMT5Bridge';
 import { ChartErrorBoundary } from './ChartErrorBoundary';
-import { UserProfile } from '../types';
+import { UserProfile, BacktestTrade, BacktestSession } from '../types';
+import { dataService } from '../services/dataService';
 
 interface BacktestLabProps {
     isDarkMode: boolean;
@@ -46,7 +47,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
     // Trade State
     const [balance, setBalance] = useState(10000);
     const [position, setPosition] = useState<{ type: 'BUY' | 'SELL', entry: number, lots: number } | null>(null);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<BacktestTrade[]>([]);
     const [markers, setMarkers] = useState<any[]>([]);
 
     // Tools State
@@ -81,7 +82,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
 
     // Feature: Backtest Settings Modal
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [savedSessions, setSavedSessions] = useState<any[]>([]);
+    const [savedSessions, setSavedSessions] = useState<BacktestSession[]>([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
     const fetchSavedSessions = useCallback(async () => {
@@ -104,6 +105,25 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
 
     const handleSaveToCloud = async () => {
         if (allData.length === 0) return;
+
+        // Enforce Data Retention Policy
+        const currentPlan = userProfile.plan || 'FREE TIER (JOURNALER)';
+        const limits: Record<string, number> = {
+            'FREE TIER (JOURNALER)': 5,
+            'PRO TIER (ANALYSTS)': 50,
+            'PREMIUM (MASTERS)': Infinity
+        };
+        const maxSessions = limits[currentPlan] || 5;
+
+        if (savedSessions.length >= maxSessions) {
+            addToast({
+                type: 'error',
+                title: 'Limit Reached',
+                message: `You've reached the ${maxSessions} session limit for the ${currentPlan}. Please upgrade or delete old sessions.`
+            });
+            return;
+        }
+
         try {
             // Suggestion 2: Ensure data structures are clean before saving to JSONB
             // We strip any non-serializable properties if they exist
@@ -136,14 +156,14 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         }
     };
 
-    const handleLoadSession = (session: any) => {
+    const handleLoadSession = (session: BacktestSession) => {
         try {
             setSymbol(session.symbol);
             setTimeframe(session.timeframe);
             setAllData(session.data);
             setDrawings(session.drawings || []);
             setHistory(session.trades || []);
-            
+
             if (candlestickSeriesRef.current) {
                 candlestickSeriesRef.current.setData(session.data.slice(0, 51));
                 centerChart();
@@ -157,9 +177,20 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         }
     };
 
+    const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation(); // Don't trigger load
+        try {
+            await dataService.deleteBacktestSession(id);
+            addToast({ type: 'info', title: 'Deleted', message: 'Session removed from cloud.' });
+            fetchSavedSessions();
+        } catch (err: any) {
+            addToast({ type: 'error', title: 'Delete Failed', message: err.message });
+        }
+    };
+
     const centerChart = useCallback(() => {
         if (!chartRef.current || !candlestickSeriesRef.current) return;
-        
+
         // Use a small timeout to ensure the DOM and series data are fully processed
         setTimeout(() => {
             const chart = chartRef.current;
@@ -258,7 +289,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         setIsPlaying(false);
         const activeSymbol = overrideSymbol || symbol;
         const activeTF = overrideTimeframe || timeframe;
-        
+
         // Try cache first
         if (loadFromLocalCache(overrideSymbol, overrideTimeframe)) {
             // Keep dataSource as 'cache' until fetch completes
@@ -342,7 +373,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             pushToHistory(next);
             return next;
         });
-        
+
         setEditingDrawingSettings(prev => (prev && prev.id === id) ? { ...prev, ...updates } : prev);
     }, [pushToHistory]);
 
@@ -351,17 +382,17 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800, 'H1': 3600, 'H4': 14400, 'D1': 86400
         };
         const offsetTime = tfSecondsMap[timeframe] || 3600;
-        
+
         const newDrawing: Drawing = {
             ...drawing,
             id: Date.now().toString(),
-            p1: { 
-                ...drawing.p1, 
+            p1: {
+                ...drawing.p1,
                 time: drawing.p1.time + offsetTime,
                 logical: drawing.p1.logical !== undefined ? drawing.p1.logical + 1 : undefined
             },
-            p2: drawing.p2 ? { 
-                ...drawing.p2, 
+            p2: drawing.p2 ? {
+                ...drawing.p2,
                 time: drawing.p2.time + offsetTime,
                 logical: drawing.p2.logical !== undefined ? drawing.p2.logical + 1 : undefined
             } : undefined,
@@ -414,13 +445,13 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         const newDrawing: Drawing = {
             ...clipboard,
             id: Date.now().toString(),
-            p1: { 
-                time: clipboard.p1.time + timeOffset, 
+            p1: {
+                time: clipboard.p1.time + timeOffset,
                 price: clipboard.p1.price + priceOffset,
                 logical: clipboard.p1.logical !== undefined ? clipboard.p1.logical + logicalOffset : undefined
             },
-            p2: clipboard.p2 ? { 
-                time: clipboard.p2.time + timeOffset, 
+            p2: clipboard.p2 ? {
+                time: clipboard.p2.time + timeOffset,
                 price: clipboard.p2.price + priceOffset,
                 logical: clipboard.p2.logical !== undefined ? clipboard.p2.logical + logicalOffset : undefined
             } : undefined,
@@ -483,7 +514,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         const isPositionTool = activeTool === 'long' || activeTool === 'short';
         const defaultStopOffset = 0.00100;
         const rrVal = userProfile.defaultRR || 2.0;
-        
+
         setCurrentDrawing({
             id: Date.now().toString(),
             type: activeTool,
@@ -509,16 +540,34 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             const dTime = coords.time - dragStartPos.time;
             const dLog = (coords.logical ?? 0) - (dragStartPos.logical ?? 0);
 
+            const initialData = dragStartPos as any;
+
             setDrawings(prev => prev.map(d => {
                 if (d.id !== dragState.drawingId) return d;
                 const newD = { ...d };
+                
                 if (dragState.handle === 'move') {
-                    newD.p1 = { time: d.p1.time + dTime, price: d.p1.price + dPrice, logical: d.p1.logical !== undefined ? d.p1.logical + dLog : undefined };
-                    if (d.p2) newD.p2 = { time: d.p2.time + dTime, price: d.p2.price + dPrice, logical: d.p2.logical !== undefined ? d.p2.logical + dLog : undefined };
+                    const p1Base = initialData.initialP1;
+                    const p2Base = initialData.initialP2;
+                    
+                    newD.p1 = { 
+                        time: p1Base.time + dTime, 
+                        price: p1Base.price + dPrice, 
+                        logical: p1Base.logical !== undefined ? p1Base.logical + dLog : undefined 
+                    };
+                    
+                    if (p2Base) {
+                        newD.p2 = { 
+                            time: p2Base.time + dTime, 
+                            price: p2Base.price + dPrice, 
+                            logical: p2Base.logical !== undefined ? p2Base.logical + dLog : undefined 
+                        };
+                    }
+                    
                     if (d.type === 'long' || d.type === 'short') {
-                        newD.entry = (d.entry || 0) + dPrice;
-                        newD.target = (d.target || 0) + dPrice;
-                        newD.stop = (d.stop || 0) + dPrice;
+                        newD.entry = (initialData.initialEntry || 0) + dPrice;
+                        newD.target = (initialData.initialTarget || 0) + dPrice;
+                        newD.stop = (initialData.initialStop || 0) + dPrice;
                     }
                 } else if (dragState.handle === 'target') {
                     newD.target = d.type === 'long' ? Math.max(coords.price, d.entry || d.p1.price) : Math.min(coords.price, d.entry || d.p1.price);
@@ -526,12 +575,15 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                     newD.stop = d.type === 'long' ? Math.min(coords.price, d.entry || d.p1.price) : Math.max(coords.price, d.entry || d.p1.price);
                 } else {
                     const snp = getSnappedPoint(coords.time, coords.price as any, coords.logical);
-                    if (dragState.handle === 'p1') { newD.p1 = snp; if (d.type === 'long' || d.type === 'short') newD.entry = snp.price; }
-                    else if (dragState.handle === 'p2') newD.p2 = snp;
+                    if (dragState.handle === 'p1') { 
+                        newD.p1 = snp; 
+                        if (d.type === 'long' || d.type === 'short') newD.entry = snp.price; 
+                    } else if (dragState.handle === 'p2') {
+                        newD.p2 = snp;
+                    }
                 }
                 return newD;
             }));
-            setDragStartPos(coords);
         }
         if (currentDrawing) {
             const snp = getSnappedPoint(coords.time, coords.price as any, coords.logical);
@@ -545,6 +597,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             const next = [...drawings, currentDrawing];
             setDrawings(next);
             pushToHistory(next);
+            setSelectedDrawingId(currentDrawing.id);
             setCurrentDrawing(null);
             if (!isSticky) setActiveTool('cursor');
         }
@@ -552,11 +605,24 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         setDragStartPos(null);
     };
 
-    const handleMouseDownHandle = useCallback((e: React.MouseEvent, drawingId: string, handle: any) => {
+    const handleMouseDownHandle = useCallback((e: React.MouseEvent, drawingId: string, handle: 'p1' | 'p2' | 'move' | 'target' | 'stop') => {
         if (!chartRef.current || !candlestickSeriesRef.current || !mousePos || isLocked) return;
         const coords = getChartCoordinates(mousePos.x, mousePos.y);
-        if (coords) { setDragStartPos(coords); setDragState({ drawingId, handle }); }
-    }, [mousePos, isLocked, getChartCoordinates]);
+        if (coords) { 
+            const drawing = drawings.find(d => d.id === drawingId);
+            if (drawing) {
+                setDragStartPos({
+                    ...coords,
+                    initialP1: { ...drawing.p1 },
+                    initialP2: drawing.p2 ? { ...drawing.p2 } : undefined,
+                    initialEntry: drawing.entry,
+                    initialTarget: drawing.target,
+                    initialStop: drawing.stop
+                } as any); 
+                setDragState({ drawingId, handle }); 
+            }
+        }
+    }, [mousePos, isLocked, getChartCoordinates, drawings]);
 
     const handleContextMenuInternal = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -568,12 +634,22 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         setContextMenu({ x: e.clientX, y: e.clientY, drawing });
     }, []);
 
-    // Initialize Chart
     const [chartReady, setChartReady] = useState(false);
     const [tick, setTick] = useState(0);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     useEffect(() => {
         if (!chartContainerRef.current) return;
+        
+        const updateDimensions = () => {
+            if (chartContainerRef.current) {
+                setDimensions({
+                    width: chartContainerRef.current.clientWidth,
+                    height: chartContainerRef.current.clientHeight
+                });
+            }
+        };
+
         const chart = createChart(chartContainerRef.current, {
             layout: { background: { type: ColorType.Solid, color: isDarkMode ? '#000000' : '#ffffff' }, textColor: isDarkMode ? '#a1a1aa' : '#64748b' },
             grid: { vertLines: { color: isDarkMode ? '#18181b' : '#f1f5f9' }, horzLines: { color: isDarkMode ? '#18181b' : '#f1f5f9' } },
@@ -582,22 +658,48 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             rightPriceScale: { borderColor: isDarkMode ? '#27272a' : '#e2e8f0' },
             crosshair: { mode: 0, vertLine: { color: '#FF4F01', style: 3 }, horzLine: { color: '#FF4F01', style: 3 } }
         });
+
         const series = chart.addSeries(CandlestickSeries, { upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444' });
-        chartRef.current = chart; candlestickSeriesRef.current = series; setChartReady(true);
-        const handleResize = () => { if (chartContainerRef.current) { chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); setTick(t => t + 1); } };
+        chartRef.current = chart; 
+        candlestickSeriesRef.current = series; 
+        
+        updateDimensions();
+        setChartReady(true);
+
+        // Improved Sync Logic: Listen to chart events
+        const handleSync = () => setTick(t => t + 1);
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleSync);
+        chart.priceScale('right').subscribeVisiblePriceRangeChange(handleSync);
+
+        let animationFrameId: number;
+        const syncOverlay = () => {
+            setTick(t => t + 1);
+            animationFrameId = requestAnimationFrame(syncOverlay);
+        };
+        animationFrameId = requestAnimationFrame(syncOverlay);
+
+        const handleResize = () => {
+            if (chartContainerRef.current) {
+                const width = chartContainerRef.current.clientWidth;
+                const height = chartContainerRef.current.clientHeight;
+                chart.applyOptions({ width, height });
+                setDimensions({ width, height });
+            }
+        };
+
         window.addEventListener('resize', handleResize);
         if (!loadFromLocalCache()) {
             handleFetchMT5Data();
         }
-        return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
-    }, [isDarkMode]);
 
-    useEffect(() => {
-        const chart = chartRef.current; if (!chart) return;
-        const handleTimeChange = () => setTick(t => t + 1);
-        chart.timeScale().subscribeVisibleLogicalRangeChange(handleTimeChange);
-        return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleTimeChange);
-    }, [chartReady]);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleSync);
+            chart.priceScale('right').unsubscribeVisiblePriceRangeChange(handleSync);
+            cancelAnimationFrame(animationFrameId);
+            chart.remove();
+        };
+    }, [isDarkMode]);
 
     const stepForward = () => {
         if (currentIndex < allData.length - 1) {
@@ -643,8 +745,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         setIsPlaying(false);
         setCurrentIdx(0);
         if (candlestickSeriesRef.current && allData.length > 0) {
-             candlestickSeriesRef.current.setData([allData[0]]);
-             setTimeout(() => chartRef.current?.timeScale().fitContent(), 0);
+            candlestickSeriesRef.current.setData([allData[0]]);
+            setTimeout(() => chartRef.current?.timeScale().fitContent(), 0);
         }
         setBalance(10000);
         setPosition(null);
@@ -667,8 +769,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         if (!position || allData.length === 0 || !allData[currentIndex]) return 0;
         const currentPrice = allData[currentIndex].close;
         const diff = currentPrice - position.entry;
-        const pnl = position.type === 'BUY' 
-            ? diff * 100000 * position.lots 
+        const pnl = position.type === 'BUY'
+            ? diff * 100000 * position.lots
             : -diff * 100000 * position.lots;
         return pnl;
     }, [position, allData, currentIndex]);
@@ -693,22 +795,21 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                     <div className={`flex items-center rounded-xl border px-2 relative ${isDarkMode ? 'bg-black/40 border-white/5' : 'bg-white border-slate-200'}`}>
                         <div className="flex items-center gap-2 px-1">
                             <div className="relative group/status">
-                                <div className={`w-2 h-2 rounded-full shadow-sm ${
-                                    dataSource === 'live' ? 'bg-emerald-500 animate-pulse' : 
+                                <div className={`w-2 h-2 rounded-full shadow-sm ${dataSource === 'live' ? 'bg-emerald-500 animate-pulse' :
                                     dataSource === 'cache' ? 'bg-amber-500' : 'bg-zinc-600'
-                                }`} />
+                                    }`} />
                                 <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity z-[110] pointer-events-none ${isDarkMode ? 'bg-zinc-800 text-white' : 'bg-white text-slate-900 border shadow-lg'}`}>
                                     {dataSource === 'live' ? 'Live Bridge Data' : dataSource === 'cache' ? 'Cached Offline Data' : 'No Data Loaded'}
                                 </div>
                             </div>
                             <Search size={14} className="text-zinc-500 ml-1" />
-                            <input 
-                                value={symbol} 
+                            <input
+                                value={symbol}
                                 onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setIsSymbolMenuOpen(true); }}
                                 onFocus={() => setIsSymbolMenuOpen(true)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') { handleFetchMT5Data(symbol); setIsSymbolMenuOpen(false); } }}
-                                className={`bg-transparent text-xs font-black w-20 py-2 outline-none uppercase text-center ${isDarkMode ? 'text-white' : 'text-slate-900'}`} 
-                                placeholder="SYMBOL" 
+                                className={`bg-transparent text-xs font-black w-20 py-2 outline-none uppercase text-center ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                placeholder="SYMBOL"
                             />
                         </div>
 
@@ -720,9 +821,9 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                         <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Popular Symbols</span>
                                     </div>
                                     {POPULAR_SYMBOLS.filter(s => s.includes(symbol) || symbol === '').map(s => (
-                                        <button 
-                                            key={s} 
-                                            onClick={() => { setSymbol(s); setIsSymbolMenuOpen(false); handleFetchMT5Data(s); }} 
+                                        <button
+                                            key={s}
+                                            onClick={() => { setSymbol(s); setIsSymbolMenuOpen(false); handleFetchMT5Data(s); }}
                                             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left ${symbol === s ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}`}
                                         >
                                             <span className="text-xs font-black">{s}</span>
@@ -730,8 +831,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                         </button>
                                     ))}
                                     {symbol && !POPULAR_SYMBOLS.includes(symbol) && (
-                                        <button 
-                                            onClick={() => { setIsSymbolMenuOpen(false); handleFetchMT5Data(symbol); }} 
+                                        <button
+                                            onClick={() => { setIsSymbolMenuOpen(false); handleFetchMT5Data(symbol); }}
                                             className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-[#FF4F01] hover:bg-[#FF4F01]/10`}
                                         >
                                             <Search size={14} />
@@ -777,7 +878,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                         </label>
                     </div>
 
-                    <button onClick={handleFetchMT5Data} disabled={isFetching} className={`h-9 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest ${isFetching ? 'bg-zinc-800 text-zinc-500 cursor-wait' : 'bg-gradient-to-r from-[#FF4F01] to-[#ff7e42] text-white active:scale-95 shadow-lg shadow-[#FF4F01]/25'}`}>
+                    <button onClick={() => handleFetchMT5Data()} disabled={isFetching} className={`h-9 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest ${isFetching ? 'bg-zinc-800 text-zinc-500 cursor-wait' : 'bg-gradient-to-r from-[#FF4F01] to-[#ff7e42] text-white active:scale-95 shadow-lg shadow-[#FF4F01]/25'}`}>
                         {isFetching ? 'Syncing...' : 'Sync'}
                     </button>
                 </div>
@@ -804,7 +905,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                     {!chartReady && <div className={`absolute inset-0 flex items-center justify-center z-50 ${isDarkMode ? 'bg-black' : 'bg-white'}`}><div className="w-10 h-10 border-4 border-[#FF4F01] border-t-transparent rounded-full animate-spin"></div></div>}
                     <ChartErrorBoundary>
                         <div ref={chartContainerRef} className="w-full h-full" />
-                        <DrawingLayer drawings={drawings} currentDrawing={currentDrawing} selectedDrawingId={selectedDrawingId} hoveredDrawingId={hoveredDrawingId} mousePos={mousePos} chart={chartRef.current} series={candlestickSeriesRef.current} containerWidth={chartContainerRef.current?.clientWidth || 0} containerHeight={chartContainerRef.current?.clientHeight || 0} activeTool={activeTool} isSelectBarMode={isSelectBarMode} onMouseDownHandle={handleMouseDownHandle} onSelectDrawing={setSelectedDrawingId} onHoverDrawing={setHoveredDrawingId} onDoubleClickDrawing={setEditingDrawingSettings} onContextMenuDrawing={handleContextMenuDrawing} tick={tick} isLocked={isLocked} isDarkMode={isDarkMode} />
+                        <DrawingLayer drawings={drawings} currentDrawing={currentDrawing} selectedDrawingId={selectedDrawingId} hoveredDrawingId={hoveredDrawingId} mousePos={mousePos} chart={chartRef.current} series={candlestickSeriesRef.current} containerWidth={dimensions.width} containerHeight={dimensions.height} activeTool={activeTool} isSelectBarMode={isSelectBarMode} onMouseDownHandle={handleMouseDownHandle} onSelectDrawing={setSelectedDrawingId} onHoverDrawing={setHoveredDrawingId} onDoubleClickDrawing={setEditingDrawingSettings} onContextMenuDrawing={handleContextMenuDrawing} tick={tick} isLocked={isLocked} isDarkMode={isDarkMode} />
                     </ChartErrorBoundary>
                     {position && <div className={`absolute top-4 left-4 p-3 rounded-lg backdrop-blur border z-10 shadow-xl flex items-center gap-3 ${isDarkMode ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-slate-200'}`}><div className={`w-2 h-2 rounded-full ${position.type === 'BUY' ? 'bg-emerald-500' : 'bg-rose-500'}`} /><div className="flex flex-col"><span className={`text-[10px] font-black uppercase ${position.type === 'BUY' ? 'text-emerald-500' : 'text-rose-500'}`}>{position.type}</span><span className={`font-mono text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{position.entry.toFixed(5)}</span></div></div>}
                 </div>
@@ -831,7 +932,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setIsSpeedMenuOpen(false)} />
                                 <div className={`absolute bottom-full right-0 mb-4 w-48 border rounded-xl shadow-2xl p-2 z-50 ${isDarkMode ? 'bg-[#1e222d] border-zinc-800' : 'bg-white border-slate-200'}`}>
-                                    {[{l:'0.5x', v:1000}, {l:'1.0x', v:500}, {l:'2.5x', v:200}, {l:'10x', v:50}].map(opt => (
+                                    {[{ l: '0.5x', v: 1000 }, { l: '1.0x', v: 500 }, { l: '2.5x', v: 200 }, { l: '10x', v: 50 }].map(opt => (
                                         <button key={opt.v} onClick={() => { setPlaySpeed(opt.v); setIsSpeedMenuOpen(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg text-xs font-bold flex items-center justify-between ${playSpeed === opt.v ? 'bg-[#FF4F01]/10 text-[#FF4F01]' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-50')}`}><span>{opt.l}</span>{playSpeed === opt.v && <Check size={14} />}</button>
                                     ))}
                                 </div>
@@ -862,7 +963,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                             <div className="p-4 rounded-xl bg-black/20 border border-white/5">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4 block">Save & Export Chart</label>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button 
+                                    <button
                                         onClick={() => { handleDownloadData(); setIsSettingsOpen(false); }}
                                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-blue-500/50' : 'bg-slate-50 border-slate-200 hover:border-blue-500/50'}`}
                                     >
@@ -870,7 +971,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                         <span className="text-[10px] font-black uppercase">Local PC</span>
                                         <span className="text-[8px] text-zinc-500 text-center uppercase tracking-tighter">Download .json</span>
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => { handleSaveToCloud(); setIsSettingsOpen(false); }}
                                         className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-emerald-500/50' : 'bg-slate-50 border-slate-200 hover:border-emerald-500/50'}`}
                                     >
@@ -894,7 +995,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                         </div>
                                     ) : (
                                         savedSessions.map((sess) => (
-                                            <button 
+                                            <button
                                                 key={sess.id}
                                                 onClick={() => handleLoadSession(sess)}
                                                 className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 hover:border-emerald-500/30 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/30'}`}
@@ -905,6 +1006,13 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-bold uppercase">{sess.data?.length || 0} Bars</span>
+                                                    <button
+                                                        onClick={(e) => handleDeleteSession(e, sess.id)}
+                                                        className="p-1.5 rounded-md hover:bg-rose-500/10 text-zinc-600 hover:text-rose-500 transition-colors"
+                                                        title="Delete Session"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
                                                     <ChevronRight size={12} className="text-zinc-600" />
                                                 </div>
                                             </button>
@@ -946,11 +1054,11 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                     <div className={`relative w-full max-w-xs rounded-2xl border shadow-2xl p-6 ${isDarkMode ? 'bg-[#1e222d] border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                         <div className="flex items-center justify-between mb-6"><h3 className="text-sm font-black uppercase tracking-widest">Drawing Settings</h3><button onClick={() => setEditingDrawingSettings(null)} className="p-1 hover:bg-black/5 rounded-lg"><X size={16} /></button></div>
                         <div className="space-y-6">
-                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Stroke Color</label><div className="grid grid-cols-5 gap-2">{['#2962ff','#FF4F01','#10b981','#ef4444','#f59e0b','#8b5cf6','#ec4899','#787b86', (isDarkMode?'#ffffff':'#000000'), (isDarkMode?'#000000':'#e2e8f0')].map(c => <button key={c} onClick={() => updateDrawingProperty(editingDrawingSettings.id, {color:c})} className={`w-8 h-8 rounded-full border-2 ${editingDrawingSettings.color === c ? 'border-[#FF4F01]' : 'border-transparent'}`} style={{backgroundColor:c}} />)}</div></div>
-                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Thickness: {editingDrawingSettings.strokeWidth || 2}px</label><input type="range" min="1" max="8" value={editingDrawingSettings.strokeWidth || 2} onChange={(e) => updateDrawingProperty(editingDrawingSettings.id, {strokeWidth: parseInt(e.target.value)})} className="w-full accent-[#FF4F01]" /></div>
-                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Line Style</label><div className="flex gap-2">{['solid','dashed','dotted'].map(s => <button key={s} onClick={() => updateDrawingProperty(editingDrawingSettings.id, {strokeStyle: s as any})} className={`flex-1 py-2 rounded-lg border text-[10px] font-bold uppercase ${editingDrawingSettings.strokeStyle === s || (!editingDrawingSettings.strokeStyle && s === 'solid') ? 'bg-[#FF4F01] text-white' : 'bg-zinc-800 text-zinc-400'}`}>{s}</button>)}</div></div>
-                            <div><button onClick={() => updateDrawingProperty(editingDrawingSettings.id, {syncAllTimeframes: !editingDrawingSettings.syncAllTimeframes})} className={`w-full py-2.5 rounded-xl text-[10px] font-black border flex items-center justify-center gap-2 ${editingDrawingSettings.syncAllTimeframes ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'}`}><Database size={14}/> {editingDrawingSettings.syncAllTimeframes ? 'Synced' : 'Local Only'}</button></div>
-                            <div className="pt-4 border-t border-zinc-800/50"><button onClick={() => { setDrawings(drawings.filter(d => d.id !== editingDrawingSettings.id)); pushToHistory(drawings.filter(d => d.id !== editingDrawingSettings.id)); setEditingDrawingSettings(null); setSelectedDrawingId(null); }} className="w-full py-2.5 bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2"><Trash2 size={14}/> Remove</button></div>
+                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Stroke Color</label><div className="grid grid-cols-5 gap-2">{['#2962ff', '#FF4F01', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#787b86', (isDarkMode ? '#ffffff' : '#000000'), (isDarkMode ? '#000000' : '#e2e8f0')].map(c => <button key={c} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { color: c })} className={`w-8 h-8 rounded-full border-2 ${editingDrawingSettings.color === c ? 'border-[#FF4F01]' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div></div>
+                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Thickness: {editingDrawingSettings.strokeWidth || 2}px</label><input type="range" min="1" max="8" value={editingDrawingSettings.strokeWidth || 2} onChange={(e) => updateDrawingProperty(editingDrawingSettings.id, { strokeWidth: parseInt(e.target.value) })} className="w-full accent-[#FF4F01]" /></div>
+                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Line Style</label><div className="flex gap-2">{['solid', 'dashed', 'dotted'].map(s => <button key={s} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { strokeStyle: s as any })} className={`flex-1 py-2 rounded-lg border text-[10px] font-bold uppercase ${editingDrawingSettings.strokeStyle === s || (!editingDrawingSettings.strokeStyle && s === 'solid') ? 'bg-[#FF4F01] text-white' : 'bg-zinc-800 text-zinc-400'}`}>{s}</button>)}</div></div>
+                            <div><button onClick={() => updateDrawingProperty(editingDrawingSettings.id, { syncAllTimeframes: !editingDrawingSettings.syncAllTimeframes })} className={`w-full py-2.5 rounded-xl text-[10px] font-black border flex items-center justify-center gap-2 ${editingDrawingSettings.syncAllTimeframes ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'}`}><Database size={14} /> {editingDrawingSettings.syncAllTimeframes ? 'Synced' : 'Local Only'}</button></div>
+                            <div className="pt-4 border-t border-zinc-800/50"><button onClick={() => { setDrawings(drawings.filter(d => d.id !== editingDrawingSettings.id)); pushToHistory(drawings.filter(d => d.id !== editingDrawingSettings.id)); setEditingDrawingSettings(null); setSelectedDrawingId(null); }} className="w-full py-2.5 bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2"><Trash2 size={14} /> Remove</button></div>
                         </div>
                         <button onClick={() => setEditingDrawingSettings(null)} className="w-full mt-8 py-3 bg-[#FF4F01] text-white rounded-xl font-bold text-xs shadow-lg shadow-[#FF4F01]/20">DONE</button>
                     </div>
