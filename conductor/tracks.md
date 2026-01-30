@@ -4,5 +4,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [~] **Track: Fix Backtest Drawing Layer: Resolve trendline placement/movement bugs and ensure drawings remain anchored to the canvas during interaction.**
+- [x] **Track: Fix Backtest Drawing Layer: Resolve trendline placement/movement bugs and ensure drawings remain anchored to the canvas during interaction.**
   *Link: [./tracks/fix_backtest_drawing_20260130/](./tracks/fix_backtest_drawing_20260130/)*
