@@ -419,18 +419,23 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         const timeScale = chartRef.current.timeScale();
         const priceScale = candlestickSeriesRef.current;
         const price = priceScale.coordinateToPrice(y) as number;
-        let time = timeScale.coordinateToTime(x) as number;
+        
+        // Use coordinateToLogical for higher precision than coordinateToTime
         const logical = timeScale.coordinateToLogical(x);
+        let time = timeScale.coordinateToTime(x) as number;
 
         if (!time && logical !== null && allData.length > 0) {
             const lastBar = allData[allData.length - 1];
             const tfSecondsMap: Record<string, number> = { 'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800, 'H1': 3600, 'H4': 14400, 'D1': 86400 };
             const secondsPerBar = tfSecondsMap[timeframe] || 3600;
+            
+            // Calculate time based on logical offset if we are in the 'future' area of the chart
             const lastLogical = timeScale.coordinateToLogical(timeScale.timeToCoordinate(lastBar.time as any) || 0) || allData.length;
-            time = lastBar.time + Math.round(logical - lastLogical) * secondsPerBar;
+            time = lastBar.time + (logical - lastLogical) * secondsPerBar;
         }
+        
         if (price === null || !time) return null;
-        return { time, price, logical: logical !== null ? logical : undefined };
+        return { time, price, logical: logical !== null ? (logical as number) : undefined };
     }, [allData, timeframe]);
 
     const handlePasteDrawing = useCallback((x: number, y: number) => {
@@ -474,11 +479,18 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         const timeScale = chartRef.current.timeScale();
         const effectiveLogical = logical ?? timeScale.coordinateToLogical(timeScale.timeToCoordinate(time as any) || 0);
         if (effectiveLogical === null) return { time, price, logical };
-        const candle = allData[Math.round(effectiveLogical)];
-        if (!candle) return { time, price, logical: Math.round(effectiveLogical) };
+        
+        // Find the closest bar by rounding the logical coordinate
+        const barIndex = Math.round(effectiveLogical as number);
+        const candle = allData[barIndex];
+        if (!candle) return { time, price, logical: effectiveLogical as number };
+        
         const levels = [candle.open, candle.high, candle.low, candle.close];
         const closestLevel = levels.reduce((p, c) => Math.abs(c - price) < Math.abs(p - price) ? c : p);
-        return { time: candle.time, price: closestLevel, logical: Math.round(effectiveLogical) };
+        
+        // Return the exact bar time but keep the fractional logical for smoother anchoring if possible
+        // However, snapping usually implies bar-alignment.
+        return { time: candle.time, price: closestLevel, logical: barIndex };
     }, [magnetMode, allData]);
 
     const onMouseDown = (e: React.MouseEvent) => {
@@ -666,14 +678,23 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         updateDimensions();
         setChartReady(true);
 
-        // Improved Sync Logic: Listen to chart events
-        const handleSync = () => setTick(t => t + 1);
-        chart.timeScale().subscribeVisibleLogicalRangeChange(handleSync);
-        chart.priceScale('right').subscribeVisiblePriceRangeChange(handleSync);
-
+        // Improved Sync Logic: Use a persistent animation frame to sync the SVG overlay with the Canvas chart
+        // We track the last known visible range to avoid redundant state updates
+        let lastVisibleRange: any = null;
         let animationFrameId: number;
+
         const syncOverlay = () => {
-            setTick(t => t + 1);
+            const chart = chartRef.current;
+            if (chart) {
+                const currentRange = chart.timeScale().getVisibleLogicalRange();
+                // If the range has changed, or we're in the middle of an interaction, update the tick
+                // We use JSON.stringify for a quick deep comparison of the range object
+                const rangeStr = JSON.stringify(currentRange);
+                if (rangeStr !== lastVisibleRange) {
+                    setTick(t => t + 1);
+                    lastVisibleRange = rangeStr;
+                }
+            }
             animationFrameId = requestAnimationFrame(syncOverlay);
         };
         animationFrameId = requestAnimationFrame(syncOverlay);
@@ -684,6 +705,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 const height = chartContainerRef.current.clientHeight;
                 chart.applyOptions({ width, height });
                 setDimensions({ width, height });
+                setTick(t => t + 1); // Force update on resize
             }
         };
 
@@ -694,8 +716,6 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
 
         return () => {
             window.removeEventListener('resize', handleResize);
-            chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleSync);
-            chart.priceScale('right').unsubscribeVisiblePriceRangeChange(handleSync);
             cancelAnimationFrame(animationFrameId);
             chart.remove();
         };
@@ -703,9 +723,16 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
 
     const stepForward = () => {
         if (currentIndex < allData.length - 1) {
-            const nextIdx = currentIndex + 1; const nextBar = allData[nextIdx];
-            setCurrentIdx(nextIdx); candlestickSeriesRef.current?.update(nextBar); setTick(t => t + 1);
-        } else { setIsPlaying(false); addToast({ type: 'info', title: 'End of Data' }); }
+            const nextIdx = currentIndex + 1; 
+            const nextBar = allData[nextIdx];
+            setCurrentIdx(nextIdx); 
+            candlestickSeriesRef.current?.update(nextBar); 
+            // Explicitly update tick to sync drawings immediately with the new bar
+            setTick(t => t + 1);
+        } else { 
+            setIsPlaying(false); 
+            addToast({ type: 'info', title: 'End of Data' }); 
+        }
     };
 
     useEffect(() => {
