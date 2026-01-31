@@ -45,8 +45,8 @@ export const DrawingToolbar = React.memo<DrawingToolbarProps>(({
                 {[
                     { id: 'cursor', icon: MousePointer2, title: 'Cursor' },
                     { id: 'trendline', icon: Slash, title: 'Trend Line' },
-                    { id: 'ray', icon: ArrowRight, title: 'Horizontal Ray' },
-                    { id: 'arrow', icon: ArrowUpRight, title: 'Arrow' },
+                    { id: 'arrow', icon: ArrowRight, title: 'Arrow' },
+                    { id: 'ray', icon: ArrowUpRight, title: 'Ray' },
                     { id: 'horizontal', icon: Minus, title: 'Horizontal Line' },
                     { id: 'vertical', icon: Columns, title: 'Vertical Line' },
                     { id: 'rect', icon: Square, title: 'Rectangle' },

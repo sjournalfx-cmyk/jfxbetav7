@@ -133,10 +133,9 @@ const DrawingItem = React.memo<{
     const strokeDasharray = d.strokeStyle === 'dashed' ? '6,6' : d.strokeStyle === 'dotted' ? '2,4' : undefined;
 
     const commonProps = {
-        stroke: color,
-        strokeWidth: isSelected ? baseStrokeWidth + 1 : (isHovered ? baseStrokeWidth + 1 : baseStrokeWidth),
-        strokeOpacity: isHovered || isSelected ? 1 : (isDarkMode ? 0.8 : 0.9),
-        strokeDasharray,
+        stroke: "transparent", // Visuals are now handled by Canvas
+        strokeWidth: isSelected ? baseStrokeWidth + 8 : baseStrokeWidth + 4, // Hit area only
+        strokeOpacity: 0, // Fully invisible
         cursor: 'pointer' as const,
         onClick: (e: React.MouseEvent) => {
             e.preventDefault();
@@ -249,10 +248,7 @@ const DrawingItem = React.memo<{
             const rh = Math.max(1, Math.abs(y2 - y1));
             shape = (
                 <g>
-                    <rect x={rx} y={ry} width={rw} height={rh} stroke={color} strokeWidth={isSelected ? 2 : 1.5} fill={color} fillOpacity={0.15} {...commonProps} />
-                    {isSelected && (
-                        <rect x={rx} y={ry} width={rw} height={rh} stroke={color} strokeWidth={1} fill="none" strokeDasharray="4,4" opacity={0.5} pointerEvents="none" />
-                    )}
+                    <rect x={rx} y={ry} width={rw} height={rh} stroke="transparent" strokeWidth={10} fill="transparent" {...commonProps} />
                 </g>
             );
             break;
@@ -260,11 +256,7 @@ const DrawingItem = React.memo<{
         case 'vertical':
             shape = (
                 <g>
-                    <line x1={x1} y1={0} x2={x1} y2={containerHeight} {...commonProps} />
-                    <rect x={x1 - 30} y={containerHeight - 20} width={60} height={16} fill={isDarkMode ? "#1e222d" : "#f1f5f9"} rx={4} stroke={color} strokeWidth={1} opacity={0.9} style={{ pointerEvents: 'none' }} />
-                    <text x={x1} y={containerHeight - 8} fill={isDarkMode ? "white" : "#0f172a"} fontSize={10} fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none' }}>
-                        {new Date(d.p1.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </text>
+                    <line x1={x1} y1={0} x2={x1} y2={containerHeight} {...commonProps} strokeWidth={10} stroke="transparent" />
                 </g>
             );
             break;
@@ -272,149 +264,53 @@ const DrawingItem = React.memo<{
         case 'horizontal':
             shape = (
                 <g>
-                    <line x1={0} y1={y1} x2={containerWidth} y2={y1} {...commonProps} />
-                    <rect x={containerWidth - 65} y={y1 - 10} width={60} height={20} fill={isDarkMode ? "#1e222d" : "#f1f5f9"} rx={4} stroke={color} strokeWidth={1} opacity={0.9} style={{ pointerEvents: 'none' }} />
-                    <text x={containerWidth - 35} y={y1 + 4} fill={isDarkMode ? "white" : "#0f172a"} fontSize={10} fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none' }}>
-                        {d.p1.price.toFixed(5)}
-                    </text>
+                    <line x1={0} y1={y1} x2={containerWidth} y2={y1} {...commonProps} strokeWidth={10} stroke="transparent" />
                 </g>
             );
             break;
 
         case 'fib':
-            const fibLevels = calculateFibLevels(y1, y2);
-            const price1 = d.p1.price;
-            const price2 = d.p2?.price || price1;
-            const fibColors: Record<number, string> = {
-                0: '#787b86', 0.236: '#f7525f', 0.382: '#ff9800',
-                0.5: '#4caf50', 0.618: '#2962ff', 0.786: '#9c27b0', 1: '#787b86'
-            };
             shape = (
                 <g onClick={commonProps.onClick} onMouseDown={commonProps.onMouseDown} style={{ cursor: 'pointer' }}>
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1} strokeDasharray="3,3" opacity={0.5} />
                     <rect
                         x={0}
                         y={Math.min(y1, y2)}
                         width={containerWidth}
                         height={Math.abs(y2 - y1)}
-                        fill={color}
-                        fillOpacity={0.03}
-                        style={{ pointerEvents: 'none' }}
+                        fill="transparent"
+                        {...commonProps}
                     />
-                    {fibLevels.map(({ level, y: yL }) => {
-                        const fibPrice = price1 + (price2 - price1) * level;
-                        const lineColor = fibColors[level] || color;
-                        return (
-                            <g key={level}>
-                                <line
-                                    x1={0}
-                                    y1={yL}
-                                    x2={containerWidth}
-                                    y2={yL}
-                                    stroke={lineColor}
-                                    strokeWidth={level === 0.5 || level === 0.618 ? 1.5 : 1}
-                                    opacity={level === 0.5 || level === 0.618 ? 0.8 : 0.5}
-                                />
-                                <rect
-                                    x={5}
-                                    y={yL - 8}
-                                    width={35}
-                                    height={14}
-                                    fill={isDarkMode ? "#1e222d" : "#f1f5f9"}
-                                    rx={2}
-                                    style={{ pointerEvents: 'none' }}
-                                />
-                                <text
-                                    x={8}
-                                    y={yL + 3}
-                                    fill={lineColor}
-                                    fontSize={10}
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                    style={{ pointerEvents: 'none' }}
-                                >
-                                    {(level * 100).toFixed(1)}%
-                                </text>
-                                <rect
-                                    x={containerWidth - 75}
-                                    y={yL - 8}
-                                    width={70}
-                                    height={14}
-                                    fill={isDarkMode ? "#1e222d" : "#f1f5f9"}
-                                    rx={2}
-                                    style={{ pointerEvents: 'none' }}
-                                />
-                                <text
-                                    x={containerWidth - 72}
-                                    y={yL + 3}
-                                    fill={lineColor}
-                                    fontSize={10}
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                    style={{ pointerEvents: 'none' }}
-                                >
-                                    {fibPrice.toFixed(5)}
-                                </text>
-                            </g>
-                        );
-                    })}
                 </g>
             );
             break;
 
         case 'long':
         case 'short':
-            if (!series) break;
-            const entryY = series.priceToCoordinate(d.entry || d.p1.price) ?? y1;
-            const targetY = series.priceToCoordinate(d.target || d.p1.price) ?? y1;
-            const stopY = series.priceToCoordinate(d.stop || d.p1.price) ?? y1;
-
-            const isLong = d.type === 'long';
-            const profitColor = "#10b981";
-            const lossColor = "#ef4444";
+            const entryY = series?.priceToCoordinate(d.entry || d.p1.price) ?? y1;
+            const targetY = series?.priceToCoordinate(d.target || d.p1.price) ?? y1;
+            const stopY = series?.priceToCoordinate(d.stop || d.p1.price) ?? y1;
 
             const p1x = x1;
             const p2x = x2 || x1 + 150;
-
             const rectWidth = Math.abs(p2x - p1x);
             const rectLeft = Math.min(p1x, p2x);
-
-            const risk = Math.abs((d.entry || d.p1.price) - (d.stop || d.p1.price));
-            const reward = Math.abs((d.target || d.p1.price) - (d.entry || d.p1.price));
-            const rr = risk > 0 ? (reward / risk).toFixed(2) : "0.00";
-
-            const isJPY = (d.entry || d.p1.price) > 50 && (d.entry || d.p1.price) < 1000 && !((series as any)?._symbol?.includes('BTC'));
-            const pipMultiplier = isJPY ? 100 : 10000;
-
-            const targetPips = (reward * pipMultiplier).toFixed(1);
-            const stopPips = (risk * pipMultiplier).toFixed(1);
 
             shape = (
                 <g onClick={commonProps.onClick} onMouseDown={commonProps.onMouseDown} style={{ cursor: 'pointer' }}>
                     <rect
                         x={rectLeft} y={Math.min(entryY, targetY)}
                         width={rectWidth} height={Math.abs(targetY - entryY)}
-                        fill={profitColor} fillOpacity={0.25}
-                        stroke={profitColor} strokeWidth={1} strokeOpacity={0.4}
+                        fill="transparent" stroke="transparent" strokeWidth={10}
                     />
                     <rect
                         x={rectLeft} y={Math.min(entryY, stopY)}
                         width={rectWidth} height={Math.abs(stopY - entryY)}
-                        fill={lossColor} fillOpacity={0.25}
-                        stroke={lossColor} strokeWidth={1} strokeOpacity={0.4}
+                        fill="transparent" stroke="transparent" strokeWidth={10}
                     />
-                    <line x1={rectLeft} y1={entryY} x2={rectLeft + rectWidth} y2={entryY} stroke="white" strokeWidth={1.5} opacity={0.9} />
-
-                    <g transform={`translate(${rectLeft + rectWidth / 2}, ${entryY})`}>
-                        <text y="-12" textAnchor="middle" fill="white" fontSize="11" fontWeight="900" style={{ paintOrder: 'stroke', stroke: 'black', strokeWidth: '2px', strokeLinecap: 'round', strokeLinejoin: 'round' }}>R:R {rr}</text>
-                        <text y="4" textAnchor="middle" fill={profitColor} fontSize="10" fontWeight="900" style={{ paintOrder: 'stroke', stroke: 'black', strokeWidth: '2px', strokeLinecap: 'round', strokeLinejoin: 'round' }}>TP: {targetPips}</text>
-                        <text y="18" textAnchor="middle" fill={lossColor} fontSize="10" fontWeight="900" style={{ paintOrder: 'stroke', stroke: 'black', strokeWidth: '2px', strokeLinecap: 'round', strokeLinejoin: 'round' }}>SL: {stopPips}</text>
-                    </g>
-
                     {isSelected && !isLocked && !d.isLocked && (
                         <>
-                            <circle cx={rectLeft + rectWidth / 2} cy={targetY} r="5" fill={profitColor} stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'target'); }} />
-                            <circle cx={rectLeft + rectWidth / 2} cy={stopY} r="5" fill={lossColor} stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'stop'); }} />
+                            <circle cx={rectLeft + rectWidth / 2} cy={targetY} r="5" fill="#10b981" stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'target'); }} />
+                            <circle cx={rectLeft + rectWidth / 2} cy={stopY} r="5" fill="#ef4444" stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'stop'); }} />
                             <circle cx={rectLeft} cy={entryY} r="5" fill="white" stroke="black" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p1'); }} />
                             <circle cx={rectLeft + rectWidth} cy={entryY} r="5" fill="white" stroke="black" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p2'); }} />
                         </>

@@ -7,6 +7,7 @@ import {
     PointerSensor,
     useSensor,
     useSensors,
+    DragEndEvent,
 } from '@dnd-kit/core';
 import {
     arrayMove,
@@ -15,7 +16,7 @@ import {
     rectSortingStrategy,
 } from '@dnd-kit/sortable';
 
-import { Trade, DailyBias, UserProfile } from '../types';
+import { Trade, DailyBias, UserProfile, EASession } from '../types';
 import SessionClock from './SessionClock';
 import DailyQuote from './DailyQuote';
 import { SortableWidget } from './ui/SortableWidget';
@@ -35,7 +36,7 @@ interface DashboardProps {
     onUpdateBias: (bias: DailyBias) => void;
     userProfile: UserProfile;
     onViewChange: (view: string) => void;
-    eaSession?: any;
+    eaSession?: EASession | null;
     isLoading?: boolean;
 }
 
@@ -91,7 +92,19 @@ const EASetupPrompt = ({ isDarkMode, onSetupClick }: { isDarkMode: boolean, onSe
     </div>
 );
 
-const StatCard = ({ label, value, subtext, trend, isDarkMode, icon: Icon, colorClass, tooltip, onInfoClick }: any) => (
+interface StatCardProps {
+    label: string;
+    value: string | number;
+    subtext?: string;
+    trend?: number;
+    isDarkMode: boolean;
+    icon: React.ElementType;
+    colorClass: string;
+    tooltip?: string;
+    onInfoClick?: () => void;
+}
+
+const StatCard = ({ label, value, subtext, trend, isDarkMode, icon: Icon, colorClass, tooltip, onInfoClick }: StatCardProps) => (
     <div className={`h-full p-6 rounded-2xl border transition-all hover:shadow-lg ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
         <div className="flex justify-between items-start mb-4">
             <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-[#27272a]' : 'bg-slate-50'}`}>
@@ -282,6 +295,49 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
 
+    // Widgets State for Reordering
+    const [widgetOrder, setWidgetOrder] = useLocalStorage('dashboard_widget_order', [
+        'dailyBias',
+        'recentTrades',
+        'equityCurve',
+        'openPositions',
+    ]);
+    
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
+    const equityData = useMemo(() => {
+        let cumulative = 0;
+        const data = [0];
+        [...trades]
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .forEach(t => {
+                cumulative += t.pnl;
+                data.push(cumulative);
+            });
+        return data;
+    }, [trades]);
+
+    const totalFloatingPnL = useMemo(() => {
+        return (eaSession?.data?.openPositions || []).reduce((sum: number, pos: any) => sum + Number(pos.profit || 0), 0);
+    }, [eaSession]);
+
+    const planBadge = useMemo(() => {
+        const plan = userProfile?.plan;
+        if (plan === 'FREE TIER (JOURNALER)') {
+            return { label: 'FREE', color: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' };
+        }
+        if (plan === 'PRO TIER (ANALYSTS)') {
+            return { label: 'PRO', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' };
+        }
+        if (plan === 'ELITE MASTERS (PREMIUM)') {
+            return { label: 'ELITE', color: 'bg-[#FF4F01]/10 text-[#FF4F01] border-[#FF4F01]/20' };
+        }
+        return null;
+    }, [userProfile?.plan]);
+
     const InfoPanel = ({ info, onClose }: { info: { title: string, content: string }, onClose: () => void }) => (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 sm:p-12 animate-in fade-in duration-300">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -328,24 +384,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
         );
     }
 
-    // Widgets State for Reordering
-    const [widgetOrder, setWidgetOrder] = useLocalStorage('dashboard_widget_order', [
-        'dailyBias',
-        'recentTrades',
-        'equityCurve',
-        'openPositions',
-    ]);
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    );
-
-    const handleDragEnd = (event: any) => {
+    const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         if (active && over && active.id !== over.id) {
             setWidgetOrder((items) => {
-                const oldIndex = items.indexOf(active.id);
-                const newIndex = items.indexOf(over.id);
+                const oldIndex = items.indexOf(String(active.id));
+                const newIndex = items.indexOf(String(over.id));
                 return arrayMove(items, oldIndex, newIndex);
             });
         }
@@ -367,36 +411,6 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const grossProfit = wins.reduce((acc, t) => acc + t.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((acc, t) => acc + t.pnl, 0));
     const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? "9.9" : "0.00");
-
-    const equityData = useMemo(() => {
-        let cumulative = 0;
-        const data = [0];
-        [...trades]
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-            .forEach(t => {
-                cumulative += t.pnl;
-                data.push(cumulative);
-            });
-        return data;
-    }, [trades]);
-
-    const totalFloatingPnL = useMemo(() => {
-        return (eaSession?.data?.openPositions || []).reduce((sum: number, pos: any) => sum + Number(pos.profit || 0), 0);
-    }, [eaSession]);
-
-    const planBadge = useMemo(() => {
-        const plan = userProfile?.plan;
-        if (plan === 'FREE TIER (JOURNALER)') {
-            return { label: 'FREE', color: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' };
-        }
-        if (plan === 'PRO TIER (ANALYSTS)') {
-            return { label: 'PRO', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' };
-        }
-        if (plan === 'PREMIUM (MASTERS)') {
-            return { label: 'PREMIUM', color: 'bg-[#FF4F01]/10 text-[#FF4F01] border-[#FF4F01]/20' };
-        }
-        return null;
-    }, [userProfile?.plan]);
 
     const LockedView = ({ title, subtitle }: { title: string, subtitle: string }) => (
         <div className={`h-full w-full p-6 rounded-2xl border flex flex-col items-center justify-center text-center relative overflow-hidden ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>

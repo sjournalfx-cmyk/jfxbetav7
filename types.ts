@@ -177,3 +177,132 @@ export interface StrategyDiagram {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface EAAccountData {
+  balance: number;
+  equity: number;
+  profit: number;
+  margin: number;
+  margin_level: number;
+  company: string;
+  login: number;
+  server: string;
+  is_demo: boolean;
+  currency: string;
+  leverage: number;
+}
+
+export interface EAPosition {
+  ticket: number;
+  symbol: string;
+  volume: number;
+  type: 'BUY' | 'SELL';
+  open_price: number;
+  current_price: number;
+  profit: number;
+  magic?: number;
+  comment?: string;
+  time?: number;
+}
+
+export interface EADeal {
+  ticket: number;
+  order: number;
+  time: number;
+  symbol: string;
+  type: 'BUY' | 'SELL';
+  entry: number;
+  price: number;
+  volume: number;
+  profit: number;
+  swap?: number;
+  commission?: number;
+  entry_time?: number;
+  entry_price?: number;
+}
+
+export interface EASessionData {
+  account: EAAccountData;
+  openPositions: EAPosition[];
+  trades: EADeal[];
+  isHeartbeat?: boolean;
+}
+
+export interface EASession {
+  id: string;
+  sync_key: string;
+  data: EASessionData;
+  last_updated: string;
+}
+
+export interface DBTrade {
+  id: string;
+  user_id: string;
+  ticket_id?: string;
+  pair: string;
+  asset_type: AssetType;
+  date: string;
+  time: string;
+  session: string;
+  direction: 'Long' | 'Short';
+  entry_price: number;
+  exit_price?: number;
+  stop_loss: number;
+  take_profit: number;
+  lots: number;
+  result: 'Win' | 'Loss' | 'BE' | 'Pending';
+  pnl: number;
+  rr: number;
+  rating: number;
+  tags: string[];
+  notes?: string;
+  emotions?: string[];
+  plan_adherence?: Trade['planAdherence'];
+  trading_mistake?: string;
+  mindset?: string;
+  exit_comment?: string;
+  open_time?: string;
+  close_time?: string;
+  before_screenshot?: string;
+  after_screenshot?: string;
+  setup_id?: string;
+}
+
+export interface DBGoal {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  type: GoalType;
+  metric: MetricType;
+  target_value: number;
+  start_value: number;
+  current_value: number;
+  start_date: string;
+  end_date: string;
+  status: 'active' | 'completed' | 'failed' | 'paused';
+  milestones: GoalMilestone[];
+  auto_track_rule?: Goal['autoTrackRule'];
+  manual_entries?: ManualEntry[];
+  created_at: string;
+}
+
+export interface BacktestTrade {
+  type: 'BUY' | 'SELL';
+  entry: number;
+  exit: number;
+  lots: number;
+  pnl: number;
+  time: number;
+}
+
+export interface BacktestSession {
+  id: string;
+  user_id: string;
+  symbol: string;
+  timeframe: string;
+  data: any[];
+  drawings: any[];
+  trades: BacktestTrade[];
+  updated_at: string;
+}

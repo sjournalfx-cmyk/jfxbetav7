@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Trade, UserProfile } from '../types';
+import { Trade, UserProfile, EASession } from '../types';
 import { getSASTDateTime } from '../lib/timeUtils';
 import {
     TrendingUp, PieChart, Info, ArrowUpRight, ArrowDownRight, Activity,
@@ -38,7 +38,7 @@ interface AnalyticsProps {
     trades: Trade[];
     userProfile: UserProfile;
     onViewChange: (view: string) => void;
-    eaSession?: any;
+    eaSession?: EASession | null;
 }
 
 
@@ -1302,7 +1302,7 @@ const MomentumStreakWidget = ({ trades = [], isDarkMode, onInfoClick }: { trades
 
         // Current streak (based on groups)
         let currentStreakValue = 0;
-        let currentStreakType: any = null;
+        let currentStreakType: string | null = null;
 
         const lastGroups = [...groupedRecent].reverse();
         if (lastGroups.length > 0) {

@@ -26,7 +26,7 @@ import {
   IconMessage,
   IconTerminal2
 } from '@tabler/icons-react';
-import { UserProfile, Trade } from '../types';
+import { UserProfile, Trade, EASession } from '../types';
 import { useToast } from './ui/Toast';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
 import { FloatingDock } from './ui/floating-dock';
@@ -43,7 +43,7 @@ interface SidebarProps {
   onLogout: () => void;
   userProfile?: UserProfile | null;
   trades?: Trade[];
-  eaSession?: any;
+  eaSession?: EASession | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({

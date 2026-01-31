@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { supabase } from '../lib/supabase';
-import { UserProfile, Trade } from '../types';
+import { UserProfile, Trade, EASession, EADeal, EAPosition } from '../types';
 import OpenPositions from './OpenPositions';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { getSASTDateTime } from '../lib/timeUtils';
@@ -17,7 +17,7 @@ interface BridgeProps {
     isDarkMode: boolean;
     userProfile: UserProfile;
     onUpdateProfile: (profile: UserProfile) => Promise<void>;
-    eaSession?: any;
+    eaSession?: EASession | null;
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
     trades: Trade[];
@@ -92,7 +92,21 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
 };
 
 /* --- SUB-COMPONENT: BRIDGE MONITOR (The "Connected" Page) --- */
-const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades, userId }: any) => {
+interface BridgeMonitorProps {
+    isDarkMode: boolean;
+    userProfile: UserProfile;
+    liveData: any;
+    lastHeartbeat: Date | null;
+    syncKey: string;
+    syncLog: { time: Date; message: string; type: 'success' | 'info' | 'error' }[];
+    onDisconnect: () => Promise<void>;
+    onTradeAdded?: (trade: Trade) => void;
+    onEditTrade?: (trade: Trade) => void;
+    trades: Trade[];
+    userId: string;
+}
+
+const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades, userId }) => {
     const [activeTab, setActiveTab] = useState<'monitor' | 'settings'>('monitor');
     const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
     const [autoLog, setAutoLog] = useLocalStorage('bridge_auto_log', false);
@@ -151,8 +165,8 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
 
     // Filter "Pending" trades (from bridge but not in DB)
     // Only show "Exit" deals (entry=1 or 2) as candidates for Journal
-    const incomingTrades = (liveData?.trades || []).filter((t: any) => t.entry === 1 || t.entry === 2);
-    const pendingTrades = incomingTrades.filter((t: any) => !savedTrades.some(st => st.ticketId === String(t.ticket)));
+    const incomingTrades = (liveData?.trades || []).filter((t: EADeal) => t.entry === 1 || t.entry === 2);
+    const pendingTrades = incomingTrades.filter((t: EADeal) => !savedTrades.some(st => st.ticketId === String(t.ticket)));
 
     // Auto-Log Logic
     useEffect(() => {
@@ -167,7 +181,7 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
     }, [pendingTrades, autoLog]);
 
 
-    const handleAddTrade = async (mt5Trade: any) => {
+    const handleAddTrade = async (mt5Trade: EADeal) => {
         setIsSavingTrade(String(mt5Trade.ticket));
         try {
             // MT5 deal.profit does NOT include swap or commission. 
@@ -663,8 +677,15 @@ const BridgeMonitor = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncK
     );
 };
 
-/* --- SUB-COMPONENT: BRIDGE WIZARD (The Setup Steps) --- */
-const BridgeWizard = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }: any) => {
+/* --- SUB-COMPONENT: BRIDGE WIZARD (The "Connected" Page) --- */
+interface BridgeWizardProps {
+    isDarkMode: boolean;
+    onComplete: (syncKey: string) => void;
+    userProfile: UserProfile;
+    onUpdateProfile: (profile: UserProfile) => Promise<void>;
+}
+
+const BridgeWizard: React.FC<BridgeWizardProps> = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }) => {
     const [step, setStep] = useState(0);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
     const [copied, setCopied] = useState(false);

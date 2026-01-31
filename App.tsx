@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import LogTrade from './components/LogTrade';
@@ -6,8 +5,8 @@ import Dashboard from './components/Dashboard';
 import Journal from './components/Journal';
 import Analytics from './components/Analytics';
 import Auth from './components/Auth';
-import { PartyPopper, MessageSquare, AlertCircle, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { UserProfile, Trade, Note, DailyBias, Goal } from './types';
+import { PartyPopper, MessageSquare, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { UserProfile, Trade, Note, DailyBias, Goal, EASession } from './types';
 
 import Goals from './components/Goals';
 import Notes from './components/Notes';
@@ -27,15 +26,50 @@ import BacktestLab from './components/BacktestLab';
 import { APP_CONSTANTS, PLAN_FEATURES } from './lib/constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { getSASTDateTime } from './lib/timeUtils';
-import { authService } from './services/authService';
-import { dataService, mapTradeFromDB, mapGoalFromDB } from './services/dataService';
-import { supabase } from './lib/supabase';
+import { dataService } from './services/dataService';
 import { ToastProvider, useToast } from './components/ui/Toast';
+import { useAuth } from './hooks/useAuth';
+import { useData } from './hooks/useData';
+import { authService } from './services/authService';
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [settingsTab, setSettingsTab] = useState<'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help'>('profile');
   const { addToast } = useToast();
+  
+  const {
+    userId,
+    userProfile,
+    userEmail,
+    isAuthenticated,
+    isInitialLoading,
+    handleLogout,
+    handleOnboardingComplete,
+    handleUpdateProfile,
+    loadUserData,
+    setIsAuthenticated,
+    setIsInitialLoading,
+    setUserId,
+    setUserEmail,
+    setUserProfile
+  } = useAuth();
+
+  const {
+    trades,
+    notes,
+    dailyBias,
+    goals,
+    eaSession,
+    editingTrade,
+    isDataLoading,
+    setTrades,
+    setNotes,
+    setDailyBias,
+    setGoals,
+    setEASession,
+    setEditingTrade
+  } = useData(userId, userProfile);
+
 
   // Mobile Detection (Enhanced with User-Agent check)
   const checkIfMobile = () => {
@@ -56,49 +90,7 @@ const AppContent: React.FC = () => {
 
   // Persistent State (Theme only)
   const [isDarkMode, setIsDarkMode] = useLocalStorage<boolean>('jfx_theme_dark', true);
-
-  const playNotificationSound = () => {
-    try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-      osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1); // A6
-
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-
-      osc.start();
-      osc.stop(ctx.currentTime + 0.3);
-    } catch (e) {
-      console.error("Audio play failed", e);
-    }
-  };
-
-  // App State
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [userEmail, setUserEmail] = useState<string>('');
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [dailyBias, setDailyBias] = useState<DailyBias[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [eaSession, setEASession] = useState<any>(null);
-  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
-
-  // Auth & Loading State
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isDataLoading, setIsDataLoading] = useState(false);
-
+  
   // UI State
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
@@ -115,6 +107,7 @@ const AppContent: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [userProfile?.onboarded, hasSeenBetaAnnouncement]);
+
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -130,224 +123,7 @@ const AppContent: React.FC = () => {
     description: '',
     onConfirm: () => { }
   });
-
-  // Initial Data Fetch
-  useEffect(() => {
-    const initApp = async () => {
-      try {
-        const user = await authService.getCurrentUser();
-        if (user) {
-          setUserId(user.id);
-          setIsAuthenticated(true);
-          setUserEmail(user.email || '');
-          await loadUserData(user.id);
-        }
-      } catch (error) {
-        console.error("Failed to initialize app:", error);
-      } finally {
-        setIsInitialLoading(false);
-      }
-    };
-
-    initApp();
-  }, []);
-
-  // --- Realtime Profile & EA Session Sync ---
-  useEffect(() => {
-    if (isAuthenticated && userId && userProfile?.syncKey) {
-      // 1. Subscribe to Session Data
-      const sessionChannel = supabase
-        .channel('ea_session_global_sync')
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'ea_sessions',
-          filter: `sync_key=eq.${userProfile.syncKey}`
-        }, (payload) => {
-          if (payload.new) {
-            setEASession(payload.new);
-          }
-        })
-        .subscribe();
-
-      // 2. Subscribe to Profile changes (e.g. eaConnected status from DB trigger)
-      const profileChannel = supabase
-        .channel('profile_sync')
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${userId}`
-        }, (payload) => {
-          if (payload.new) {
-            const p = payload.new;
-            setUserProfile(prev => prev ? ({
-              ...prev,
-              name: p.name,
-              accountName: p.account_name,
-              syncMethod: p.sync_method,
-              plan: p.plan,
-              eaConnected: p.ea_connected,
-              avatarUrl: p.avatar_url,
-              themePreference: p.theme_preference
-            }) : null);
-          }
-        })
-        .subscribe();
-
-      // 3. Subscribe to Trades (Realtime sync for journal)
-      const tradesChannel = supabase
-        .channel('trades_sync')
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'trades',
-          filter: `user_id=eq.${userId}`
-        }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setTrades(prev => {
-              if (prev.some(t => t.id === payload.new.id)) return prev;
-              return [mapTradeFromDB(payload.new), ...prev];
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            setTrades(prev => prev.map(t => t.id === payload.new.id ? mapTradeFromDB(payload.new) : t));
-          } else if (payload.eventType === 'DELETE') {
-            setTrades(prev => prev.filter(t => t.id !== payload.old.id));
-          }
-        })
-        .subscribe();
-
-      // 4. Subscribe to Notes
-      const notesChannel = supabase
-        .channel('notes_sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setNotes(prev => {
-              if (prev.some(n => n.id === payload.new.id)) return prev;
-              return [{ ...payload.new, isPinned: (payload.new as any).is_pinned } as Note, ...prev];
-            });
-          }
-          else if (payload.eventType === 'UPDATE') setNotes(prev => prev.map(n => n.id === payload.new.id ? { ...payload.new, isPinned: (payload.new as any).is_pinned } as Note : n));
-          else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== payload.old.id));
-        }).subscribe();
-
-      // 5. Subscribe to Daily Bias
-      const biasChannel = supabase
-        .channel('bias_sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_bias', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setDailyBias(prev => {
-              if (prev.some(b => b.date === payload.new.date)) return prev;
-              return [...prev, { ...payload.new, actualOutcome: (payload.new as any).actual_outcome } as DailyBias];
-            });
-          }
-          else if (payload.eventType === 'UPDATE') setDailyBias(prev => prev.map(b => b.date === payload.new.date ? { ...payload.new, actualOutcome: (payload.new as any).actual_outcome } as DailyBias : b));
-        }).subscribe();
-
-      // 6. Subscribe to Goals
-      const goalsChannel = supabase
-        .channel('goals_sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'goals', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setGoals(prev => {
-              if (prev.some(g => g.id === payload.new.id)) return prev;
-              return [mapGoalFromDB(payload.new), ...prev];
-            });
-          }
-          else if (payload.eventType === 'UPDATE') setGoals(prev => prev.map(g => g.id === payload.new.id ? mapGoalFromDB(payload.new) : g));
-          else if (payload.eventType === 'DELETE') setGoals(prev => prev.filter(g => g.id !== payload.old.id));
-        }).subscribe();
-
-      return () => {
-        supabase.removeChannel(sessionChannel);
-        supabase.removeChannel(profileChannel);
-        supabase.removeChannel(tradesChannel);
-        supabase.removeChannel(notesChannel);
-        supabase.removeChannel(biasChannel);
-        supabase.removeChannel(goalsChannel);
-      };
-    } else {
-      setEASession(null);
-    }
-  }, [isAuthenticated, userId, userProfile?.syncKey]);
-
-  // ... (Realtime subscriptions omitted for brevity)
-  const loadUserData = async (userId: string) => {
-    setIsDataLoading(true);
-    try {
-      const { data: profile } = await authService.getProfile(userId);
-      let mappedProfile: UserProfile | null = null;
-      if (profile) {
-        mappedProfile = {
-          name: profile.name || '',
-          country: profile.country || '',
-          accountName: profile.account_name || 'Primary Account',
-          initialBalance: profile.initial_balance || 0,
-          currency: profile.currency || 'USD',
-          currencySymbol: profile.currency_symbol || '$',
-          syncMethod: profile.sync_method || 'Manual',
-          experienceLevel: profile.experience_level || 'Beginner',
-          tradingStyle: profile.trading_style || 'Day Trader',
-          onboarded: profile.onboarded || false,
-          plan: profile.plan || 'FREE TIER (JOURNALER)',
-          syncKey: profile.sync_key,
-          eaConnected: profile.ea_connected || false,
-          autoJournal: profile.auto_journal || false,
-          avatarUrl: profile.avatar_url,
-          themePreference: profile.theme_preference || 'default',
-          chartConfig: profile.chart_config || null,
-          keepChartsAlive: profile.keep_charts_alive ?? true,
-        };
-        setUserProfile(mappedProfile);
-      }
-
-      const [fetchedTrades, fetchedNotes, fetchedBias, fetchedGoals] = await Promise.all([
-        dataService.getTrades(userId),
-        dataService.getNotes(userId),
-        dataService.getDailyBias(userId),
-        dataService.getGoals(userId)
-      ]);
-
-      setTrades(fetchedTrades);
-      setNotes(fetchedNotes);
-      setDailyBias(fetchedBias);
-      setGoals(fetchedGoals);
-
-      // --- Fetch EA Session if connected ---
-      if (mappedProfile && mappedProfile.eaConnected && mappedProfile.syncKey) {
-        const session = await dataService.getEASession(mappedProfile.syncKey);
-        if (session) {
-          setEASession(session);
-        }
-      }
-
-      // --- 3. Journal Inactivity Reminder ---
-      if (fetchedTrades.length > 0) {
-        const lastTradeDate = new Date(fetchedTrades[0].date); // First is newest
-        const now = new Date();
-        const diffTime = Math.abs(now.getTime() - lastTradeDate.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays > 3) {
-          setTimeout(() => { // Slight delay to not overwhelm on load
-            addToast({
-              type: 'info',
-              title: 'Time to Journal?',
-              message: `It's been ${diffDays} days since your last logged trade. Consistency is key!`,
-              duration: 6000
-            });
-          }, 2000);
-        }
-      }
-
-    } catch (error) {
-      console.error("Error loading user data:", error);
-    } finally {
-      setIsDataLoading(false);
-    }
-  };
-
-  // --- Trade Handlers ---
+  
   const handleAddTrade = async (trade: Trade) => {
     try {
       if (editingTrade && editingTrade.id) {
@@ -355,14 +131,12 @@ const AppContent: React.FC = () => {
         setTrades(trades.map(t => t.id === trade.id ? trade : t));
         setEditingTrade(null);
       } else {
-        // Enforce Plan Limits (Server-side check)
         const sastNow = getSASTDateTime();
         const [year, month] = sastNow.date.split('-').map(Number);
         
         const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
         const features = PLAN_FEATURES[currentPlan] || PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
 
-        // Check against DB for accuracy
         if (userId && features.maxTradesPerMonth !== Infinity) {
           const dbTradesThisMonth = await dataService.getMonthlyTradeCount(userId, year, month);
           
@@ -384,7 +158,6 @@ const AppContent: React.FC = () => {
         }
 
         const newTrade = await dataService.addTrade(trade);
-        // setTrades([newTrade, ...trades]); // Removed to prevent duplicates with realtime sync
         dataService.logActivity('ADD_TRADE', { pair: newTrade.pair, pnl: newTrade.pnl });
       }
       setCurrentView('history');
@@ -410,15 +183,12 @@ const AppContent: React.FC = () => {
   const handleBatchAddTrades = async (newTrades: Trade[]) => {
     try {
       const addedTrades = await dataService.batchAddTrades(newTrades);
-      // Realtime sync will handle the state update
-
       addToast({
         type: 'success',
         title: 'Import Successful',
         message: `Successfully imported ${addedTrades.length} trades from file.`,
         duration: 5000
       });
-
       setCurrentView('history');
     } catch (error) {
       console.error("Error batch adding trades:", error);
@@ -434,7 +204,6 @@ const AppContent: React.FC = () => {
   const handleUpdateTrade = async (updatedTrade: Trade) => {
     try {
       await dataService.updateTrade(updatedTrade);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating trade:", error);
     }
@@ -443,7 +212,6 @@ const AppContent: React.FC = () => {
   const handleBatchUpdateTrades = async (updatedTrades: Trade[]) => {
     try {
       await dataService.batchUpdateTrades(updatedTrades);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error batch updating trades:", error);
       addToast({
@@ -466,7 +234,6 @@ const AppContent: React.FC = () => {
       onConfirm: async () => {
         try {
           await dataService.deleteTrades(tradeIds);
-          // setTrades(prev => prev.filter(t => !tradeIds.includes(t.id))); // Removed to rely on realtime sync
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
           dataService.logActivity('DELETE_TRADES', { count: tradeIds.length, ids: tradeIds });
 
@@ -480,11 +247,6 @@ const AppContent: React.FC = () => {
               onClick: async () => {
                 try {
                   await dataService.batchAddTrades(tradesToDelete);
-                  setTrades(prev => [...tradesToDelete, ...prev].sort((a, b) => {
-                    const dateA = new Date(`${a.date}T${a.time || '00:00:00'}`);
-                    const dateB = new Date(`${b.date}T${b.time || '00:00:00'}`);
-                    return dateB.getTime() - dateA.getTime();
-                  }));
                   addToast({
                     type: 'success',
                     title: 'Deletion Undone',
@@ -513,21 +275,17 @@ const AppContent: React.FC = () => {
     });
   };
 
-  // --- Bias Handlers ---
   const handleUpdateBias = async (bias: DailyBias) => {
     try {
       await dataService.updateBias(bias);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating bias:", error);
     }
   };
 
-  // --- Note Handlers ---
   const handleAddNote = async (note: Note) => {
     try {
       const newNote = await dataService.addNote(note);
-      // setNotes([newNote, ...notes]); // Removed to prevent duplicates with realtime sync
       return newNote;
     } catch (error) {
       console.error("Error adding note:", error);
@@ -538,7 +296,6 @@ const AppContent: React.FC = () => {
   const handleUpdateNote = async (note: Note) => {
     try {
       await dataService.updateNote(note);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating note:", error);
     }
@@ -547,17 +304,14 @@ const AppContent: React.FC = () => {
   const handleDeleteNote = async (noteId: string) => {
     try {
       await dataService.deleteNote(noteId);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error deleting note:", error);
     }
   };
 
-  // --- Goal Handlers ---
   const handleAddGoal = async (goal: Goal) => {
     try {
-      const newGoal = await dataService.addGoal(goal);
-      // setGoals(prev => [newGoal, ...prev]); // Removed to prevent duplicates with realtime sync
+      await dataService.addGoal(goal);
     } catch (error) {
       console.error("Error adding goal:", error);
     }
@@ -566,7 +320,6 @@ const AppContent: React.FC = () => {
   const handleUpdateGoal = async (goal: Goal) => {
     try {
       await dataService.updateGoal(goal);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error updating goal:", error);
     }
@@ -575,45 +328,12 @@ const AppContent: React.FC = () => {
   const handleDeleteGoal = async (goalId: string) => {
     try {
       await dataService.deleteGoal(goalId);
-      // Realtime sync will handle the state update
     } catch (error) {
       console.error("Error deleting goal:", error);
     }
   };
 
-  const handleUpdateProfile = async (profile: UserProfile) => {
-    try {
-      await dataService.updateProfile(profile);
-      setUserProfile(profile);
-    } catch (error) {
-      console.error("Error updating profile:", error);
-      throw error;
-    }
-  };
-
-  const handleOnboardingComplete = async (profile: UserProfile) => {
-    // Set state immediately for instant UI transition
-    setUserProfile(profile);
-    setCurrentView(profile.syncMethod === 'EA_CONNECT' ? 'ea-setup' : 'dashboard');
-    setTrades([]);
-
-    try {
-      await dataService.updateProfile(profile);
-    } catch (error) {
-      console.error("Error saving profile:", error);
-      setConfirmModal({
-        isOpen: true,
-        title: 'Profile Error',
-        description: 'Failed to save profile. Please check your connection and try again.',
-        confirmText: 'OK',
-        variant: 'danger',
-        showCancel: false,
-        onConfirm: () => setConfirmModal(prev => ({ ...prev, isOpen: false }))
-      });
-    }
-  };
-
-  const handleLogout = async () => {
+  const onLogout = async () => {
     setConfirmModal({
       isOpen: true,
       title: 'Log Out',
@@ -621,46 +341,39 @@ const AppContent: React.FC = () => {
       confirmText: 'Log Out',
       variant: 'info',
       onConfirm: async () => {
-        await authService.signOut();
-        setIsAuthenticated(false);
-        setUserProfile(null);
+        await handleLogout();
         setTrades([]);
         setNotes([]);
         setDailyBias([]);
         setGoals([]);
+        setEASession(null);
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       }
     });
   };
 
-  // Ensure body follows theme
   useEffect(() => {
-    // Remove premium theme classes from both elements
     const themeClasses = ['theme-midnight'];
     document.documentElement.classList.remove(...themeClasses, 'theme-cosmic');
     document.body.classList.remove(...themeClasses, 'theme-cosmic');
 
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-
       const activeTheme = userProfile?.themePreference || 'default';
-
-      // Apply premium themes if selected
       if (activeTheme === 'midnight') {
         const themeClass = 'theme-midnight';
         document.documentElement.classList.add(themeClass);
         document.body.classList.add(themeClass);
         document.body.style.backgroundColor = '#020617';
       } else {
-        document.body.style.backgroundColor = '#050505'; // Default dark
+        document.body.style.backgroundColor = '#050505';
       }
     } else {
       document.documentElement.classList.remove('dark');
-      document.body.style.backgroundColor = '#F8FAFC'; // Default light
+      document.body.style.backgroundColor = '#F8FAFC';
     }
   }, [isDarkMode, userProfile?.themePreference]);
 
-  // Ensure focus mode is disabled when leaving charts view
   useEffect(() => {
     if (currentView !== 'charts') {
       setIsFocusMode(false);
@@ -679,20 +392,19 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Auth Flow
   if (!isAuthenticated) {
     return (
       <Auth
         isDarkMode={isDarkMode}
         onLogin={async () => {
           setIsInitialLoading(true);
-          setIsAuthenticated(true);
           try {
             const user = await authService.getCurrentUser();
             if (user) {
               setUserId(user.id);
               setUserEmail(user.email || '');
               await loadUserData(user.id);
+              setIsAuthenticated(true);
             }
           } catch (error) {
             console.error("Login data load failed:", error);
@@ -702,13 +414,13 @@ const AppContent: React.FC = () => {
         }}
         onRegister={async () => {
           setIsInitialLoading(true);
-          setIsAuthenticated(true);
           try {
             const user = await authService.getCurrentUser();
             if (user) {
               setUserId(user.id);
               setUserEmail(user.email || '');
               await loadUserData(user.id);
+              setIsAuthenticated(true);
             }
           } catch (error) {
             console.error("Registration data load failed:", error);
@@ -721,17 +433,18 @@ const AppContent: React.FC = () => {
   }
 
   if (!userProfile || !userProfile.onboarded) {
-    return <Onboarding isDarkMode={isDarkMode} onComplete={handleOnboardingComplete} />;
+    return <Onboarding isDarkMode={isDarkMode} onComplete={async (profile) => {
+      await handleOnboardingComplete(profile);
+      setCurrentView(profile.syncMethod === 'EA_CONNECT' ? 'ea-setup' : 'dashboard');
+      setTrades([]);
+    }} />;
   }
 
   const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
-  const isPro = userProfile?.plan === 'PRO TIER (ANALYSTS)';
-  // Centralized currentBalance logic: use bridge balance if connected, otherwise fallback to journal PnL
   const currentBalance = eaSession?.data?.account?.balance !== undefined
     ? eaSession.data.account.balance
     : (userProfile.initialBalance + totalPnL);
 
-  // Calculate Usage Stats
   const { date: sastDate } = getSASTDateTime();
   const [year, month] = sastDate.split('-').map(Number);
   
@@ -771,7 +484,7 @@ const AppContent: React.FC = () => {
             onToggleTheme={() => setIsDarkMode(!isDarkMode)}
             onOpenCalculator={() => setIsCalculatorOpen(true)}
             onOpenQuickLog={() => setIsQuickLogOpen(true)}
-            onLogout={handleLogout}
+            onLogout={onLogout}
             userProfile={userProfile}
             trades={trades}
             eaSession={eaSession}
@@ -851,7 +564,6 @@ const AppContent: React.FC = () => {
             />
           )}
 
-          {/* Persistent Chart View (Respects keepChartsAlive preference) */}
           {userProfile?.keepChartsAlive ? (
             <div className={currentView === 'charts' ? 'h-full w-full' : 'hidden'}>
               {userProfile && (
@@ -883,7 +595,7 @@ const AppContent: React.FC = () => {
               userProfile={userProfile}
               onUpdateProfile={handleUpdateProfile}
               eaSession={eaSession}
-              onTradeAdded={(newTrade) => { /* Realtime sync handles this */ }}
+              onTradeAdded={(newTrade) => {}}
               onEditTrade={handleEditTrade}
               trades={trades}
               userId={userId}
@@ -908,7 +620,7 @@ const AppContent: React.FC = () => {
               userProfile={userProfile}
               userEmail={userEmail}
               onUpdateProfile={handleUpdateProfile}
-              onLogout={handleLogout}
+              onLogout={onLogout}
               onToggleTheme={() => setIsDarkMode(!isDarkMode)}
               tradesThisMonth={tradesThisMonth}
               totalNotes={totalNotes}
@@ -927,27 +639,24 @@ const AppContent: React.FC = () => {
           currencySymbol={userProfile?.currencySymbol || '$'}
         />
 
-        {/* Confirmation Modal */}
         <ConfirmationModal
           isOpen={confirmModal.isOpen}
           title={confirmModal.title}
           description={confirmModal.description}
           confirmText={confirmModal.confirmText}
-          cancelText={confirmModal.cancelText}
+      cancelText={confirmModal.cancelText}
           variant={confirmModal.variant}
           showCancel={confirmModal.showCancel}
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
           isDarkMode={isDarkMode}
         />
-        {/* Beta Announcement Modal */}
         {showBetaAnnouncement && (
           <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
             <div
               className={`w-full max-w-lg rounded-[32px] p-10 shadow-2xl relative overflow-hidden ${isDarkMode ? 'bg-[#0f111a] text-white border border-zinc-800' : 'bg-white text-gray-900 border border-gray-100'
                 } transform transition-all animate-in zoom-in-95 duration-300`}
             >
-              {/* Decorative Background Elements */}
               <div className="absolute top-[-10%] right-[-10%] w-40 h-40 bg-[#FF4F01]/10 rounded-full blur-3xl" />
               <div className="absolute bottom-[-10%] left-[-10%] w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl" />
 

@@ -12,8 +12,10 @@ export const useMT5Bridge = (initialSymbol: string, initialTimeframe: string) =>
         const activeSymbol = overrideSymbol || symbol;
         const activeTF = overrideTimeframe || timeframe;
         try {
-            const response = await fetch(`http://localhost:5001/data?symbol=${activeSymbol}&tf=${activeTF}&count=1000`);
-            if (!response.ok) throw new Error('Bridge not running');
+            const response = await fetch(`http://localhost:5001/data?symbol=${activeSymbol}&tf=${activeTF}&count=1000`).catch(() => {
+                throw new Error('MT5 Bridge disconnected. Please run "python public/backtest_data_provider.py"');
+            });
+            if (!response.ok) throw new Error('Bridge returned an error. Ensure MT5 is open.');
             
             const data = await response.json();
             if (data.error) throw new Error(data.error);

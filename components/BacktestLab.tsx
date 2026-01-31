@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 import {
     Play, Pause, ChevronRight, RotateCcw,
     TrendingUp, TrendingDown, XCircle, X,
     Settings, Zap, ArrowLeftToLine, StepForward, ChevronDown, Database,
-    Trash2, Lock, Unlock, Check, Search, Download, FileUp, RefreshCw, Clock
+    Trash2, Lock, Unlock, Check, Search, Download, FileUp, RefreshCw, Clock, Brain
 } from 'lucide-react';
 import { useToast } from './ui/Toast';
 import { DrawingToolbar } from './backtest/DrawingToolbar';
@@ -14,6 +13,7 @@ import { useMT5Bridge } from '../hooks/useMT5Bridge';
 import { ChartErrorBoundary } from './ChartErrorBoundary';
 import { UserProfile, BacktestTrade, BacktestSession } from '../types';
 import { dataService } from '../services/dataService';
+import CustomChart from './CustomChart';
 
 interface BacktestLabProps {
     isDarkMode: boolean;
@@ -24,8 +24,8 @@ const POPULAR_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDC
 
 const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
-    const chartRef = useRef<IChartApi | null>(null);
-    const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const chartRef = useRef<any>(null);
+    const candlestickSeriesRef = useRef<any>(null);
     const { addToast } = useToast();
 
     // MT5 Bridge & Data
@@ -85,6 +85,10 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
     const [savedSessions, setSavedSessions] = useState<BacktestSession[]>([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
+    // Feature: AI Analysis
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState<any>(null);
+
     const fetchSavedSessions = useCallback(async () => {
         setIsLoadingSessions(true);
         try {
@@ -125,8 +129,6 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         }
 
         try {
-            // Suggestion 2: Ensure data structures are clean before saving to JSONB
-            // We strip any non-serializable properties if they exist
             const cleanDrawings = drawings.map(d => ({
                 id: d.id,
                 type: d.type,
@@ -164,12 +166,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
             setDrawings(session.drawings || []);
             setHistory(session.trades || []);
 
-            if (candlestickSeriesRef.current) {
-                candlestickSeriesRef.current.setData(session.data.slice(0, 51));
-                centerChart();
-            }
-            setCurrentIdx(50);
-            setDataSource('live'); // It's cloud-synced so it's fresh/live source
+            setCurrentIdx(session.data.length - 1);
+            setDataSource('live'); 
             addToast({ type: 'success', title: 'Session Loaded', message: `Restored ${session.symbol} ${session.timeframe} session.` });
             setIsSettingsOpen(false);
         } catch (err: any) {
@@ -178,7 +176,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
     };
 
     const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
-        e.stopPropagation(); // Don't trigger load
+        e.stopPropagation(); 
         try {
             await dataService.deleteBacktestSession(id);
             addToast({ type: 'info', title: 'Deleted', message: 'Session removed from cloud.' });
@@ -189,27 +187,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
     };
 
     const centerChart = useCallback(() => {
-        if (!chartRef.current || !candlestickSeriesRef.current) return;
-
-        // Use a small timeout to ensure the DOM and series data are fully processed
-        setTimeout(() => {
-            const chart = chartRef.current;
-            const series = candlestickSeriesRef.current;
-            if (!chart || !series) return;
-
-            // 1. Reset the price scale to auto-scale mode
-            series.priceScale().applyOptions({
-                autoScale: true,
-            });
-
-            // 2. Fit the entire data content into the visible range
-            chart.timeScale().fitContent();
-
-            // 3. Ensure the crosshair is not causing weird offsets
-            chart.applyOptions({
-                crosshair: { mode: 0 }
-            });
-        }, 50);
+        if (!chartRef.current) return;
+        chartRef.current.timeScale().fitContent();
     }, []);
 
     const saveToLocalCache = useCallback((data: any[], overrideSymbol?: string, overrideTimeframe?: string) => {
@@ -233,11 +212,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 const data = JSON.parse(cached);
                 if (Array.isArray(data) && data.length > 0) {
                     setAllData(data);
-                    if (candlestickSeriesRef.current) {
-                        candlestickSeriesRef.current.setData(data.slice(0, 51));
-                        centerChart();
-                    }
-                    setCurrentIdx(50);
+                    setCurrentIdx(Math.min(data.length - 1, 50));
                     setDataSource('cache');
                     addToast({ type: 'info', title: 'Loaded from Cache', message: `Restored ${data.length} bars for ${activeSymbol}` });
                     return true;
@@ -270,11 +245,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 const data = JSON.parse(event.target?.result as string);
                 if (Array.isArray(data)) {
                     setAllData(data);
-                    if (candlestickSeriesRef.current) {
-                        candlestickSeriesRef.current.setData(data.slice(0, 51));
-                        centerChart();
-                    }
-                    setCurrentIdx(50);
+                    setCurrentIdx(Math.min(data.length - 1, 50));
                     setDataSource('cache');
                     addToast({ type: 'success', title: 'Data Imported', message: `Loaded ${data.length} bars from file.` });
                 }
@@ -290,25 +261,16 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         const activeSymbol = overrideSymbol || symbol;
         const activeTF = overrideTimeframe || timeframe;
 
-        // Try cache first
         if (loadFromLocalCache(overrideSymbol, overrideTimeframe)) {
-            // Keep dataSource as 'cache' until fetch completes
+            // Success
         }
 
         try {
             const { data, startIdx } = await fetchData(overrideSymbol, overrideTimeframe);
-            if (candlestickSeriesRef.current) {
-                candlestickSeriesRef.current.setData(data.slice(0, startIdx + 1));
-                centerChart();
-            }
             setBalance(10000);
             setPosition(null);
             setHistory([]);
             setMarkers([]);
-            const series = candlestickSeriesRef.current as any;
-            if (series && typeof series.setMarkers === 'function') {
-                series.setMarkers([]);
-            }
             saveToLocalCache(data, overrideSymbol, overrideTimeframe);
             setDataSource('live');
             addToast({ type: 'success', title: 'Data Synced', message: `Loaded ${data.length} bars for ${activeSymbol}` });
@@ -325,7 +287,6 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         if (allData.length === 0) return handleFetchMT5Data();
         setIsPlaying(false);
         try {
-            // We fetch the latest 1000 bars and merge/replace
             const { data } = await fetchData();
             saveToLocalCache(data);
             setDataSource('live');
@@ -413,30 +374,14 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         addToast({ type: 'info', title: 'Copied', message: 'Drawing copied to clipboard' });
     }, [addToast]);
 
-    // Helper: Convert X/Y to Price/Time
     const getChartCoordinates = useCallback((x: number, y: number) => {
         if (!chartRef.current || !candlestickSeriesRef.current) return null;
-        const timeScale = chartRef.current.timeScale();
-        const priceScale = candlestickSeriesRef.current;
-        const price = priceScale.coordinateToPrice(y) as number;
-        
-        // Use coordinateToLogical for higher precision than coordinateToTime
-        const logical = timeScale.coordinateToLogical(x);
-        let time = timeScale.coordinateToTime(x) as number;
-
-        if (!time && logical !== null && allData.length > 0) {
-            const lastBar = allData[allData.length - 1];
-            const tfSecondsMap: Record<string, number> = { 'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800, 'H1': 3600, 'H4': 14400, 'D1': 86400 };
-            const secondsPerBar = tfSecondsMap[timeframe] || 3600;
-            
-            // Calculate time based on logical offset if we are in the 'future' area of the chart
-            const lastLogical = timeScale.coordinateToLogical(timeScale.timeToCoordinate(lastBar.time as any) || 0) || allData.length;
-            time = lastBar.time + (logical - lastLogical) * secondsPerBar;
-        }
-        
-        if (price === null || !time) return null;
-        return { time, price, logical: logical !== null ? (logical as number) : undefined };
-    }, [allData, timeframe]);
+        const price = candlestickSeriesRef.current.coordinateToPrice(y);
+        const logical = chartRef.current.timeScale().coordinateToLogical(x);
+        const time = chartRef.current.timeScale().coordinateToTime(x);
+        if (price === null || logical === null) return null;
+        return { time, price, logical };
+    }, []);
 
     const handlePasteDrawing = useCallback((x: number, y: number) => {
         if (!clipboard) return;
@@ -473,41 +418,31 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         addToast({ type: 'success', title: 'Pasted', message: 'Drawing pasted at cursor' });
     }, [clipboard, getChartCoordinates, pushToHistory, addToast]);
 
-    // Helper: Snap to OHLC
     const getSnappedPoint = useCallback((time: number, price: number, logical?: number): Point => {
-        if (!magnetMode || !allData.length || !chartRef.current || !candlestickSeriesRef.current) return { time, price, logical };
-        const timeScale = chartRef.current.timeScale();
-        const effectiveLogical = logical ?? timeScale.coordinateToLogical(timeScale.timeToCoordinate(time as any) || 0);
-        if (effectiveLogical === null) return { time, price, logical };
-        
-        // Find the closest bar by rounding the logical coordinate
-        const barIndex = Math.round(effectiveLogical as number);
-        const candle = allData[barIndex];
-        if (!candle) return { time, price, logical: effectiveLogical as number };
-        
+        if (!magnetMode || !allData.length) return { time, price, logical };
+        const candle = allData[Math.round(logical ?? 0)];
+        if (!candle) return { time, price, logical };
         const levels = [candle.open, candle.high, candle.low, candle.close];
         const closestLevel = levels.reduce((p, c) => Math.abs(c - price) < Math.abs(p - price) ? c : p);
-        
-        // Return the exact bar time but keep the fractional logical for smoother anchoring if possible
-        // However, snapping usually implies bar-alignment.
-        return { time: candle.time, price: closestLevel, logical: barIndex };
+        return { time: candle.time, price: closestLevel, logical: Math.round(logical ?? 0) };
     }, [magnetMode, allData]);
 
     const onMouseDown = (e: React.MouseEvent) => {
         if (!chartRef.current || !candlestickSeriesRef.current || e.button !== 0) return;
         if (contextMenu) setContextMenu(null);
+        
         const rect = chartContainerRef.current?.getBoundingClientRect();
         if (!rect) return;
-        const coords = getChartCoordinates(e.clientX - rect.left, e.clientY - rect.top);
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const coords = getChartCoordinates(x, y);
         if (!coords) return;
 
         if (isSelectBarMode) {
-            const tfSecondsMap: Record<string, number> = { 'M1': 60, 'M5': 300, 'M15': 900, 'M30': 1800, 'H1': 3600, 'H4': 14400, 'D1': 86400 };
-            const threshold = (tfSecondsMap[timeframe] || 3600) / 2;
-            const foundIdx = allData.findIndex(d => Math.abs(d.time - coords.time) <= threshold);
-            if (foundIdx !== -1) {
+            const foundIdx = Math.round(coords.logical);
+            if (foundIdx >= 0 && foundIdx < allData.length) {
                 setCurrentIdx(foundIdx);
-                candlestickSeriesRef.current.setData(allData.slice(0, foundIdx + 1));
                 setIsSelectBarMode(false);
             }
             return;
@@ -561,21 +496,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 if (dragState.handle === 'move') {
                     const p1Base = initialData.initialP1;
                     const p2Base = initialData.initialP2;
-                    
-                    newD.p1 = { 
-                        time: p1Base.time + dTime, 
-                        price: p1Base.price + dPrice, 
-                        logical: p1Base.logical !== undefined ? p1Base.logical + dLog : undefined 
-                    };
-                    
-                    if (p2Base) {
-                        newD.p2 = { 
-                            time: p2Base.time + dTime, 
-                            price: p2Base.price + dPrice, 
-                            logical: p2Base.logical !== undefined ? p2Base.logical + dLog : undefined 
-                        };
-                    }
-                    
+                    newD.p1 = { time: p1Base.time + dTime, price: p1Base.price + dPrice, logical: p1Base.logical !== undefined ? p1Base.logical + dLog : undefined };
+                    if (p2Base) newD.p2 = { time: p2Base.time + dTime, price: p2Base.price + dPrice, logical: p2Base.logical !== undefined ? p2Base.logical + dLog : undefined };
                     if (d.type === 'long' || d.type === 'short') {
                         newD.entry = (initialData.initialEntry || 0) + dPrice;
                         newD.target = (initialData.initialTarget || 0) + dPrice;
@@ -618,7 +540,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
     };
 
     const handleMouseDownHandle = useCallback((e: React.MouseEvent, drawingId: string, handle: 'p1' | 'p2' | 'move' | 'target' | 'stop') => {
-        if (!chartRef.current || !candlestickSeriesRef.current || !mousePos || isLocked) return;
+        if (!mousePos || isLocked) return;
         const coords = getChartCoordinates(mousePos.x, mousePos.y);
         if (coords) { 
             const drawing = drawings.find(d => d.id === drawingId);
@@ -646,13 +568,11 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         setContextMenu({ x: e.clientX, y: e.clientY, drawing });
     }, []);
 
-    const [chartReady, setChartReady] = useState(false);
     const [tick, setTick] = useState(0);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     useEffect(() => {
         if (!chartContainerRef.current) return;
-        
         const updateDimensions = () => {
             if (chartContainerRef.current) {
                 setDimensions({
@@ -661,78 +581,17 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 });
             }
         };
-
-        const chart = createChart(chartContainerRef.current, {
-            layout: { background: { type: ColorType.Solid, color: isDarkMode ? '#000000' : '#ffffff' }, textColor: isDarkMode ? '#a1a1aa' : '#64748b' },
-            grid: { vertLines: { color: isDarkMode ? '#18181b' : '#f1f5f9' }, horzLines: { color: isDarkMode ? '#18181b' : '#f1f5f9' } },
-            width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight,
-            timeScale: { timeVisible: true, secondsVisible: false, borderColor: isDarkMode ? '#27272a' : '#e2e8f0' },
-            rightPriceScale: { borderColor: isDarkMode ? '#27272a' : '#e2e8f0' },
-            crosshair: { mode: 0, vertLine: { color: '#FF4F01', style: 3 }, horzLine: { color: '#FF4F01', style: 3 } }
-        });
-
-        const series = chart.addSeries(CandlestickSeries, { upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444' });
-        chartRef.current = chart; 
-        candlestickSeriesRef.current = series; 
-        
         updateDimensions();
-        setChartReady(true);
-
-        // Improved Sync Logic: Use a persistent animation frame to sync the SVG overlay with the Canvas chart
-        // We track the last known visible range to avoid redundant state updates
-        let lastVisibleRange: any = null;
-        let animationFrameId: number;
-
-        const syncOverlay = () => {
-            const chart = chartRef.current;
-            if (chart) {
-                const currentRange = chart.timeScale().getVisibleLogicalRange();
-                // If the range has changed, or we're in the middle of an interaction, update the tick
-                // We use JSON.stringify for a quick deep comparison of the range object
-                const rangeStr = JSON.stringify(currentRange);
-                if (rangeStr !== lastVisibleRange) {
-                    setTick(t => t + 1);
-                    lastVisibleRange = rangeStr;
-                }
-            }
-            animationFrameId = requestAnimationFrame(syncOverlay);
-        };
-        animationFrameId = requestAnimationFrame(syncOverlay);
-
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                const width = chartContainerRef.current.clientWidth;
-                const height = chartContainerRef.current.clientHeight;
-                chart.applyOptions({ width, height });
-                setDimensions({ width, height });
-                setTick(t => t + 1); // Force update on resize
-            }
-        };
-
-        window.addEventListener('resize', handleResize);
-        if (!loadFromLocalCache()) {
-            handleFetchMT5Data();
-        }
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            cancelAnimationFrame(animationFrameId);
-            chart.remove();
-        };
-    }, [isDarkMode]);
+        window.addEventListener('resize', updateDimensions);
+        if (!loadFromLocalCache()) handleFetchMT5Data();
+        return () => window.removeEventListener('resize', updateDimensions);
+    }, []);
 
     const stepForward = () => {
         if (currentIndex < allData.length - 1) {
-            const nextIdx = currentIndex + 1; 
-            const nextBar = allData[nextIdx];
-            setCurrentIdx(nextIdx); 
-            candlestickSeriesRef.current?.update(nextBar); 
-            // Explicitly update tick to sync drawings immediately with the new bar
+            setCurrentIdx(currentIndex + 1);
             setTick(t => t + 1);
-        } else { 
-            setIsPlaying(false); 
-            addToast({ type: 'info', title: 'End of Data' }); 
-        }
+        } else { setIsPlaying(false); addToast({ type: 'info', title: 'End of Data' }); }
     };
 
     useEffect(() => {
@@ -742,49 +601,31 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
 
     const handleBuy = () => {
         if (position || allData.length === 0) return;
-        const price = allData[currentIndex].close; const time = allData[currentIndex].time;
+        const price = allData[currentIndex].close;
         setPosition({ type: 'BUY', entry: price, lots: 0.1 });
-        const series = candlestickSeriesRef.current as any;
-        const newMarkers = [...markers, { time, position: 'belowBar', color: '#10b981', shape: 'arrowUp', text: 'BUY' }];
-        setMarkers(newMarkers); series?.setMarkers(newMarkers);
     };
 
     const handleSell = () => {
         if (position || allData.length === 0) return;
-        const price = allData[currentIndex].close; const time = allData[currentIndex].time;
+        const price = allData[currentIndex].close;
         setPosition({ type: 'SELL', entry: price, lots: 0.1 });
-        const series = candlestickSeriesRef.current as any;
-        const newMarkers = [...markers, { time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'SELL' }];
-        setMarkers(newMarkers); series?.setMarkers(newMarkers);
     };
 
     const handleClose = () => {
         if (!position || allData.length === 0) return;
         const exit = allData[currentIndex].close;
         const pnl = position.type === 'BUY' ? (exit - position.entry) * 100000 * position.lots : (position.entry - exit) * 100000 * position.lots;
-        const series = candlestickSeriesRef.current as any;
-        const newMarkers = [...markers, { time: allData[currentIndex].time, position: position.type === 'BUY' ? 'aboveBar' : 'belowBar', color: '#6366f1', shape: 'arrowDown', text: 'CLOSE' }];
-        setMarkers(newMarkers); series?.setMarkers(newMarkers);
         setBalance(prev => prev + pnl); setHistory(prev => [...prev, { ...position, exit, pnl, time: allData[currentIndex].time }]); setPosition(null);
     };
 
     const resetReplay = useCallback(() => {
         setIsPlaying(false);
         setCurrentIdx(0);
-        if (candlestickSeriesRef.current && allData.length > 0) {
-            candlestickSeriesRef.current.setData([allData[0]]);
-            setTimeout(() => chartRef.current?.timeScale().fitContent(), 0);
-        }
         setBalance(10000);
         setPosition(null);
         setHistory([]);
-        setMarkers([]);
-        const series = candlestickSeriesRef.current as any;
-        if (series && typeof series.setMarkers === 'function') {
-            series.setMarkers([]);
-        }
         addToast({ type: 'info', title: 'Replay Reset' });
-    }, [allData, setCurrentIdx, addToast]);
+    }, [addToast]);
 
     const clearDrawings = useCallback(() => {
         setDrawings([]);
@@ -796,11 +637,34 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
         if (!position || allData.length === 0 || !allData[currentIndex]) return 0;
         const currentPrice = allData[currentIndex].close;
         const diff = currentPrice - position.entry;
-        const pnl = position.type === 'BUY'
-            ? diff * 100000 * position.lots
-            : -diff * 100000 * position.lots;
-        return pnl;
+        return position.type === 'BUY' ? diff * 100000 * position.lots : -diff * 100000 * position.lots;
     }, [position, allData, currentIndex]);
+
+    const handleAnalyze = async () => {
+        if (allData.length < 20) return;
+        setIsAnalyzing(true);
+        try {
+            // Suggestion: Link to the geminiService from Pro lab if needed
+            // For now, we'll simulate or placeholder this
+            setTimeout(() => {
+                setAnalysisResult({
+                    trend: allData[currentIndex].close > allData[Math.max(0, currentIndex-10)].close ? 'BULLISH' : 'BEARISH',
+                    summary: "Market structure shows localized momentum. Price is testing key levels."
+                });
+                setIsAnalyzing(false);
+            }, 1500);
+        } catch (e) {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const handleCoordinatesChange = useCallback((c: any, s: any) => {
+        chartRef.current = c;
+        candlestickSeriesRef.current = s;
+        setTick(t => t + 1);
+    }, []);
+
+    const visibleData = useMemo(() => allData.slice(0, currentIndex + 1), [allData, currentIndex]);
 
     return (
         <div className={`w-full h-full flex flex-col overflow-hidden font-sans ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-white text-slate-900'}`} onMouseUp={handleMouseUp}>
@@ -813,7 +677,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                         <h2 className={`text-base font-black uppercase tracking-tight leading-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Backtest Lab</h2>
                         <div className="flex items-center gap-2 mt-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            <p className={`text-[9px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>MT5 Replay Engine</p>
+                            <p className={`text-[9px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Pro Canvas Engine</p>
                         </div>
                     </div>
                 </div>
@@ -822,12 +686,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                     <div className={`flex items-center rounded-xl border px-2 relative ${isDarkMode ? 'bg-black/40 border-white/5' : 'bg-white border-slate-200'}`}>
                         <div className="flex items-center gap-2 px-1">
                             <div className="relative group/status">
-                                <div className={`w-2 h-2 rounded-full shadow-sm ${dataSource === 'live' ? 'bg-emerald-500 animate-pulse' :
-                                    dataSource === 'cache' ? 'bg-amber-500' : 'bg-zinc-600'
-                                    }`} />
-                                <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity z-[110] pointer-events-none ${isDarkMode ? 'bg-zinc-800 text-white' : 'bg-white text-slate-900 border shadow-lg'}`}>
-                                    {dataSource === 'live' ? 'Live Bridge Data' : dataSource === 'cache' ? 'Cached Offline Data' : 'No Data Loaded'}
-                                </div>
+                                <div className={`w-2 h-2 rounded-full shadow-sm ${dataSource === 'live' ? 'bg-emerald-500 animate-pulse' : dataSource === 'cache' ? 'bg-amber-500' : 'bg-zinc-600'}`} />
                             </div>
                             <Search size={14} className="text-zinc-500 ml-1" />
                             <input
@@ -844,28 +703,12 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                             <>
                                 <div className="fixed inset-0 z-[90]" onClick={() => setIsSymbolMenuOpen(false)} />
                                 <div className={`absolute top-full left-0 mt-2 w-64 border rounded-2xl shadow-2xl p-2 z-[100] max-h-80 overflow-y-auto ${isDarkMode ? 'bg-[#1e222d] border-zinc-700' : 'bg-white border-slate-200'}`}>
-                                    <div className="p-2 mb-2 border-b border-zinc-700/50">
-                                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Popular Symbols</span>
-                                    </div>
                                     {POPULAR_SYMBOLS.filter(s => s.includes(symbol) || symbol === '').map(s => (
-                                        <button
-                                            key={s}
-                                            onClick={() => { setSymbol(s); setIsSymbolMenuOpen(false); handleFetchMT5Data(s); }}
-                                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left ${symbol === s ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}`}
-                                        >
+                                        <button key={s} onClick={() => { setSymbol(s); setIsSymbolMenuOpen(false); handleFetchMT5Data(s); }} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left ${symbol === s ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}`}>
                                             <span className="text-xs font-black">{s}</span>
                                             {symbol === s && <Check size={14} />}
                                         </button>
                                     ))}
-                                    {symbol && !POPULAR_SYMBOLS.includes(symbol) && (
-                                        <button
-                                            onClick={() => { setIsSymbolMenuOpen(false); handleFetchMT5Data(symbol); }}
-                                            className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-[#FF4F01] hover:bg-[#FF4F01]/10`}
-                                        >
-                                            <Search size={14} />
-                                            <span className="text-xs font-black italic">Search for "{symbol}"</span>
-                                        </button>
-                                    )}
                                 </div>
                             </>
                         )}
@@ -881,7 +724,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                     <div className="fixed inset-0 z-40" onClick={() => setIsTFMenuOpen(false)} />
                                     <div className={`absolute top-full left-0 mt-2 w-48 border rounded-2xl shadow-2xl p-2 z-[100] ${isDarkMode ? 'bg-[#1e222d] border-zinc-700' : 'bg-white border-slate-200'}`}>
                                         {['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'].map(tf => (
-                                            <button key={tf} onClick={() => { setTimeframe(tf); setIsTFMenuOpen(false); handleFetchMT5Data(undefined, tf); }} className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-left ${timeframe === tf ? 'bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/20' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}`}>
+                                            <button key={tf} onClick={() => { setTimeframe(tf); setIsTFMenuOpen(false); handleFetchMT5Data(undefined, tf); }} className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-left ${timeframe === tf ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'text-zinc-400 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}`}>
                                                 <span className="text-sm font-black">{tf}</span>
                                                 {timeframe === tf && <Check size={14} className="text-white" />}
                                             </button>
@@ -896,13 +739,9 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                         <button onClick={handleUpdateData} disabled={isFetching} title="Update to Latest" className={`p-2 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/5 text-emerald-500' : 'hover:bg-emerald-50 text-emerald-600'}`}>
                             <RefreshCw size={18} className={isFetching ? 'animate-spin' : ''} />
                         </button>
-                        <button onClick={() => setIsSettingsOpen(true)} disabled={allData.length === 0} title="Download Chart.json" className={`p-2 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/5 text-blue-500' : 'hover:bg-blue-50 text-blue-600'}`}>
-                            <Download size={18} />
+                        <button onClick={() => setIsSettingsOpen(true)} disabled={allData.length === 0} title="Settings" className={`p-2 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/5 text-blue-500' : 'hover:bg-blue-50 text-blue-600'}`}>
+                            <Settings size={18} />
                         </button>
-                        <label title="Load from File" className={`p-2 rounded-xl cursor-pointer transition-all ${isDarkMode ? 'hover:bg-white/5 text-amber-500' : 'hover:bg-amber-50 text-amber-600'}`}>
-                            <FileUp size={18} />
-                            <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
-                        </label>
                     </div>
 
                     <button onClick={() => handleFetchMT5Data()} disabled={isFetching} className={`h-9 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest ${isFetching ? 'bg-zinc-800 text-zinc-500 cursor-wait' : 'bg-gradient-to-r from-[#FF4F01] to-[#ff7e42] text-white active:scale-95 shadow-lg shadow-[#FF4F01]/25'}`}>
@@ -911,30 +750,104 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                 </div>
 
                 <div className="flex items-center gap-6 w-72 justify-end">
-                    <div className="flex flex-col items-end">
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Account Balance</span>
-                        <span className={`text-lg font-mono font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className={`w-px h-8 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-200'}`} />
-                    <div className="flex flex-col items-end min-w-[100px]">
-                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Session P&L</span>
-                        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border bg-opacity-10 ${floatingPnL >= 0 ? 'bg-emerald-500 border-emerald-500/20 text-emerald-500' : 'bg-rose-500 border-rose-500/20 text-rose-500'}`}>
-                            {floatingPnL >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                            <span className="text-xs font-mono font-black tracking-tight">{floatingPnL >= 0 ? '+' : ''}{floatingPnL.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    {allData.length > 0 && (
+                        <div className="flex flex-col w-full">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">Replay Progress</span>
+                                <span className={`text-[10px] font-mono font-bold ${isDarkMode ? 'text-zinc-400' : 'text-slate-600'}`}>
+                                    {currentIndex + 1} / {allData.length} Bars
+                                </span>
+                            </div>
+                            <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-200'}`}>
+                                <div 
+                                    className="h-full bg-emerald-500 transition-all duration-300 ease-out" 
+                                    style={{ width: `${Math.min(100, ((currentIndex + 1) / allData.length) * 100)}%` }}
+                                />
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
             <div className={`flex-1 flex relative overflow-hidden min-h-0 group ${isDarkMode ? 'bg-black' : 'bg-slate-50'}`}>
                 <DrawingToolbar activeTool={activeTool} setActiveTool={setActiveTool} clearDrawings={clearDrawings} magnetMode={magnetMode} toggleMagnetMode={() => setMagnetMode(!magnetMode)} isSticky={isSticky} toggleSticky={() => setIsSticky(!isSticky)} isLocked={isLocked} toggleLocked={() => setIsLocked(!isLocked)} isDarkMode={isDarkMode} />
-                <div className="flex-1 relative min-w-0" onContextMenu={handleContextMenuInternal} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={handleMouseUp}>
-                    {!chartReady && <div className={`absolute inset-0 flex items-center justify-center z-50 ${isDarkMode ? 'bg-black' : 'bg-white'}`}><div className="w-10 h-10 border-4 border-[#FF4F01] border-t-transparent rounded-full animate-spin"></div></div>}
+                <div 
+                    ref={chartContainerRef}
+                    className="flex-1 relative min-w-0" 
+                    onContextMenu={handleContextMenuInternal} 
+                    onMouseDown={onMouseDown} 
+                    onMouseMove={onMouseMove} 
+                    onMouseUp={handleMouseUp}
+                >
                     <ChartErrorBoundary>
-                        <div ref={chartContainerRef} className="w-full h-full" />
-                        <DrawingLayer drawings={drawings} currentDrawing={currentDrawing} selectedDrawingId={selectedDrawingId} hoveredDrawingId={hoveredDrawingId} mousePos={mousePos} chart={chartRef.current} series={candlestickSeriesRef.current} containerWidth={dimensions.width} containerHeight={dimensions.height} activeTool={activeTool} isSelectBarMode={isSelectBarMode} onMouseDownHandle={handleMouseDownHandle} onSelectDrawing={setSelectedDrawingId} onHoverDrawing={setHoveredDrawingId} onDoubleClickDrawing={setEditingDrawingSettings} onContextMenuDrawing={handleContextMenuDrawing} tick={tick} isLocked={isLocked} isDarkMode={isDarkMode} />
+                        <CustomChart 
+                            data={visibleData} 
+                            trades={history as any} 
+                            drawings={drawings} 
+                            isDarkMode={isDarkMode} 
+                            isSelectBarMode={isSelectBarMode}
+                            onSelectBar={(idx) => { setCurrentIdx(idx); setIsSelectBarMode(false); }}
+                            onCoordinatesChange={handleCoordinatesChange}
+                            onMouseUpdate={(x, y) => setMousePos({ x, y })}
+                            disablePan={activeTool !== 'cursor'}
+                        >
+                            <DrawingLayer drawings={drawings} currentDrawing={currentDrawing} selectedDrawingId={selectedDrawingId} hoveredDrawingId={hoveredDrawingId} mousePos={mousePos} chart={chartRef.current} series={candlestickSeriesRef.current} containerWidth={dimensions.width} containerHeight={dimensions.height} activeTool={activeTool} isSelectBarMode={isSelectBarMode} onMouseDownHandle={handleMouseDownHandle} onSelectDrawing={setSelectedDrawingId} onHoverDrawing={setHoveredDrawingId} onDoubleClickDrawing={setEditingDrawingSettings} onContextMenuDrawing={handleContextMenuDrawing} tick={tick} isLocked={isLocked} isDarkMode={isDarkMode} />
+                        </CustomChart>
                     </ChartErrorBoundary>
+
+                    {allData.length === 0 && (
+                        <div className="absolute inset-0 flex items-center justify-center z-[60] p-8 bg-black/40 backdrop-blur-sm">
+                            <div className="flex flex-col md:flex-row gap-6 w-full max-w-4xl">
+                                {/* Option 1: Live Sync */}
+                                <div 
+                                    onClick={() => handleFetchMT5Data()}
+                                    className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/50'}`}
+                                >
+                                    <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-emerald-500 group-hover:text-emerald-500 text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-emerald-500 group-hover:text-emerald-500 text-slate-400'}`}>
+                                        <RefreshCw size={48} className={isFetching ? 'animate-spin' : ''} />
+                                    </div>
+                                    <div className="text-center space-y-2">
+                                        <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Live MT5 Sync</h3>
+                                        <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Requires Python bridge to be running<br/>Connects directly to your MT5 Terminal</p>
+                                    </div>
+                                    <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-emerald-400' : 'bg-white border-slate-200 text-slate-500 group-hover:text-emerald-600'}`}>
+                                        {isFetching ? 'Connecting...' : 'Start Sync'}
+                                    </div>
+                                </div>
+
+                                {/* Option 2: Manual Upload */}
+                                <label className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-[#FF4F01]/50 hover:bg-[#FF4F01]/5' : 'bg-white border-slate-200 hover:border-[#FF4F01]/50'}`}>
+                                    <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+                                    <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:-rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-slate-400'}`}>
+                                        <FileUp size={48} />
+                                    </div>
+                                    <div className="text-center space-y-2">
+                                        <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Import JSON File</h3>
+                                        <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Upload an MT5 Export JSON<br/>Array of OHLC objects</p>
+                                    </div>
+                                    <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-[#FF4F01]' : 'bg-white border-slate-200 text-slate-500 group-hover:text-[#FF4F01]'}`}>
+                                        Browse Files
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    )}
+
                     {position && <div className={`absolute top-4 left-4 p-3 rounded-lg backdrop-blur border z-10 shadow-xl flex items-center gap-3 ${isDarkMode ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-slate-200'}`}><div className={`w-2 h-2 rounded-full ${position.type === 'BUY' ? 'bg-emerald-500' : 'bg-rose-500'}`} /><div className="flex flex-col"><span className={`text-[10px] font-black uppercase ${position.type === 'BUY' ? 'text-emerald-500' : 'text-rose-500'}`}>{position.type}</span><span className={`font-mono text-xs font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{position.entry.toFixed(5)}</span></div></div>}
+                    
+                    {analysisResult && (
+                        <div className={`absolute top-4 right-4 w-64 p-4 rounded-xl border backdrop-blur-md shadow-2xl z-20 ${isDarkMode ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-slate-200'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <Brain size={14} className="text-purple-500" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">AI Analysis</span>
+                                </div>
+                                <button onClick={() => setAnalysisResult(null)} className="text-zinc-500 hover:text-white"><X size={12} /></button>
+                            </div>
+                            <div className={`text-[10px] font-bold px-2 py-1 rounded mb-2 inline-block ${analysisResult.trend === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>{analysisResult.trend}</div>
+                            <p className="text-[11px] leading-relaxed opacity-80 italic">"{analysisResult.summary}"</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -966,7 +879,6 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                             </>
                         )}
                     </div>
-                    <button onClick={() => setIsSettingsOpen(true)} className={`p-3 rounded-xl border shadow-lg ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900'}`}><Settings size={18} /></button>
                 </div>
             </div>
 
@@ -981,30 +893,20 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                 </div>
                                 <h3 className="text-sm font-black uppercase tracking-widest">Backtest Settings</h3>
                             </div>
-                            <button onClick={() => setIsSettingsOpen(false)} className="p-1 hover:bg-black/5 rounded-lg">
-                                <X size={16} />
-                            </button>
+                            <button onClick={() => setIsSettingsOpen(false)} className="p-1 hover:bg-black/5 rounded-lg"><X size={16} /></button>
                         </div>
 
                         <div className="space-y-6">
                             <div className="p-4 rounded-xl bg-black/20 border border-white/5">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4 block">Save & Export Chart</label>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        onClick={() => { handleDownloadData(); setIsSettingsOpen(false); }}
-                                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-blue-500/50' : 'bg-slate-50 border-slate-200 hover:border-blue-500/50'}`}
-                                    >
+                                    <button onClick={() => { handleDownloadData(); setIsSettingsOpen(false); }} className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-blue-500/50' : 'bg-slate-50 border-slate-200 hover:border-blue-500/50'}`}>
                                         <Download size={20} className="text-blue-500" />
                                         <span className="text-[10px] font-black uppercase">Local PC</span>
-                                        <span className="text-[8px] text-zinc-500 text-center uppercase tracking-tighter">Download .json</span>
                                     </button>
-                                    <button
-                                        onClick={() => { handleSaveToCloud(); setIsSettingsOpen(false); }}
-                                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-emerald-500/50' : 'bg-slate-50 border-slate-200 hover:border-emerald-500/50'}`}
-                                    >
+                                    <button onClick={() => { handleSaveToCloud(); setIsSettingsOpen(false); }} className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-emerald-500/50' : 'bg-slate-50 border-slate-200 hover:border-emerald-500/50'}`}>
                                         <RefreshCw size={20} className="text-emerald-500" />
                                         <span className="text-[10px] font-black uppercase">Cloud Sync</span>
-                                        <span className="text-[8px] text-zinc-500 text-center uppercase tracking-tighter">Save to Account</span>
                                     </button>
                                 </div>
                             </div>
@@ -1013,63 +915,18 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4 block">Load from Cloud</label>
                                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                                     {isLoadingSessions ? (
-                                        <div className="flex items-center justify-center py-4">
-                                            <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                                        </div>
-                                    ) : savedSessions.length === 0 ? (
-                                        <div className="text-center py-4 text-[10px] text-zinc-600 uppercase font-bold italic">
-                                            No saved sessions found
-                                        </div>
+                                        <div className="flex items-center justify-center py-4"><div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>
                                     ) : (
                                         savedSessions.map((sess) => (
-                                            <button
-                                                key={sess.id}
-                                                onClick={() => handleLoadSession(sess)}
-                                                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 hover:border-emerald-500/30 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/30'}`}
-                                            >
-                                                <div className="flex flex-col items-start">
-                                                    <span className="text-xs font-black">{sess.symbol}</span>
-                                                    <span className="text-[8px] text-zinc-500 uppercase font-bold">{sess.timeframe} • {new Date(sess.updated_at).toLocaleDateString()}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-bold uppercase">{sess.data?.length || 0} Bars</span>
-                                                    <button
-                                                        onClick={(e) => handleDeleteSession(e, sess.id)}
-                                                        className="p-1.5 rounded-md hover:bg-rose-500/10 text-zinc-600 hover:text-rose-500 transition-colors"
-                                                        title="Delete Session"
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                    <ChevronRight size={12} className="text-zinc-600" />
-                                                </div>
+                                            <button key={sess.id} onClick={() => handleLoadSession(sess)} className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 hover:border-emerald-500/30' : 'bg-white border-slate-200'}`}>
+                                                <div className="flex flex-col items-start"><span className="text-xs font-black">{sess.symbol}</span><span className="text-[8px] text-zinc-500 uppercase font-bold">{sess.timeframe} • {new Date(sess.updated_at).toLocaleDateString()}</span></div>
+                                                <div className="flex items-center gap-2"><button onClick={(e) => handleDeleteSession(e, sess.id)} className="p-1.5 rounded-md hover:bg-rose-500/10 text-zinc-600 hover:text-rose-500"><Trash2 size={12} /></button><ChevronRight size={12} className="text-zinc-600" /></div>
                                             </button>
                                         ))
                                     )}
                                 </div>
                             </div>
-
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-bold">Auto-Sync Drawings</span>
-                                        <span className="text-[10px] text-zinc-500 uppercase tracking-tighter font-bold">Save drawings automatically</span>
-                                    </div>
-                                    <div className="w-10 h-5 bg-emerald-500/20 rounded-full relative">
-                                        <div className="absolute right-1 top-1 w-3 h-3 bg-emerald-500 rounded-full" />
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between opacity-50 cursor-not-allowed">
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-bold">Advanced Simulation</span>
-                                        <span className="text-[10px] text-zinc-500 uppercase tracking-tighter font-bold">Real-time spread & slippage</span>
-                                    </div>
-                                    <div className="w-10 h-5 bg-zinc-700 rounded-full relative">
-                                        <div className="absolute left-1 top-1 w-3 h-3 bg-zinc-500 rounded-full" />
-                                    </div>
-                                </div>
-                            </div>
                         </div>
-
                         <button onClick={() => setIsSettingsOpen(false)} className="w-full mt-8 py-3 bg-[#FF4F01] text-white rounded-xl font-bold text-xs shadow-lg shadow-[#FF4F01]/20 uppercase tracking-widest">Done</button>
                     </div>
                 </div>
@@ -1084,7 +941,6 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                             <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Stroke Color</label><div className="grid grid-cols-5 gap-2">{['#2962ff', '#FF4F01', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#787b86', (isDarkMode ? '#ffffff' : '#000000'), (isDarkMode ? '#000000' : '#e2e8f0')].map(c => <button key={c} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { color: c })} className={`w-8 h-8 rounded-full border-2 ${editingDrawingSettings.color === c ? 'border-[#FF4F01]' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div></div>
                             <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Thickness: {editingDrawingSettings.strokeWidth || 2}px</label><input type="range" min="1" max="8" value={editingDrawingSettings.strokeWidth || 2} onChange={(e) => updateDrawingProperty(editingDrawingSettings.id, { strokeWidth: parseInt(e.target.value) })} className="w-full accent-[#FF4F01]" /></div>
                             <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Line Style</label><div className="flex gap-2">{['solid', 'dashed', 'dotted'].map(s => <button key={s} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { strokeStyle: s as any })} className={`flex-1 py-2 rounded-lg border text-[10px] font-bold uppercase ${editingDrawingSettings.strokeStyle === s || (!editingDrawingSettings.strokeStyle && s === 'solid') ? 'bg-[#FF4F01] text-white' : 'bg-zinc-800 text-zinc-400'}`}>{s}</button>)}</div></div>
-                            <div><button onClick={() => updateDrawingProperty(editingDrawingSettings.id, { syncAllTimeframes: !editingDrawingSettings.syncAllTimeframes })} className={`w-full py-2.5 rounded-xl text-[10px] font-black border flex items-center justify-center gap-2 ${editingDrawingSettings.syncAllTimeframes ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-400'}`}><Database size={14} /> {editingDrawingSettings.syncAllTimeframes ? 'Synced' : 'Local Only'}</button></div>
                             <div className="pt-4 border-t border-zinc-800/50"><button onClick={() => { setDrawings(drawings.filter(d => d.id !== editingDrawingSettings.id)); pushToHistory(drawings.filter(d => d.id !== editingDrawingSettings.id)); setEditingDrawingSettings(null); setSelectedDrawingId(null); }} className="w-full py-2.5 bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2"><Trash2 size={14} /> Remove</button></div>
                         </div>
                         <button onClick={() => setEditingDrawingSettings(null)} className="w-full mt-8 py-3 bg-[#FF4F01] text-white rounded-xl font-bold text-xs shadow-lg shadow-[#FF4F01]/20">DONE</button>
@@ -1100,9 +956,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile }) =>
                         ) : (
                             <>
                                 <button onClick={() => { handleDuplicateDrawing(contextMenu.drawing); setContextMenu(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left ${isDarkMode ? 'hover:bg-white/5 text-zinc-300' : 'hover:bg-slate-50 text-slate-600'}`}><StepForward size={14} /> Duplicate</button>
-                                <button onClick={() => { handleCopyDrawing(contextMenu.drawing); setContextMenu(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left ${isDarkMode ? 'hover:bg-white/5 text-zinc-300' : 'hover:bg-slate-50 text-slate-600'}`}><Database size={14} /> Copy</button>
                                 <button onClick={() => { updateDrawingProperty(contextMenu.drawing.id, { isLocked: !contextMenu.drawing.isLocked }); setContextMenu(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left ${isDarkMode ? 'hover:bg-white/5 text-zinc-300' : 'hover:bg-slate-50 text-slate-600'}`}>{contextMenu.drawing.isLocked ? <Unlock size={14} /> : <Lock size={14} />} {contextMenu.drawing.isLocked ? 'Unlock' : 'Lock'}</button>
-                                <button onClick={() => { updateDrawingProperty(contextMenu.drawing.id, { syncAllTimeframes: !contextMenu.drawing.syncAllTimeframes }); setContextMenu(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left ${isDarkMode ? 'hover:bg-white/5 text-zinc-300' : 'hover:bg-slate-50 text-slate-600'}`}><Database size={14} /> {contextMenu.drawing.syncAllTimeframes ? 'Local Only' : 'Sync to all TFs'}</button>
                                 <button onClick={() => { setEditingDrawingSettings(contextMenu.drawing); setContextMenu(null); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left ${isDarkMode ? 'hover:bg-white/5 text-zinc-300' : 'hover:bg-slate-50 text-slate-600'}`}><Settings size={14} /> Settings...</button>
                                 <div className={`h-px mx-2 my-1 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-100'}`} />
                                 <button onClick={() => { setDrawings(drawings.filter(d => d.id !== contextMenu.drawing.id)); pushToHistory(drawings.filter(d => d.id !== contextMenu.drawing.id)); setContextMenu(null); setSelectedDrawingId(null); addToast({ type: 'info', title: 'Deleted' }); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-bold text-left text-rose-500 hover:bg-rose-500/10"><Trash2 size={14} /> Remove</button>

@@ -1,10 +1,10 @@
 
 import { supabase } from '../lib/supabase';
-import { Trade, Note, DailyBias, UserProfile, Goal, StrategyDiagram } from '../types';
+import { Trade, Note, DailyBias, UserProfile, Goal, StrategyDiagram, DBTrade, DBGoal, BacktestSession } from '../types';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
 
 // Helper to map DB Trade to App Trade
-export const mapTradeFromDB = (dbTrade: any): Trade => ({
+export const mapTradeFromDB = (dbTrade: DBTrade): Trade => ({
   id: dbTrade.id,
   ticketId: dbTrade.ticket_id,
   pair: dbTrade.pair,
@@ -37,7 +37,7 @@ export const mapTradeFromDB = (dbTrade: any): Trade => ({
 });
 
 // Helper to map App Trade to DB Trade
-const mapTradeToDB = (trade: Trade, userId: string) => ({
+const mapTradeToDB = (trade: Trade, userId: string): Partial<DBTrade> => ({
   user_id: userId,
   ticket_id: trade.ticketId,
   pair: trade.pair,
@@ -70,7 +70,7 @@ const mapTradeToDB = (trade: Trade, userId: string) => ({
 });
 
 // Helper to map DB Goal to App Goal
-export const mapGoalFromDB = (dbGoal: any): Goal => ({
+export const mapGoalFromDB = (dbGoal: DBGoal): Goal => ({
   id: dbGoal.id,
   title: dbGoal.title,
   description: dbGoal.description,
@@ -198,7 +198,7 @@ const deleteImageFile = async (imageUrl: string | undefined) => {
 
 export const dataService = {
   // --- Audit Logs ---
-  async logActivity(action: string, details: any) {
+  async logActivity(action: string, details: Record<string, any>) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -317,14 +317,14 @@ export const dataService = {
     let updateData = mapTradeToDB(tradeToUpdate, user.id);
     
     // Recursive update function to handle missing columns
-    const performUpdate = async (data: any): Promise<void> => {
+    const performUpdate = async (data: Partial<DBTrade>): Promise<void> => {
       const { error } = await supabase.from('trades').update(data).eq('id', trade.id);
       
       if (error) {
         if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
           const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
           if (fieldMatch && fieldMatch[1]) {
-            const missingField = fieldMatch[1].replace(/"/g, '');
+            const missingField = fieldMatch[1].replace(/"/g, '') as keyof DBTrade;
             console.warn(`Column ${missingField} missing. Retrying without it.`);
             const { [missingField]: _, ...safeData } = data;
             return performUpdate(safeData);
@@ -341,7 +341,7 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const performBatch = async (dataList: any[]): Promise<void> => {
+    const performBatch = async (dataList: { id: string, data: Partial<DBTrade> }[]): Promise<void> => {
       const promises = dataList.map(item => 
         supabase.from('trades').update(item.data).eq('id', item.id)
       );
@@ -354,7 +354,7 @@ export const dataService = {
         if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
           const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
           if (fieldMatch && fieldMatch[1]) {
-            const missingField = fieldMatch[1].replace(/"/g, '');
+            const missingField = fieldMatch[1].replace(/"/g, '') as keyof DBTrade;
             console.warn(`Batch: Column ${missingField} missing. Stripping and retrying.`);
             
             const nextDataList = dataList.map(item => {
@@ -573,7 +573,7 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const dbProfile: any = {};
+    const dbProfile: Record<string, any> = {};
     if (profile.name !== undefined) dbProfile.name = profile.name;
     if (profile.country !== undefined) dbProfile.country = profile.country;
     if (profile.accountName !== undefined) dbProfile.account_name = profile.accountName;
@@ -592,8 +592,6 @@ export const dataService = {
     if (profile.themePreference !== undefined) dbProfile.theme_preference = profile.themePreference;
     if (profile.chartConfig !== undefined) dbProfile.chart_config = profile.chartConfig;
     if (profile.keepChartsAlive !== undefined) dbProfile.keep_charts_alive = profile.keepChartsAlive;
-    if (profile.isBetaTester !== undefined) dbProfile.is_beta_tester = profile.isBetaTester;
-    if (profile.feedbackSent !== undefined) dbProfile.feedback_sent = profile.feedbackSent;
 
     const { error } = await supabase
       .from('profiles')
@@ -697,7 +695,7 @@ export const dataService = {
   },
 
   // --- Backtest Sessions ---
-  async saveBacktestSession(session: { symbol: string, timeframe: string, data: any[], drawings: any[], trades: any[] }) {
+  async saveBacktestSession(session: Omit<BacktestSession, 'id' | 'user_id' | 'updated_at'>) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
@@ -716,10 +714,10 @@ export const dataService = {
       .single();
 
     if (error) throw error;
-    return data;
+    return data as BacktestSession;
   },
 
-  async getBacktestSessions() {
+  async getBacktestSessions(): Promise<BacktestSession[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
@@ -730,7 +728,16 @@ export const dataService = {
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
-    return data;
+    return (data || []) as BacktestSession[];
+  },
+
+  async deleteBacktestSession(id: string) {
+    const { error } = await supabase
+      .from('backtest_sessions')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   }
 };
 
