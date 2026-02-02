@@ -34,6 +34,7 @@ export const mapTradeFromDB = (dbTrade: DBTrade): Trade => ({
   beforeScreenshot: dbTrade.before_screenshot,
   afterScreenshot: dbTrade.after_screenshot,
   setupId: dbTrade.setup_id,
+  deletedAt: dbTrade.deleted_at,
 });
 
 // Helper to map App Trade to DB Trade
@@ -67,6 +68,7 @@ const mapTradeToDB = (trade: Trade, userId: string): Partial<DBTrade> => ({
   before_screenshot: trade.beforeScreenshot,
   after_screenshot: trade.afterScreenshot,
   setup_id: trade.setupId,
+  deleted_at: trade.deletedAt,
 });
 
 // Helper to map DB Goal to App Goal
@@ -221,6 +223,7 @@ export const dataService = {
       .from('trades')
       .select('*')
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .order('date', { ascending: false });
 
     if (error) throw error;
@@ -237,6 +240,7 @@ export const dataService = {
       .from('trades')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
+      .is('deleted_at', null)
       .gte('date', startDate)
       .lte('date', endDate);
 
@@ -258,9 +262,32 @@ export const dataService = {
       afterScreenshot: afterUrl,
     };
 
+    const dbTrade = mapTradeToDB(tradeToSave, user.id);
+
+    // If it has a ticketId, we want to prevent duplicates
+    if (dbTrade.ticket_id) {
+      const { data: existing } = await supabase
+        .from('trades')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('ticket_id', dbTrade.ticket_id)
+        .maybeSingle();
+
+      if (existing) {
+        console.warn(`Trade with ticket ${dbTrade.ticket_id} already exists. Skipping.`);
+        // Return the existing trade
+        const { data } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('id', existing.id)
+          .single();
+        return mapTradeFromDB(data);
+      }
+    }
+
     const { data, error } = await supabase
       .from('trades')
-      .insert(mapTradeToDB(tradeToSave, user.id))
+      .insert(dbTrade)
       .select()
       .single();
 
@@ -272,7 +299,25 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const tradesToSave = trades.map(t => mapTradeToDB(t, user.id));
+    // Filter out duplicates before sending to DB if ticket IDs are provided
+    const ticketIds = trades.map(t => t.ticketId).filter(Boolean) as string[];
+    
+    let existingTicketIds = new Set<string>();
+    if (ticketIds.length > 0) {
+      const { data: existing } = await supabase
+        .from('trades')
+        .select('ticket_id')
+        .eq('user_id', user.id)
+        .in('ticket_id', ticketIds);
+      
+      existingTicketIds = new Set(existing?.map(t => t.ticket_id) || []);
+    }
+
+    const tradesToSave = trades
+      .filter(t => !t.ticketId || !existingTicketIds.has(t.ticketId))
+      .map(t => mapTradeToDB(t, user.id));
+
+    if (tradesToSave.length === 0) return [];
 
     const { data, error } = await supabase
       .from('trades')
@@ -379,10 +424,54 @@ export const dataService = {
   async deleteTrades(tradeIds: string[]) {
     const { error } = await supabase
       .from('trades')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .in('id', tradeIds);
 
     if (error) throw error;
+  },
+
+  async restoreTrades(tradeIds: string[]) {
+    const { error } = await supabase
+      .from('trades')
+      .update({ deleted_at: null })
+      .in('id', tradeIds);
+
+    if (error) throw error;
+  },
+
+  async deduplicateManualTrades() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Fetch all active manual trades (no ticket_id)
+    const { data: manualTrades, error } = await supabase
+      .from('trades')
+      .select('id, pair, date, entry_price, direction, lots')
+      .eq('user_id', user.id)
+      .is('ticket_id', null)
+      .is('deleted_at', null);
+
+    if (error) throw error;
+    if (!manualTrades || manualTrades.length === 0) return 0;
+
+    const seen = new Set<string>();
+    const duplicateIds: string[] = [];
+
+    manualTrades.forEach(trade => {
+      // Create a unique key for the trade properties
+      const key = `${trade.date}-${trade.pair}-${trade.direction}-${trade.entry_price}-${trade.lots}`;
+      if (seen.has(key)) {
+        duplicateIds.push(trade.id);
+      } else {
+        seen.add(key);
+      }
+    });
+
+    if (duplicateIds.length > 0) {
+      await this.deleteTrades(duplicateIds);
+    }
+
+    return duplicateIds.length;
   },
 
   // --- Notes ---

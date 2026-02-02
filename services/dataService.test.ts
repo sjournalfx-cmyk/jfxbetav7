@@ -11,6 +11,7 @@ const createMockQueryBuilder = (mockData: any = null, mockError: any = null) => 
     update: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     in: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     gte: vi.fn().mockReturnThis(),
@@ -157,6 +158,21 @@ describe('dataService - Trade CRUD', () => {
       (supabase.from as any).mockReturnValue(createMockQueryBuilder({}));
 
       await expect(dataService.deleteTrades(['trade-1'])).resolves.not.toThrow();
+    });
+  });
+
+  describe('deleteNote', () => {
+    it('should delete note successfully', async () => {
+      (supabase.from as any).mockReturnValue(createMockQueryBuilder({}));
+
+      await expect(dataService.deleteNote('note-1')).resolves.not.toThrow();
+      expect(supabase.from).toHaveBeenCalledWith('notes');
+    });
+
+    it('should throw error on failure', async () => {
+      (supabase.from as any).mockReturnValue(createMockQueryBuilder(null, new Error('Delete failed')));
+
+      await expect(dataService.deleteNote('note-1')).rejects.toThrow('Delete failed');
     });
   });
 });

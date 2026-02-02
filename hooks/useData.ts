@@ -81,8 +81,23 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
       const tradesChannel = supabase
         .channel('trades_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'trades', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') setTrades(prev => [mapTradeFromDB(payload.new as any), ...prev]);
-          else if (payload.eventType === 'UPDATE') setTrades(prev => prev.map(t => t.id === payload.new.id ? mapTradeFromDB(payload.new as any) : t));
+          if (payload.eventType === 'INSERT') {
+            if (payload.new.deleted_at) return; // Skip if inserted as deleted
+            const newTrade = mapTradeFromDB(payload.new as any);
+            setTrades(prev => {
+              // Prevent duplicate insertion if the trade already exists in state
+              if (prev.some(t => t.id === newTrade.id)) return prev;
+              return [newTrade, ...prev];
+            });
+          }
+          else if (payload.eventType === 'UPDATE') {
+            if (payload.new.deleted_at) {
+              // If marked as deleted, remove from local state
+              setTrades(prev => prev.filter(t => t.id !== payload.new.id));
+            } else {
+              setTrades(prev => prev.map(t => t.id === payload.new.id ? mapTradeFromDB(payload.new as any) : t));
+            }
+          }
           else if (payload.eventType === 'DELETE') setTrades(prev => prev.filter(t => t.id !== (payload.old as any).id));
         })
         .subscribe();

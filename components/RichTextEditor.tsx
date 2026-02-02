@@ -211,6 +211,12 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   onImageUpload
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const onChangeRef = useRef(onChange);
+
+  // Update ref when onChange changes
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const editor = useEditor({
     extensions: [
@@ -244,7 +250,8 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
     ],
     content: content,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      // Use ref to avoid stale closure without editor re-mount
+      onChangeRef.current(editor.getHTML());
     },
   });
 
@@ -307,10 +314,14 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   };
 
   // Sync content if it changes externally
-
   useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content);
+    // Only set content if it's different and the editor isn't focused
+    // AND it's not a normalization-only change (like empty string vs <p></p>)
+    if (editor && !editor.isFocused) {
+      const currentHTML = editor.getHTML();
+      if (content !== currentHTML && !(content === '' && currentHTML === '<p></p>')) {
+        editor.commands.setContent(content, { emitUpdate: false });
+      }
     }
   }, [content, editor]);
 
@@ -999,7 +1010,11 @@ const ToolbarButton = ({ onClick, isActive = false, icon: Icon, title, className
   <button
     type="button"
     onClick={onClick}
-    className={`p-1.5 rounded-md transition-all ${isActive ? 'bg-indigo-600 text-white shadow-sm' : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800'} ${className}`}
+    className={`p-1.5 rounded-md transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-indigo-500 outline-none ${
+      isActive 
+        ? 'bg-indigo-600 text-white shadow-sm' 
+        : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800'
+    } ${className}`}
     title={showTooltip ? title : undefined}
   >
     <Icon size={14} />

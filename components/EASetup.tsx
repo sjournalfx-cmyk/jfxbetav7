@@ -573,7 +573,7 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                 <div className="space-y-6 flex-1">
                                     <div>
                                         <h3 className="text-xl font-black mb-2">Connection Diagnostics</h3>
-                                        <p className="text-sm opacity-60 max-w-md">Technical details about your current bridge session. Keep the Python terminal window open.</p>
+                                        <p className="text-sm opacity-60 max-w-md">Technical details about your current bridge session. Ensure the JournalFX Bridge app is running.</p>
                                     </div>
 
                                     <div className="flex flex-wrap gap-4">
@@ -642,16 +642,6 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                             >
                                                 {copied ? <Check size={18} /> : <Copy size={18} />}
                                             </button>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2 block">Bridge Command</label>
-                                        <div
-                                            onClick={() => handleCopy(`python jfx_bridge.py --key ${syncKey} --url ${backendUrl} --apikey ${apiKey}`)}
-                                            className="p-3 rounded-xl bg-black/5 dark:bg-white/5 font-mono text-[10px] break-all cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                                        >
-                                            <div className="opacity-50 mb-1"># Click to copy</div>
-                                            python jfx_bridge.py --key {syncKey} --url ...
                                         </div>
                                     </div>
                                 </div>
@@ -786,7 +776,7 @@ const BridgeWizard: React.FC<BridgeWizardProps> = ({ isDarkMode, onComplete, use
                                         <LayoutDashboard size={28} />
                                         <div className="text-left">
                                             <div className="text-lg">Download Standalone App</div>
-                                            <div className="text-xs opacity-70 font-normal">Windows • v2.0.0 • Recommended</div>
+                                            <div className="text-xs opacity-70 font-normal">Windows • v2.1.0 • Recommended</div>
                                         </div>
                                     </a>
 

@@ -54,6 +54,7 @@ interface SettingsProps {
   totalNotes?: number;
   totalImages?: number;
   tradesCount?: number;
+  onDeduplicate?: () => Promise<void>;
   initialTab?: 'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help';
 }
 
@@ -68,6 +69,7 @@ const Settings: React.FC<SettingsProps> = ({
   totalNotes = 0,
   totalImages = 0,
   tradesCount = 0,
+  onDeduplicate,
   initialTab = 'profile'
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help'>(initialTab);
@@ -440,6 +442,26 @@ const Settings: React.FC<SettingsProps> = ({
                         />
                       </div>
                       <p className="mt-2 text-[10px] opacity-50 font-medium italic">This will be the initial target distance when placing Long/Short tools.</p>
+                    </div>
+                  </div>
+
+                  <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex items-center gap-3 mb-6">
+                      <Trash2 size={20} className="text-[#FF4F01]" />
+                      <h3 className="text-lg font-bold">History Maintenance</h3>
+                    </div>
+                    
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-bold text-sm">Clean Up Duplicates</p>
+                        <p className="text-xs opacity-50">Remove redundant manual entries matching date, pair, and price.</p>
+                      </div>
+                      <button
+                        onClick={onDeduplicate}
+                        className={`px-6 py-2.5 rounded-xl font-black text-xs transition-all ${isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-700'}`}
+                      >
+                        RUN CLEANUP
+                      </button>
                     </div>
                   </div>
                 </div>

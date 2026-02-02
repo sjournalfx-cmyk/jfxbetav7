@@ -24,6 +24,23 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { dataService } from '../services/dataService';
 import { supabase } from '../lib/supabase';
 import OpenPositions from './OpenPositions';
+import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
+import { EquityCurveWidget } from './analytics/EquityCurveWidget';
+import { MomentumStreakWidget } from './analytics/MomentumStreakWidget';
+import { DrawdownOverTimeWidget } from './analytics/DrawdownOverTimeWidget';
+import { LargestWinLossWidget } from './analytics/LargestWinLossWidget';
+import { SymbolPerformanceWidget } from './analytics/SymbolPerformanceWidget';
+import { MonthlyPerformanceWidget } from './analytics/MonthlyPerformanceWidget';
+import { CurrencyStrengthMeter } from './analytics/CurrencyStrengthMeter';
+import { TradeExitAnalysisWidget } from './analytics/TradeExitAnalysisWidget';
+import { TiltScoreWidget } from './analytics/TiltScoreWidget';
+import { PerformanceRadarWidget } from './analytics/PerformanceRadarWidget';
+import { PLByMindsetWidget } from './analytics/PLByMindsetWidget';
+import { PLByPlanAdherenceWidget } from './analytics/PLByPlanAdherenceWidget';
+import { StrategyPerformanceBubbleChart } from './analytics/StrategyPerformanceBubbleChart';
+import { OutcomeDistributionWidget } from './analytics/OutcomeDistributionWidget';
+import { ExecutionPerformanceTable } from './analytics/ExecutionPerformanceTable';
+import { PerformanceBySession } from './analytics/PerformanceBySession';
 import { Skeleton } from './ui/Skeleton';
 import { Tooltip } from './ui/Tooltip';
 import { getSASTDateTime } from '../lib/timeUtils';
@@ -132,81 +149,6 @@ const StatCard = ({ label, value, subtext, trend, isDarkMode, icon: Icon, colorC
     </div>
 );
 
-const EquityCurveWidget = ({ trades, equityData, isDarkMode, currencySymbol }: { trades: Trade[], equityData: number[], isDarkMode: boolean, currencySymbol: string }) => {
-    const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-
-    const generatePath = (data: number[], width: number, height: number) => {
-        if (data.length < 2) return "";
-        const min = Math.min(...data, 0);
-        const max = Math.max(...data, 100);
-        const range = max - min || 1;
-        const points = data.map((val, i) => {
-            const x = (i / (data.length - 1)) * width;
-            const y = height - ((val - min) / range) * height;
-            return `${x},${y}`;
-        });
-        return `M ${points.join(' L ')}`;
-    };
-
-    const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-        const svg = e.currentTarget;
-        const rect = svg.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const width = rect.width;
-        
-        const index = Math.round((x / width) * (equityData.length - 1));
-        if (index >= 0 && index < equityData.length) {
-            setHoverIndex(index);
-            setMousePos({ x: (index / (equityData.length - 1)) * 300, y: 0 }); // 300 is viewBox width
-        }
-    };
-
-    const min = Math.min(...equityData, 0);
-    const max = Math.max(...equityData, 100);
-    const range = max - min || 1;
-    const hoverY = hoverIndex !== null ? 100 - ((equityData[hoverIndex] - min) / range) * 100 : 0;
-
-    return (
-        <div className={`p-6 rounded-2xl border flex flex-col min-h-[250px] relative overflow-hidden ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
-            <div className="flex justify-between items-start mb-4">
-                <h3 className="font-bold">Equity Curve</h3>
-                {hoverIndex !== null && (
-                    <div className="animate-in fade-in zoom-in-95 duration-200">
-                        <span className={`text-sm font-black font-mono ${equityData[hoverIndex] >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {equityData[hoverIndex] >= 0 ? '+' : ''}{currencySymbol}{equityData[hoverIndex].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                        <span className="text-[10px] font-bold opacity-40 uppercase ml-2">Trade #{hoverIndex}</span>
-                    </div>
-                )}
-            </div>
-            <div className="flex-1 relative">
-                {equityData.length > 1 ? (
-                    <svg 
-                        viewBox="0 0 300 100" 
-                        className="w-full h-full overflow-visible cursor-crosshair"
-                        onMouseMove={handleMouseMove}
-                        onMouseLeave={() => setHoverIndex(null)}
-                    >
-                        <defs><linearGradient id="curveGradientDash" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" /><stop offset="100%" stopColor="#3b82f6" stopOpacity="0" /></linearGradient></defs>
-                        <path d={generatePath(equityData, 300, 100)} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d={`${generatePath(equityData, 300, 100)} L 300,100 L 0,100 Z`} fill="url(#curveGradientDash)" />
-                        
-                        {hoverIndex !== null && (
-                            <>
-                                <line x1={mousePos.x} y1="0" x2={mousePos.x} y2="100" stroke="#3b82f6" strokeWidth="1" strokeDasharray="4 2" opacity="0.5" />
-                                <circle cx={mousePos.x} cy={hoverY} r="3" fill="#3b82f6" stroke={isDarkMode ? "#18181b" : "white"} strokeWidth="1" />
-                            </>
-                        )}
-                    </svg>
-                ) : (
-                    <div className="h-full flex items-center justify-center opacity-20 text-[10px] font-bold uppercase">Insufficient Data</div>
-                )}
-            </div>
-        </div>
-    );
-};
-
 const RecentTrades = ({ isDarkMode, trades, symbol }: { isDarkMode: boolean, trades: Trade[], symbol: string }) => (
     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
         <h3 className="font-bold mb-4">Recent Activity</h3>
@@ -299,9 +241,40 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const [widgetOrder, setWidgetOrder] = useLocalStorage('dashboard_widget_order', [
         'dailyBias',
         'recentTrades',
+        'perfByPair',
         'equityCurve',
+        'momentumStreak',
+        'drawdown',
+        'largestWinLoss',
+        'symbolPerformance',
+        'monthlyPerformance',
+        'currencyStrength',
+        'tradeExit',
+        'tiltScore',
+        'outcomeDist',
+        'performanceRadar',
+        'plByMindset',
+        'plByPlan',
+        'strategyPerf',
+        'executionTable',
+        'perfBySession',
         'openPositions',
     ]);
+
+    // Ensure new widgets are added to existing layouts
+    useEffect(() => {
+        const allWidgets = [
+            'dailyBias', 'recentTrades', 'perfByPair', 'equityCurve', 
+            'momentumStreak', 'drawdown', 'largestWinLoss', 'symbolPerformance',
+            'monthlyPerformance', 'currencyStrength', 'tradeExit', 'tiltScore',
+            'outcomeDist', 'performanceRadar', 'plByMindset', 'plByPlan', 'strategyPerf',
+            'executionTable', 'perfBySession', 'openPositions'
+        ];
+        const missing = allWidgets.filter(id => !widgetOrder.includes(id));
+        if (missing.length > 0) {
+            setWidgetOrder(prev => [...prev, ...missing]);
+        }
+    }, []);
     
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -456,8 +429,136 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                 />;
             case 'recentTrades':
                 return <RecentTrades isDarkMode={isDarkMode} trades={trades} symbol={userProfile.currencySymbol} />;
+            case 'perfByPair':
+                return <PerformanceByPairWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Performance by Pair",
+                        content: "Detailed profit and loss breakdown for each individual trading pair. Use this to identify which assets are driving your profitability and which ones might be dragging your performance down."
+                    })}
+                />;
             case 'equityCurve':
                 return <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />;
+            case 'momentumStreak':
+                return <MomentumStreakWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Trade Momentum",
+                        content: "Momentum tracks your recent outcome streaks (Wins/Losses). It helps you visualize 'hot' and 'cold' cycles in your trading."
+                    })}
+                />;
+            case 'drawdown':
+                return <DrawdownOverTimeWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    userProfile={userProfile} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Drawdown Over Time",
+                        content: "This chart tracks your 'Peak-to-Valley' equity drops. It shows the percentage decline from your highest ever balance point."
+                    })}
+                />;
+            case 'largestWinLoss':
+                return <LargestWinLossWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Largest Win vs Loss",
+                        content: "Compares your single most profitable trade against your single largest losing trade. Ideally, wins should be larger than losses."
+                    })}
+                />;
+            case 'symbolPerformance':
+                return <SymbolPerformanceWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Symbol Performance",
+                        content: "Highlights your best and worst performing assets by total P&L and average P&L per trade."
+                    })}
+                />;
+            case 'monthlyPerformance':
+                return <MonthlyPerformanceWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Monthly Performance",
+                        content: "A high-level view of your P&L and maximum drawdown for every month of the current year."
+                    })}
+                />;
+            case 'currencyStrength':
+                return <CurrencyStrengthMeter 
+                    isDarkMode={isDarkMode} 
+                    trades={trades} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Currency Strength",
+                        content: "Measures the relative strength of currencies based on your trading P&L for each base and quote currency."
+                    })}
+                />;
+            case 'tradeExit':
+                return <TradeExitAnalysisWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Trade Exit Analysis",
+                        content: "Breaks down your trade outcomes by exit type: Take Profit, Stop Loss, or Breakeven."
+                    })}
+                />;
+            case 'tiltScore':
+                return <TiltScoreWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Discipline Score",
+                        content: "A mathematical reflection of how well you follow your trading rules, weighted by your plan adherence logs."
+                    })}
+                />;
+            case 'outcomeDist':
+                return <OutcomeDistributionWidget trades={trades} isDarkMode={isDarkMode} />;
+            case 'performanceRadar':
+                return <PerformanceRadarWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "Performance Radar",
+                        content: "Maps your financial performance against your psychological mindset to find your optimal trading state."
+                    })}
+                />;
+            case 'plByMindset':
+                return <PLByMindsetWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "P/L by Mindset",
+                        content: "Breaks down your net profit and loss based on the mindset you logged for each trade."
+                    })}
+                />;
+            case 'plByPlan':
+                return <PLByPlanAdherenceWidget 
+                    trades={trades} 
+                    isDarkMode={isDarkMode} 
+                    currencySymbol={userProfile.currencySymbol} 
+                    onInfoClick={() => setActiveInfo({
+                        title: "P/L by Plan Adherence",
+                        content: "Shows the direct financial impact of following your trading plan vs. deviating from it."
+                    })}
+                />;
+            case 'strategyPerf':
+                return <StrategyPerformanceBubbleChart trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />;
+            case 'executionTable':
+                return <ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} initialBalance={userProfile.initialBalance} />;
+            case 'perfBySession':
+                return (
+                    <div className="space-y-4">
+                        <h3 className="font-bold px-4">Performance by Session</h3>
+                        <PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />
+                    </div>
+                );
             case 'openPositions':
                 return (
                     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-100 shadow-md'}`}>
@@ -491,7 +592,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
 
     // Helper to determine col-span based on ID
     const getColSpan = (id: string) => {
-        if (id === 'dailyBias' || id === 'openPositions') return 'col-span-1 lg:col-span-2 min-h-[250px]';
+        if (id === 'dailyBias' || id === 'openPositions' || id === 'perfByPair' || id === 'equityCurve' || id === 'momentumStreak' || id === 'drawdown' || id === 'largestWinLoss' || id === 'symbolPerformance' || id === 'strategyPerf' || id === 'executionTable' || id === 'perfBySession' || id === 'outcomeDist') return 'col-span-1 lg:col-span-2 min-h-[250px]';
+        if (id === 'monthlyPerformance' || id === 'currencyStrength' || id === 'tradeExit' || id === 'performanceRadar' || id === 'plByMindset' || id === 'plByPlan') return 'col-span-1 lg:col-span-3 min-h-[400px]';
         return 'col-span-1 min-h-[250px]';
     };
 

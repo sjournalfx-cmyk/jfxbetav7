@@ -18,7 +18,8 @@ import Onboarding from './components/Onboarding';
 import Settings from './components/Settings';
 import EASetup from './components/EASetup';
 import BrokerConnect from './components/BrokerConnect';
-import MobileBlocker from './components/MobileBlocker';
+import AIChat from './components/AIChat';
+import MobileApp from './components/MobileApp';
 import ConfirmationModal from './components/ConfirmationModal';
 import QuickLogModal from './components/QuickLogModal';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -228,7 +229,7 @@ const AppContent: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Trades',
-      description: `Are you sure you want to delete ${tradeIds.length} trade(s)? This action cannot be undone.`,
+      description: `Are you sure you want to delete ${tradeIds.length} trade(s)? This action can be undone for 30 days.`,
       confirmText: 'Delete',
       variant: 'danger',
       onConfirm: async () => {
@@ -240,13 +241,13 @@ const AppContent: React.FC = () => {
           addToast({
             type: 'success',
             title: 'Trades Deleted',
-            message: `${tradeIds.length} trade(s) removed from your journal.`,
+            message: `${tradeIds.length} trade(s) moved to trash.`,
             duration: 8000,
             action: {
               label: 'Undo',
               onClick: async () => {
                 try {
-                  await dataService.batchAddTrades(tradesToDelete);
+                  await dataService.restoreTrades(tradeIds);
                   addToast({
                     type: 'success',
                     title: 'Deletion Undone',
@@ -273,6 +274,34 @@ const AppContent: React.FC = () => {
         }
       }
     });
+  };
+
+  const handleDeduplicate = async () => {
+    try {
+      const removedCount = await dataService.deduplicateManualTrades();
+      if (removedCount > 0) {
+        addToast({
+          type: 'success',
+          title: 'De-duplication Complete',
+          message: `Successfully removed ${removedCount} duplicate manual entries.`,
+          duration: 5000
+        });
+      } else {
+        addToast({
+          type: 'info',
+          title: 'No Duplicates Found',
+          message: 'Your manual trade history is already clean.',
+          duration: 4000
+        });
+      }
+    } catch (error) {
+      console.error("Deduplication failed:", error);
+      addToast({
+        type: 'error',
+        title: 'Task Failed',
+        message: 'Could not complete de-duplication. Please try again later.'
+      });
+    }
   };
 
   const handleUpdateBias = async (bias: DailyBias) => {
@@ -380,10 +409,6 @@ const AppContent: React.FC = () => {
     }
   }, [currentView]);
 
-  if (isMobile) {
-    return <MobileBlocker isDarkMode={isDarkMode} />;
-  }
-
   if (isInitialLoading) {
     return (
       <div className={`flex h-screen w-full items-center justify-center ${isDarkMode ? 'bg-[#050505] text-white' : 'bg-slate-50'}`}>
@@ -438,6 +463,21 @@ const AppContent: React.FC = () => {
       setCurrentView(profile.syncMethod === 'EA_CONNECT' ? 'ea-setup' : 'dashboard');
       setTrades([]);
     }} />;
+  }
+
+  if (isMobile) {
+    return (
+      <MobileApp 
+        isDarkMode={isDarkMode} 
+        trades={trades} 
+        userProfile={userProfile} 
+        eaSession={eaSession}
+        onLogout={onLogout}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        goals={goals}
+        dailyBias={dailyBias}
+      />
+    );
   }
 
   const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
@@ -504,6 +544,15 @@ const AppContent: React.FC = () => {
               isLoading={isDataLoading}
             />
           )}
+          {currentView === 'ai-chat' && (
+            <AIChat
+              isDarkMode={isDarkMode}
+              trades={trades}
+              userProfile={userProfile}
+              goals={goals}
+              dailyBias={dailyBias}
+            />
+          )}
           {currentView === 'log-trade' && userProfile && (
             <LogTrade
               isDarkMode={isDarkMode}
@@ -516,7 +565,7 @@ const AppContent: React.FC = () => {
             />
           )}
           {currentView === 'backtest-lab' && userProfile && (
-            <BacktestLab isDarkMode={isDarkMode} userProfile={userProfile} />
+            <BacktestLab isDarkMode={isDarkMode} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} />
           )}
           {currentView === 'history' && (
             <Journal
@@ -626,6 +675,7 @@ const AppContent: React.FC = () => {
               totalNotes={totalNotes}
               totalImages={totalImages}
               tradesCount={trades.length}
+              onDeduplicate={handleDeduplicate}
               initialTab={settingsTab}
             />
           )}

@@ -63,21 +63,7 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
     onConfirm: () => { }
   });
 
-  // --- INITIALIZATION ---
-  useEffect(() => {
-    if (isFullScreen) {
-      setIsSidebarOpen(false);
-    }
-  }, [isFullScreen]);
-
-  useEffect(() => {
-    if (notes.length > 0 && !activeNoteId) {
-      loadNote(notes[0]);
-    } else if (notes.length === 0 && !activeNoteId) {
-      createNewNote();
-    }
-  }, [notes.length]);
-
+  // --- HELPERS ---
   const loadNote = useCallback((note: Note) => {
     setActiveNoteId(note.id);
     setTitle(note.title);
@@ -86,6 +72,14 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
     setContent(note.content || '');
     setSaveStatus('Saved');
     if (window.innerWidth < 1024) setIsSidebarOpen(false);
+  }, []);
+
+  const clearEditor = useCallback(() => {
+    setActiveNoteId(null);
+    setTitle('');
+    setContent('');
+    setTags([]);
+    setSaveStatus('Saved');
   }, []);
 
   const createNewNote = async () => {
@@ -126,25 +120,52 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
     }
   };
 
+  // --- INITIALIZATION ---
+  useEffect(() => {
+    if (isFullScreen) {
+      setIsSidebarOpen(false);
+    }
+  }, [isFullScreen]);
+
+  useEffect(() => {
+    const activeNoteExists = notes.some(n => n.id === activeNoteId);
+
+    if (notes.length > 0) {
+      if (!activeNoteId || !activeNoteExists) {
+        loadNote(notes[0]);
+      }
+    } else {
+      clearEditor();
+    }
+  }, [notes, activeNoteId, loadNote, clearEditor]);
+
   // --- SAVING LOGIC ---
   const handleSave = async () => {
     if (!activeNoteId) return;
     setSaveStatus('Saving');
 
-    const noteToUpdate = notes.find(n => n.id === activeNoteId);
-    if (!noteToUpdate) return;
+    try {
+      const noteToUpdate = notes.find(n => n.id === activeNoteId);
+      if (!noteToUpdate) {
+        setSaveStatus('Saved');
+        return;
+      }
 
-    const updated: Note = {
-      ...noteToUpdate,
-      title,
-      content,
-      tags,
-      color: selectedColor as any,
-      date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime
-    };
+      const updated: Note = {
+        ...noteToUpdate,
+        title,
+        content,
+        tags,
+        color: selectedColor as any,
+        date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime
+      };
 
-    await onUpdateNote(updated);
-    setSaveStatus('Saved');
+      await onUpdateNote(updated);
+      setSaveStatus('Saved');
+    } catch (err) {
+      console.error("Failed to save note:", err);
+      setSaveStatus('Unsaved');
+    }
   };
 
   // Auto-save debouncer
@@ -155,7 +176,7 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
       }
     }, 3000);
     return () => clearTimeout(timer);
-  }, [title, content, tags, selectedColor, saveStatus]);
+  }, [title, content, tags, selectedColor, saveStatus, activeNoteId]);
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
@@ -190,8 +211,9 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
       title: 'Delete Note',
       description: 'Are you sure you want to delete this note? This action cannot be undone.',
       onConfirm: async () => {
-        await onDeleteNote(activeNoteId);
-        setActiveNoteId(null);
+        const idToDelete = activeNoteId;
+        clearEditor(); // Clear immediately for UX
+        await onDeleteNote(idToDelete);
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       }
     });
@@ -265,13 +287,30 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
           </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
-            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search..." className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border outline-none transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 focus:border-indigo-500'}`} />
+            <input 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              placeholder="Search..." 
+              className={`w-full pl-9 pr-10 py-2.5 rounded-xl text-sm border outline-none transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 focus:border-indigo-500'}`} 
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded-md transition-colors"
+              >
+                <X size={12} className="opacity-50" />
+              </button>
+            )}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
           {filteredNotes.map(note => (
-            <div key={note.id} onClick={() => loadNote(note)} className={`group relative p-4 rounded-xl cursor-pointer transition-all border ${activeNoteId === note.id ? (isDarkMode ? 'bg-zinc-800/80 border-zinc-700 shadow-lg' : 'bg-white border-indigo-200 shadow-md shadow-indigo-100') : 'border-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}>
+            <div 
+              key={note.id} 
+              onClick={() => activeNoteId !== note.id && loadNote(note)} 
+              className={`group relative p-4 rounded-xl cursor-pointer transition-all border ${activeNoteId === note.id ? (isDarkMode ? 'bg-zinc-800/80 border-zinc-700 shadow-lg' : 'bg-white border-indigo-200 shadow-md shadow-indigo-100') : 'border-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}
+            >
               <div className="flex justify-between items-start mb-1.5">
                 <h4 className={`font-bold text-sm truncate pr-4 ${!note.title ? 'opacity-40 italic' : ''}`}>{note.title || 'Untitled Note'}</h4>
                 {note.isPinned && <Pin size={12} className="text-indigo-500 shrink-0" fill="currentColor" />}
@@ -328,83 +367,128 @@ const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUp
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={handleDelete} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors" title="Delete Note"><Trash2 size={18} /></button>
-            <button onClick={handleSave} disabled={saveStatus === 'Saved'} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all border ${saveStatus === 'Unsaved' ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20 hover:bg-indigo-500' : isDarkMode ? 'bg-zinc-800/50 text-zinc-500 border-transparent cursor-default' : 'bg-slate-100 text-slate-400 border-transparent cursor-default'}`}>
+            <button 
+              onClick={handleDelete} 
+              disabled={!activeNoteId}
+              className={`p-2 rounded-lg transition-colors ${!activeNoteId ? 'opacity-20 cursor-not-allowed' : 'text-rose-500 hover:bg-rose-500/10'}`} 
+              title="Delete Note"
+            >
+              <Trash2 size={18} />
+            </button>
+            <button 
+              onClick={handleSave} 
+              disabled={saveStatus === 'Saved' || !activeNoteId} 
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all border ${
+                saveStatus === 'Unsaved' && activeNoteId
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20 hover:bg-indigo-500' 
+                  : isDarkMode ? 'bg-zinc-800/50 text-zinc-500 border-transparent cursor-default' : 'bg-slate-100 text-slate-400 border-transparent cursor-default'
+              }`}
+            >
               {saveStatus === 'Saving' ? <Clock size={14} className="animate-spin" /> : <Save size={14} />}
               <span>Save Changes</span>
             </button>
             <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-dashed border-zinc-200 dark:border-zinc-800">
               {COLORS.map(c => (
-                <button key={c.id} onClick={() => { setSelectedColor(c.id); setSaveStatus('Unsaved'); }} className={`w-3 h-3 rounded-full transition-transform hover:scale-125 ${selectedColor === c.id ? `scale-125 ring-2 ring-offset-2 ${isDarkMode ? 'ring-white ring-offset-[#09090b]' : 'ring-black ring-offset-white'}` : ''} ${c.id === 'gray' ? 'bg-zinc-500' : `bg-${c.id}-500`}`} style={{ backgroundColor: c.id === 'gray' ? '#71717a' : `var(--color-${c.id}-500)` }} />
+                <button 
+                  key={c.id} 
+                  disabled={!activeNoteId}
+                  onClick={() => { setSelectedColor(c.id); setSaveStatus('Unsaved'); }} 
+                  className={`w-3 h-3 rounded-full transition-transform hover:scale-125 ${!activeNoteId ? 'opacity-20 cursor-not-allowed' : ''} ${selectedColor === c.id ? `scale-125 ring-2 ring-offset-2 ${isDarkMode ? 'ring-white ring-offset-[#09090b]' : 'ring-black ring-offset-white'}` : ''} ${c.id === 'gray' ? 'bg-zinc-500' : `bg-${c.id}-500`}`} 
+                  style={{ backgroundColor: c.id === 'gray' ? '#71717a' : `var(--color-${c.id}-500)` }} 
+                />
               ))}
             </div>
           </div>
         </header>
 
         <div className={`flex-1 overflow-y-auto custom-scrollbar relative`}>
-          <div className={`mx-auto py-12 min-h-full flex flex-col ${isFullScreen ? 'w-full max-w-full px-12' : 'max-w-7xl px-8'}`}>
-            <input id="note-title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} placeholder="Note Title" className={`w-full text-4xl font-black bg-transparent outline-none mb-6 placeholder:opacity-20 ${isDarkMode ? 'text-zinc-100' : 'text-slate-900'}`} />
+          {!activeNoteId ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+              <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-6 border-2 border-dashed ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-700' : 'bg-white border-slate-200 text-slate-300'}`}>
+                <Save size={32} />
+              </div>
+              <h3 className="text-xl font-black mb-2 uppercase tracking-tight">No Note Selected</h3>
+              <p className="text-sm opacity-50 max-w-xs leading-relaxed">Select an existing note from the sidebar or create a new one to start writing.</p>
+              <button 
+                onClick={createNewNote}
+                className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-xl shadow-indigo-500/20 hover:bg-indigo-500 active:scale-95 transition-all flex items-center gap-2"
+              >
+                <Plus size={18} /> Create New Note
+              </button>
+            </div>
+          ) : (
+            <div key={activeNoteId} className={`mx-auto py-12 min-h-full flex flex-col ${isFullScreen ? 'w-full max-w-full px-12' : 'max-w-7xl px-8'}`}>
+              <input 
+                id="note-title-input" 
+                value={title} 
+                onChange={(e) => handleTitleChange(e.target.value)} 
+                placeholder="Note Title" 
+                autoComplete="off"
+                name="jfx-note-title"
+                className={`w-full text-4xl font-black bg-transparent outline-none mb-6 placeholder:opacity-20 ${isDarkMode ? 'text-zinc-100' : 'text-slate-900'}`} 
+              />
 
-            <div className="flex flex-wrap items-center gap-2 mb-8">
-              {tags.map(tag => (
-                <span key={tag} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
-                  <Hash size={10} className="opacity-50" /> {tag}
-                  <button onClick={() => removeTag(tag)} className="ml-1 hover:text-rose-500"><X size={10} /></button>
-                </span>
-              ))}
-              <div className="relative group">
-                <Tag size={14} className={`absolute left-2 top-1/2 -translate-y-1/2 transition-colors ${isDarkMode ? 'text-zinc-600 group-focus-within:text-indigo-500' : 'text-slate-400 group-focus-within:text-indigo-500'}`} />
-                <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} placeholder="Add tag..." className={`pl-8 pr-3 py-1.5 rounded-full text-xs font-medium outline-none border border-transparent transition-all w-32 focus:w-48 ${isDarkMode ? 'bg-zinc-900 focus:bg-zinc-800 focus:border-zinc-700 placeholder-zinc-600' : 'bg-white focus:bg-slate-50 focus:border-slate-200 placeholder-slate-400'}`} />
+              <div className="flex flex-wrap items-center gap-2 mb-8">
+                {tags.map(tag => (
+                  <span key={tag} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                    <Hash size={10} className="opacity-50" /> {tag}
+                    <button onClick={() => removeTag(tag)} className="ml-1 hover:text-rose-500"><X size={10} /></button>
+                  </span>
+                ))}
+                <div className="relative group">
+                  <Tag size={14} className={`absolute left-2 top-1/2 -translate-y-1/2 transition-colors ${isDarkMode ? 'text-zinc-600 group-focus-within:text-indigo-500' : 'text-slate-400 group-focus-within:text-indigo-500'}`} />
+                  <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} placeholder="Add tag..." className={`pl-8 pr-3 py-1.5 rounded-full text-xs font-medium outline-none border border-transparent transition-all w-32 focus:w-48 ${isDarkMode ? 'bg-zinc-900 focus:bg-zinc-800 focus:border-zinc-700 placeholder-zinc-600' : 'bg-white focus:bg-slate-50 focus:border-slate-200 placeholder-slate-400'}`} />
+                </div>
+              </div>
+
+              <div className="flex-1 relative min-h-[400px] flex flex-col">
+                <RichTextEditor
+                  content={content}
+                  onChange={handleContentChange}
+                  isDarkMode={isDarkMode}
+                  placeholder="Start writing your masterpiece..."
+                  minHeight="500px"
+                  showToolbar={true}
+                  onImageUpload={handleNoteUpload}
+                  customToolbarItems={
+                    <>
+                      <div className="relative">
+                        <ToolbarButton
+                          onClick={() => setShowGoalLinker(!showGoalLinker)}
+                          isActive={showGoalLinker}
+                          icon={Link}
+                          title="Link to Goal"
+                        />
+                        {showGoalLinker && (
+                          <div className={`absolute top-full left-0 mt-2 w-64 p-3 rounded-xl border shadow-2xl z-50 ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-slate-200'}`}>
+                            <h4 className="text-xs font-bold mb-3 opacity-50 uppercase tracking-wider">Link Goal Milestone</h4>
+                            <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-3">
+                              {goals.length === 0 && <p className="text-xs opacity-50 italic">No goals found...</p>}
+                              {goals.map(goal => (
+                                <div key={goal.id} className="space-y-1">
+                                  <div className="flex items-center gap-2 text-[10px] font-black opacity-40 px-1"><Target size={10} /> {goal.title}</div>
+                                  {goal.milestones.map(m => (
+                                    <button key={m.id} onClick={() => linkGoalMilestone(goal.id, m.id, m.title)} className={`w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-slate-50 text-slate-700'}`}>
+                                      {m.title}
+                                    </button>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <ToolbarButton
+                        onClick={() => setIsFullScreen(!isFullScreen)}
+                        icon={isFullScreen ? Minimize : Maximize}
+                        title={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                      />
+                    </>
+                  }
+                />
               </div>
             </div>
-
-            <div className="flex-1 relative min-h-[400px] flex flex-col">
-              <RichTextEditor
-                content={content}
-                onChange={handleContentChange}
-                isDarkMode={isDarkMode}
-                placeholder="Start writing your masterpiece..."
-                minHeight="500px"
-                showToolbar={true}
-                onImageUpload={handleNoteUpload}
-                customToolbarItems={
-                  <>
-                    <div className="relative">
-                      <ToolbarButton
-                        onClick={() => setShowGoalLinker(!showGoalLinker)}
-                        isActive={showGoalLinker}
-                        icon={Link}
-                        title="Link to Goal"
-                      />
-                      {showGoalLinker && (
-                        <div className={`absolute top-full left-0 mt-2 w-64 p-3 rounded-xl border shadow-2xl z-50 ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-slate-200'}`}>
-                          <h4 className="text-xs font-bold mb-3 opacity-50 uppercase tracking-wider">Link Goal Milestone</h4>
-                          <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-3">
-                            {goals.length === 0 && <p className="text-xs opacity-50 italic">No goals found...</p>}
-                            {goals.map(goal => (
-                              <div key={goal.id} className="space-y-1">
-                                <div className="flex items-center gap-2 text-[10px] font-black opacity-40 px-1"><Target size={10} /> {goal.title}</div>
-                                {goal.milestones.map(m => (
-                                  <button key={m.id} onClick={() => linkGoalMilestone(goal.id, m.id, m.title)} className={`w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-slate-50 text-slate-700'}`}>
-                                    {m.title}
-                                  </button>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <ToolbarButton
-                      onClick={() => setIsFullScreen(!isFullScreen)}
-                      icon={isFullScreen ? Minimize : Maximize}
-                      title={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-                    />
-                  </>
-                }
-              />
-            </div>
-          </div>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Calendar, Clock, Target, Hash, Image as ImageIcon, Save, ChevronRight, ChevronLeft, TrendingUp, TrendingDown, Layout, Type, CheckCircle2, XCircle, MinusCircle, Upload, FileText, ArrowRight, Brain, AlertTriangle, ShieldCheck, Check, ChevronDown, X, Star, Eye, Trash2, Square, Lock, Link } from 'lucide-react';
+import { Calendar, Clock, Target, Hash, Image as ImageIcon, Save, ChevronRight, ChevronLeft, TrendingUp, TrendingDown, Layout, Type, CheckCircle2, XCircle, MinusCircle, Upload, FileText, ArrowRight, Brain, AlertTriangle, ShieldCheck, Check, ChevronDown, X, Star, Eye, Trash2, Square, Lock } from 'lucide-react';
 import { Trade, AssetType, UserProfile } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { getSASTDateTime } from '../lib/timeUtils';
@@ -782,81 +782,7 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
                                         </InputWrapper>
                                     </div>
 
-                                    <div className="col-span-2 p-6 rounded-2xl border-2 border-dashed border-violet-500/20 bg-violet-500/5 animate-in zoom-in-95 duration-500">
-                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                                            <div>
-                                                <h3 className="text-sm font-black uppercase tracking-widest text-violet-500 flex items-center gap-2">
-                                                    <Link size={16} /> Setup Linking
-                                                </h3>
-                                                <p className="text-[10px] font-bold opacity-50 mt-1">Group multiple entries into a single strategic idea.</p>
-                                            </div>
-                                            <div className="flex rounded-lg border overflow-hidden p-1 gap-1 bg-white/50 dark:bg-black/20">
-                                                <button 
-                                                    onClick={() => {
-                                                        handleInputChange('setupId', '');
-                                                    }}
-                                                    className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${!formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-                                                >
-                                                    Standalone
-                                                </button>
-                                                {recentSetups.length > 0 && (
-                                                    <button 
-                                                        onClick={() => {
-                                                            if (recentSetups.length > 0) {
-                                                                handleInputChange('setupId', recentSetups[0].id);
-                                                            }
-                                                        }}
-                                                        className={`px-3 py-1.5 rounded text-[10px] font-black uppercase transition-all ${formData.setupId ? 'bg-violet-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-                                                    >
-                                                        Link to Setup
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
 
-                                        {formData.setupId ? (
-                                            <div className="space-y-4 animate-in slide-in-from-top-2">
-                                                <Label>Select Existing Setup</Label>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    {recentSetups.map(s => (
-                                                        <button
-                                                            key={s.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                handleInputChange('setupId', s.id);
-                                                                handleInputChange('pair', s.pair); // Auto-sync pair
-                                                            }}
-                                                            className={`p-3 rounded-xl border-2 text-left transition-all ${formData.setupId === s.id 
-                                                                ? 'border-violet-500 bg-violet-500/10' 
-                                                                : 'border-transparent bg-white/50 dark:bg-black/20 hover:border-zinc-300 dark:hover:border-zinc-700'
-                                                            }`}
-                                                        >
-                                                            <div className="font-black text-xs truncate">Setup Cluster</div>
-                                                            <div className="flex items-center justify-between mt-1">
-                                                                <span className="text-[9px] font-bold opacity-50">{s.pair}</span>
-                                                            </div>
-                                                        </button>
-                                                    ))}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            handleInputChange('setupId', `setup-${Date.now()}`);
-                                                        }}
-                                                        className={`p-3 rounded-xl border-2 border-dashed text-center transition-all ${!recentSetups.some(rs => rs.id === formData.setupId) && formData.setupId
-                                                            ? 'border-violet-500 bg-violet-500/10' 
-                                                            : 'border-zinc-300 dark:border-zinc-700 hover:border-violet-500'
-                                                        }`}
-                                                    >
-                                                        <div className="font-black text-xs uppercase tracking-widest text-violet-500">+ New Cluster</div>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 rounded-xl bg-black/5 dark:bg-white/5 border border-dashed border-zinc-500/20 text-center">
-                                                <p className="text-[10px] font-bold opacity-40">This trade will be logged as a standalone entry.</p>
-                                            </div>
-                                        )}
-                                    </div>
 
                                     <div className="col-span-2">
                                         <Label>Entry Comment</Label>

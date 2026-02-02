@@ -7,7 +7,7 @@ import {
     ZoomIn, ZoomOut, SlidersHorizontal, ArrowLeftRight, ArrowUpDown,
     Lock, ChevronDown, Plus, Check, AlertTriangle
 } from 'lucide-react';
-import JFXChart from './JFXChart';
+import TradingViewWidget from './TradingViewWidget';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { UserProfile } from '../types';
 import { useToast } from './ui/Toast';
@@ -538,9 +538,9 @@ const ChartGrid: React.FC<ChartGridProps> = ({ isDarkMode, isFocusMode = false, 
                                 return (
                                     <div key={chart.id} onClick={() => handleChartClick(chart.id)} className={`relative rounded-xl border-2 transition-all duration-200 ${isActive ? 'border-indigo-500 shadow-lg z-10' : isDarkMode ? 'border-zinc-800' : 'border-slate-200'}`} style={getItemStyle(chart.id)}>
                                         <div className="absolute top-2 left-2 z-20 opacity-0 hover:opacity-100 transition-opacity bg-black/50 backdrop-blur-md rounded-lg p-1 flex gap-2"><span className="text-xs font-bold text-white px-2 py-1">{chart.symbol}</span><span className="text-xs font-mono text-zinc-300 px-2 py-1 bg-white/10 rounded">{chart.interval}</span></div>
-                                        <JFXChart
+                                        <TradingViewWidget
                                             symbol={chart.symbol}
-                                            isDarkMode={isDarkMode}
+                                            theme={isDarkMode ? 'dark' : 'light'}
                                             interval={chart.interval}
                                             chartId={`chart-${chart.id}`}
                                             showLegend={showLegend}

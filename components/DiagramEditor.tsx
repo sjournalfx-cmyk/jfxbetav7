@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import mermaid from 'mermaid';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { 
   Play, Sparkles, Download, Copy, RefreshCw, ZoomIn, ZoomOut, 
   Code, LayoutTemplate, Maximize2, Minimize2, Heart, Search,
@@ -505,7 +505,13 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => 
     
     try {
       const apiKey = process.env.API_KEY || '';
-      const ai = new GoogleGenAI({ apiKey });
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ 
+        model: 'gemini-1.5-flash',
+        generationConfig: {
+          temperature: 0.2
+        }
+      });
       
       let systemPrompt = '';
       let userContent = '';
@@ -523,17 +529,10 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => 
           userContent = `CURRENT CODE:\n${code}\n\nINSTRUCTION:\n${prompt || "Optimize layout and fix any syntax errors."}`;
       }
 
-      // Fixed: Using the correct model for text tasks as per guidelines
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: userContent,
-        config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.2
-        }
-      });
-      
-      const generatedCode = response.text.replace(/```mermaid/g, '').replace(/```/g, '').trim();
+      const combinedPrompt = `${systemPrompt}\n\nUser Instruction: ${userContent}`;
+      const result = await model.generateContent(combinedPrompt);
+      const response = await result.response;
+      const generatedCode = response.text().replace(/```mermaid/g, '').replace(/```/g, '').trim();
       setCode(generatedCode);
       if (mode === 'new') setPrompt(''); // Clear prompt if new generation
     } catch (err) {

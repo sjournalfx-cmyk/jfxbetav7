@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useLayoutEffect, useCallback, useState, useMemo } from 'react';
 import { Candle, Trade, Drawing, Point } from '../types';
-import { getRayCoordinates, calculateFibLevels } from './backtest/utils';
+import { getRayCoordinates } from './backtest/utils';
 
 interface CustomChartProps {
   data: Candle[];
@@ -11,6 +11,8 @@ interface CustomChartProps {
   onCoordinatesChange?: (chart: any, series: any) => void;
   onMouseUpdate?: (x: number, y: number, coords: { time: number, price: number, logical: number } | null) => void;
   onSelectBar?: (index: number) => void;
+  onViewStateChange?: (viewState: any) => void;
+  initialViewState?: any;
   isSelectBarMode?: boolean;
   disablePan?: boolean;
   children?: React.ReactNode;
@@ -27,6 +29,8 @@ const CustomChart: React.FC<CustomChartProps> = ({
   onCoordinatesChange,
   onMouseUpdate,
   onSelectBar,
+  onViewStateChange,
+  initialViewState,
   isSelectBarMode,
   disablePan,
   children
@@ -36,15 +40,15 @@ const CustomChart: React.FC<CustomChartProps> = ({
   
   // Viewport State
   const viewState = useRef({ 
-    scaleX: 10, 
-    offsetX: 0, 
+    scaleX: initialViewState?.scaleX ?? 10, 
+    offsetX: initialViewState?.offsetX ?? 0, 
     width: 0, 
     height: 0,
-    minPrice: 0,
-    maxPrice: 0,
-    isManualPriceRange: false,
-    manualMinPrice: 0,
-    manualMaxPrice: 0
+    minPrice: initialViewState?.minPrice ?? 0,
+    maxPrice: initialViewState?.maxPrice ?? 0,
+    isManualPriceRange: initialViewState?.isManualPriceRange ?? false,
+    manualMinPrice: initialViewState?.manualMinPrice ?? 0,
+    manualMaxPrice: initialViewState?.manualMaxPrice ?? 0
   });
 
   const mouse = useRef({
@@ -55,6 +59,21 @@ const CustomChart: React.FC<CustomChartProps> = ({
   });
 
   const [chartRevision, setChartRevision] = useState(0);
+
+  // Notify parent of view state changes
+  const notifyViewStateChange = useCallback(() => {
+    if (onViewStateChange) {
+      onViewStateChange({
+        scaleX: viewState.current.scaleX,
+        offsetX: viewState.current.offsetX,
+        isManualPriceRange: viewState.current.isManualPriceRange,
+        manualMinPrice: viewState.current.manualMinPrice,
+        manualMaxPrice: viewState.current.manualMaxPrice,
+        minPrice: viewState.current.minPrice,
+        maxPrice: viewState.current.maxPrice
+      });
+    }
+  }, [onViewStateChange]);
 
   const getInterval = useCallback(() => {
     if (data.length < 2) return 60;
@@ -69,6 +88,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
 
   const getY = useCallback((price: number) => {
     const { height, minPrice, maxPrice } = viewState.current;
+    if (isNaN(minPrice) || isNaN(maxPrice) || minPrice === maxPrice) return 0;
     const chartHeight = height - PADDING_BOTTOM;
     const priceRange = maxPrice - minPrice || 1;
     return chartHeight - ((price - minPrice) / priceRange) * chartHeight;
@@ -76,6 +96,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
 
   const getPriceFromY = useCallback((y: number) => {
     const { height, minPrice, maxPrice } = viewState.current;
+    if (isNaN(minPrice) || isNaN(maxPrice) || minPrice === maxPrice) return 0;
     const chartHeight = height - PADDING_BOTTOM;
     const priceRange = maxPrice - minPrice || 1;
     return minPrice + ((chartHeight - y) / chartHeight) * priceRange;
@@ -83,6 +104,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
 
   const getIndexFromX = useCallback((x: number) => {
     const { width, offsetX, scaleX } = viewState.current;
+    if (isNaN(scaleX) || scaleX === 0) return 0;
     const chartWidth = width - PADDING_RIGHT;
     return (x - (chartWidth - offsetX)) / scaleX + (data.length - 1);
   }, [data.length, chartRevision]);
@@ -155,22 +177,49 @@ const CustomChart: React.FC<CustomChartProps> = ({
     const start = Math.max(0, leftIdx);
     const end = Math.min(data.length - 1, rightIdx);
 
-    if (!isManualPriceRange) {
-        let min = Infinity;
-        let max = -Infinity;
-        for (let i = start; i <= end; i++) {
-          if (data[i].low < min) min = data[i].low;
-          if (data[i].high > max) max = data[i].high;
+    // Auto-calculate range from visible data for validation
+    let dataMin = Infinity;
+    let dataMax = -Infinity;
+    let hasValidData = false;
+    
+    for (let i = start; i <= end; i++) {
+        if (data[i].low > 0 && data[i].low < Infinity) {
+            if (data[i].low < dataMin) dataMin = data[i].low;
+            hasValidData = true;
         }
-        const padding = (max - min) * 0.1 || 0.0001;
-        viewState.current.minPrice = min - padding;
-        viewState.current.maxPrice = max + padding;
+        if (data[i].high > 0 && data[i].high < Infinity) {
+            if (data[i].high > dataMax) dataMax = data[i].high;
+            hasValidData = true;
+        }
+    }
+
+    if (!hasValidData) {
+        // Fallback if no valid data in view
+        dataMin = 0;
+        dataMax = 100;
+    }
+
+    if (!isManualPriceRange) {
+        const padding = (dataMax - dataMin) * 0.1 || 0.0001;
+        viewState.current.minPrice = dataMin - padding;
+        viewState.current.maxPrice = dataMax + padding;
     } else {
-        viewState.current.minPrice = manualMinPrice;
-        viewState.current.maxPrice = manualMaxPrice;
+        // Validation: If manual range is completely disjoint from data, reset it
+        // This handles the case where user switches symbols but state persisted (though we fixed keys, this is extra safety)
+        if (dataMax < manualMinPrice || dataMin > manualMaxPrice) {
+             const padding = (dataMax - dataMin) * 0.1 || 0.0001;
+             viewState.current.minPrice = dataMin - padding;
+             viewState.current.maxPrice = dataMax + padding;
+             viewState.current.isManualPriceRange = false;
+             // We don't update manualMin/Max here to avoid loop, just the effective min/max
+        } else {
+             viewState.current.minPrice = manualMinPrice;
+             viewState.current.maxPrice = manualMaxPrice;
+        }
     }
 
     const { minPrice, maxPrice } = viewState.current;
+    if (isNaN(minPrice) || isNaN(maxPrice)) return;
 
     // 2. Clear
     ctx.fillStyle = isDarkMode ? '#09090b' : '#ffffff';
@@ -289,27 +338,6 @@ const CustomChart: React.FC<CustomChartProps> = ({
             ctx.lineTo(x1, chartHeight);
             ctx.stroke();
         }
-        else if (d.type === 'fib') {
-            const levels = calculateFibLevels(y1, y2);
-            ctx.setLineDash([3, 3]);
-            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-            ctx.setLineDash([]);
-            
-            const fibColors: Record<number, string> = {
-                0: '#787b86', 0.236: '#f7525f', 0.382: '#ff9800',
-                0.5: '#4caf50', 0.618: '#2962ff', 0.786: '#9c27b0', 1: '#787b86'
-            };
-
-            levels.forEach(l => {
-                const lc = fibColors[l.level] || '#787b86';
-                ctx.strokeStyle = lc;
-                ctx.fillStyle = lc;
-                ctx.beginPath();
-                ctx.moveTo(0, l.y); ctx.lineTo(chartWidth, l.y);
-                ctx.stroke();
-                ctx.fillText(`${(l.level * 100).toFixed(1)}%`, chartWidth - 30, l.y - 2);
-            });
-        }
         else if (d.type === 'long' || d.type === 'short') {
             const entryY = d.entry ? getY(d.entry) : y1;
             const targetY = d.target ? getY(d.target) : y1;
@@ -410,32 +438,59 @@ const CustomChart: React.FC<CustomChartProps> = ({
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const handleMouseMove = (e: React.MouseEvent) => {
 
-    if (mouse.current.isDown) {
-      const dx = x - mouse.current.lastX;
-      const dy = y - mouse.current.lastY;
+      const rect = canvasRef.current?.getBoundingClientRect();
 
-      if (mouse.current.dragType === 'PAN') {
-        viewState.current.offsetX -= dx;
-        
-        // Vertical Panning Logic
-        const { height, minPrice, maxPrice } = viewState.current;
-        const chartHeight = height - PADDING_BOTTOM;
-        const priceRange = maxPrice - minPrice;
-        const pricePerPixel = priceRange / chartHeight;
-        
-        const dPrice = dy * pricePerPixel;
-        
-        viewState.current.isManualPriceRange = true;
-        viewState.current.manualMinPrice = minPrice + dPrice;
-        viewState.current.manualMaxPrice = maxPrice + dPrice;
-        
-      } else if (mouse.current.dragType === 'PRICE_SCALE') {
+      if (!rect) return;
+
+      const x = e.clientX - rect.left;
+
+      const y = e.clientY - rect.top;
+
+  
+
+      if (mouse.current.isDown) {
+
+        const dx = x - mouse.current.lastX;
+
+        const dy = y - mouse.current.lastY;
+
+  
+
+        if (mouse.current.dragType === 'PAN') {
+
+          viewState.current.offsetX -= dx;
+
+          
+
+          // Vertical Panning Implemented
+
+          const { height, minPrice, maxPrice } = viewState.current;
+
+          const chartHeight = height - PADDING_BOTTOM;
+
+          if (chartHeight > 0) {
+
+              const priceRange = maxPrice - minPrice;
+
+              const pricePerPixel = priceRange / chartHeight;
+
+              const dPrice = dy * pricePerPixel;
+
+              
+
+              viewState.current.isManualPriceRange = true;
+
+              viewState.current.manualMinPrice = minPrice + dPrice;
+
+              viewState.current.manualMaxPrice = maxPrice + dPrice;
+
+          }
+
+        } else if (mouse.current.dragType === 'PRICE_SCALE') {
+
+  
         const { minPrice, maxPrice, height } = viewState.current;
         const chartHeight = height - PADDING_BOTTOM;
         const priceRange = maxPrice - minPrice;
@@ -471,6 +526,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
       // Force drawing layer update
       setChartRevision(r => r + 1);
       draw();
+      notifyViewStateChange();
     }
 
     if (onMouseUpdate) {
@@ -503,7 +559,8 @@ const CustomChart: React.FC<CustomChartProps> = ({
     // Force drawing layer update
     setChartRevision(r => r + 1);
     draw();
-  }, [draw, data.length, getIndexFromX]);
+    notifyViewStateChange();
+  }, [draw, data.length, getIndexFromX, notifyViewStateChange]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -511,27 +568,37 @@ const CustomChart: React.FC<CustomChartProps> = ({
         container.addEventListener('wheel', handleWheel, { passive: false });
     }
 
-    const resize = () => {
-      if (containerRef.current && canvasRef.current) {
-        const { clientWidth, clientHeight } = containerRef.current;
-        const dpr = window.devicePixelRatio || 1;
-        canvasRef.current.width = clientWidth * dpr;
-        canvasRef.current.height = clientHeight * dpr;
-        canvasRef.current.style.width = `${clientWidth}px`;
-        canvasRef.current.style.height = `${clientHeight}px`;
-        canvasRef.current.getContext('2d')?.scale(dpr, dpr);
-        viewState.current.width = clientWidth;
-        viewState.current.height = clientHeight;
-        draw();
-      }
-    };
-    window.addEventListener('resize', resize);
-    resize();
+    const resizeObserver = new ResizeObserver((entries) => {
+        if (!entries || entries.length === 0) return;
+        
+        if (containerRef.current && canvasRef.current) {
+            const { clientWidth, clientHeight } = containerRef.current;
+            const dpr = window.devicePixelRatio || 1;
+            
+            // Only update if dimensions actually changed to avoid loop
+            if (canvasRef.current.width !== clientWidth * dpr || canvasRef.current.height !== clientHeight * dpr) {
+                canvasRef.current.width = clientWidth * dpr;
+                canvasRef.current.height = clientHeight * dpr;
+                canvasRef.current.style.width = `${clientWidth}px`;
+                canvasRef.current.style.height = `${clientHeight}px`;
+                canvasRef.current.getContext('2d')?.scale(dpr, dpr);
+                viewState.current.width = clientWidth;
+                viewState.current.height = clientHeight;
+                draw();
+            }
+        }
+    });
+
+    if (container) {
+        resizeObserver.observe(container);
+    }
+
     return () => {
-        window.removeEventListener('resize', resize);
         if (container) {
             container.removeEventListener('wheel', handleWheel);
+            resizeObserver.unobserve(container);
         }
+        resizeObserver.disconnect();
     };
   }, [draw, handleWheel]);
 
@@ -545,7 +612,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="block touch-none"
+        className="w-full h-full block touch-none"
       />
       {children}
     </div>

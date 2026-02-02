@@ -269,21 +269,6 @@ const DrawingItem = React.memo<{
             );
             break;
 
-        case 'fib':
-            shape = (
-                <g onClick={commonProps.onClick} onMouseDown={commonProps.onMouseDown} style={{ cursor: 'pointer' }}>
-                    <rect
-                        x={0}
-                        y={Math.min(y1, y2)}
-                        width={containerWidth}
-                        height={Math.abs(y2 - y1)}
-                        fill="transparent"
-                        {...commonProps}
-                    />
-                </g>
-            );
-            break;
-
         case 'long':
         case 'short':
             const entryY = series?.priceToCoordinate(d.entry || d.p1.price) ?? y1;
@@ -444,11 +429,16 @@ export const DrawingLayer = React.memo<DrawingLayerProps>(({
 }, (prevProps, nextProps) => {
     // Custom comparison for React.memo - only re-render when actually needed
     // This prevents flickering during pan/zoom
+
+    // Always re-render if isSelectBarMode changes, or if it's active and mousePos changes
+    if (prevProps.isSelectBarMode !== nextProps.isSelectBarMode) return false;
+    if (nextProps.isSelectBarMode && prevProps.mousePos !== nextProps.mousePos) return false;
+    
     if (prevProps.tick !== nextProps.tick) {
         // Tick changed - but we only need to re-render if we have drawings
         if (prevProps.drawings.length === 0 && nextProps.drawings.length === 0 &&
-            !prevProps.currentDrawing && !nextProps.currentDrawing) {
-            return true; // Skip re-render if no drawings
+            !prevProps.currentDrawing && !nextProps.currentDrawing && !nextProps.isSelectBarMode) { // Added !nextProps.isSelectBarMode
+            return true; // Skip re-render if no drawings AND not in select bar mode
         }
     }
 
@@ -457,9 +447,9 @@ export const DrawingLayer = React.memo<DrawingLayerProps>(({
     if (prevProps.currentDrawing !== nextProps.currentDrawing) return false;
     if (prevProps.selectedDrawingId !== nextProps.selectedDrawingId) return false;
     if (prevProps.hoveredDrawingId !== nextProps.hoveredDrawingId) return false;
-    if (prevProps.mousePos !== nextProps.mousePos && (prevProps.currentDrawing || nextProps.currentDrawing || prevProps.activeTool !== 'cursor')) return false;
+    // Removed old mousePos check, now handled above
     if (prevProps.activeTool !== nextProps.activeTool) return false;
-    if (prevProps.isSelectBarMode !== nextProps.isSelectBarMode) return false;
+    // isSelectBarMode checked already
     if (prevProps.isLocked !== nextProps.isLocked) return false;
     if (prevProps.isDarkMode !== nextProps.isDarkMode) return false;
     if (prevProps.containerWidth !== nextProps.containerWidth) return false;

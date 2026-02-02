@@ -73,8 +73,9 @@ export const getRayCoordinates = (
 
 export const calculateFibLevels = (y1: number, y2: number) => {
     const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const diff = y2 - y1;
     return levels.map(level => ({
         level,
-        y: y1 + (y2 - y1) * level
+        y: y1 + diff * level
     }));
 };

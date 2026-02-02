@@ -1,4 +1,36 @@
 
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface Point {
+    time: number;
+    price: number;
+    logical?: number;
+}
+
+export type ToolType = 'cursor' | 'trendline' | 'ray' | 'arrow' | 'rect' | 'vertical' | 'horizontal' | 'long' | 'short';
+
+export interface Drawing {
+    id: string;
+    type: ToolType;
+    p1: Point;
+    p2?: Point;
+    color?: string;
+    strokeWidth?: number;
+    strokeStyle?: 'solid' | 'dashed' | 'dotted';
+    isLocked?: boolean;
+    syncAllTimeframes?: boolean;
+    // Position Tool specific
+    entry?: number;
+    target?: number;
+    stop?: number;
+}
+
 export interface UserProfile {
   name: string;
   country: string;
@@ -53,6 +85,7 @@ export interface Trade {
   beforeScreenshot?: string;
   afterScreenshot?: string;
   setupId?: string;
+  deletedAt?: string;
 }
 
 export interface Note {
@@ -266,6 +299,7 @@ export interface DBTrade {
   before_screenshot?: string;
   after_screenshot?: string;
   setup_id?: string;
+  deleted_at?: string;
 }
 
 export interface DBGoal {

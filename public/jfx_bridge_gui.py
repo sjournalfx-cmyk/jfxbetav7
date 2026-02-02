@@ -8,16 +8,70 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
 
 # --- Constants ---
 APP_NAME = "JournalFX Bridge"
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 CONFIG_FILE = "bridge_session.json"
+BACKTEST_PORT = 5001
 
 # HARDCODED CONFIGURATION (Hidden from User)
 SUPABASE_URL = "https://lwlikhjgwazyrahucatl.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx3bGlraGpnd2F6eXJhaHVjYXRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MTM5OTgsImV4cCI6MjA4Mjk4OTk5OH0.E-Gb2DIkSOrNNK4gfQRkAcDRRaMOcMM0fh0XFRRUx3Q"
 SYNC_ENDPOINT = f"{SUPABASE_URL}/functions/v1/sync-trades"
+
+# --- Backtest Data Provider Handler ---
+class MT5DataHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Suppress terminal logging for HTTP requests to keep it clean
+        pass
+
+    def do_GET(self):
+        # Allow CORS
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+
+        parsed_path = urlparse(self.path)
+        if parsed_path.path == '/ping':
+            self.wfile.write(json.dumps({"status": "online"}).encode())
+            return
+
+        query = parse_qs(parsed_path.query)
+        symbol = query.get('symbol', ['EURUSD'])[0]
+        tf_str = query.get('tf', ['H1'])[0]
+        count = int(query.get('count', [1000])[0])
+
+        # Map Timeframe
+        tf_map = {
+            'M1': mt5.TIMEFRAME_M1, 'M5': mt5.TIMEFRAME_M5, 'M15': mt5.TIMEFRAME_M15,
+            'M30': mt5.TIMEFRAME_M30, 'H1': mt5.TIMEFRAME_H1, 'H4': mt5.TIMEFRAME_H4, 'D1': mt5.TIMEFRAME_D1
+        }
+        timeframe = tf_map.get(tf_str, mt5.TIMEFRAME_H1)
+
+        # Ensure MT5 is initialized for the request
+        if not mt5.initialize():
+            self.wfile.write(json.dumps({"error": "MT5 Init Failed"}).encode())
+            return
+
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+        
+        if rates is None:
+            self.wfile.write(json.dumps({"error": "No data found"}).encode())
+        else:
+            data = []
+            for r in rates:
+                data.append({
+                    "time": int(r[0]),
+                    "open": float(r[1]),
+                    "high": float(r[2]),
+                    "low": float(r[3]),
+                    "close": float(r[4])
+                })
+            self.wfile.write(json.dumps(data).encode())
 
 # --- Theme & Styling ---
 THEME = {
@@ -101,6 +155,8 @@ class JournalFXApp(tk.Tk):
         self.client = SupabaseClient()
         self.bridge_running = False
         self.sync_thread = None
+        self.server_thread = None
+        self.httpd = None
         
         # Container for screens
         self.container = tk.Frame(self, bg=THEME["bg_dark"])
@@ -198,6 +254,7 @@ class JournalFXApp(tk.Tk):
         
         self.card_mt5 = self.create_status_card(status_grid, "MT5 STATUS", "Disconnected", THEME["error"], 0)
         self.card_server = self.create_status_card(status_grid, "SERVER LINK", "Standby", THEME["text_dim"], 1)
+        self.card_backtest = self.create_status_card(status_grid, "BACKTEST LAB", "Offline", THEME["text_dim"], 2)
 
         # Sync Key Display (Read Only)
         tk.Label(content, text="ACTIVE SYNC KEY", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(10, 5))
@@ -250,16 +307,40 @@ class JournalFXApp(tk.Tk):
         self.btn_toggle.config(text="STOP BRIDGE", bg=THEME["error"])
         self.log("Initializing bridge...", "info")
         
+        # Start Sync Thread
         self.sync_thread = threading.Thread(target=self.bridge_loop, daemon=True)
         self.sync_thread.start()
+
+        # Start Backtest Server Thread
+        self.server_thread = threading.Thread(target=self.start_data_server, daemon=True)
+        self.server_thread.start()
 
     def stop_bridge(self):
         self.bridge_running = False
         self.btn_toggle.config(text="START BRIDGE", bg=THEME["primary"])
         self.update_status(self.card_mt5, "Disconnected", "error")
         self.update_status(self.card_server, "Standby", "text_dim")
-        self.log("Bridge stopped.", "info")
+        self.update_status(self.card_backtest, "Offline", "text_dim")
+        
+        # Shutdown HTTP Server
+        if self.httpd:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+            self.httpd = None
+
+        self.log("Bridge & Backtest server stopped.", "info")
         mt5.shutdown()
+
+    def start_data_server(self):
+        try:
+            server_address = ('', BACKTEST_PORT)
+            self.httpd = HTTPServer(server_address, MT5DataHandler)
+            self.after(0, lambda: self.update_status(self.card_backtest, "Ready (P5001)", "success"))
+            self.log(f"Backtest Server active on port {BACKTEST_PORT}")
+            self.httpd.serve_forever()
+        except Exception as e:
+            self.log(f"Server Failed: {str(e)}", "error")
+            self.after(0, lambda: self.update_status(self.card_backtest, "Failed", "error"))
 
     def bridge_loop(self):
         if not mt5.initialize():

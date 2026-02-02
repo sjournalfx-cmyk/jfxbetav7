@@ -11,6 +11,7 @@ interface JFXChartProps {
   showLegend: boolean;
   showGrid: boolean;
   showToolbar: boolean;
+  hideBridgeHeader?: boolean;
 }
 
 function JFXChart({
@@ -21,6 +22,7 @@ function JFXChart({
   showLegend,
   showGrid,
   showToolbar,
+  hideBridgeHeader = false,
 }: JFXChartProps) {
   const {
     symbol, setSymbol, timeframe, setTimeframe, isFetching, allData, fetchData
@@ -81,9 +83,11 @@ function JFXChart({
               <div className="p-3 rounded-xl bg-amber-500/10 text-amber-500">
                 <AlertTriangle size={20} />
               </div>
-              <div className="space-y-1">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-[#FF4F01]">Bridge Required</h4>
-                <p className="text-[9px] font-bold opacity-60 leading-relaxed max-w-[180px]">
+              <div className="space-y-1 text-center">
+                {!hideBridgeHeader && (
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#FF4F01]">Bridge Required</h4>
+                )}
+                <p className={`${hideBridgeHeader ? 'text-[11px] font-black' : 'text-[9px] font-bold opacity-60'} leading-relaxed max-w-[180px] mx-auto`}>
                   {error.includes('disconnected') ? 'Python bridge is not running' : error}
                 </p>
               </div>

@@ -24,7 +24,8 @@ import {
   IconTargetArrow,
   IconCalculator,
   IconMessage,
-  IconTerminal2
+  IconTerminal2,
+  IconFlask
 } from '@tabler/icons-react';
 import { UserProfile, Trade, EASession } from '../types';
 import { useToast } from './ui/Toast';
@@ -109,6 +110,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { id: 'dashboard', icon: IconLayoutDashboard, label: 'Dashboard' },
+    { id: 'ai-chat', icon: IconMessage, label: 'AI Assistant' },
     { id: 'log-trade', icon: IconPlus, label: 'Log Trade' },
     { id: 'history', icon: IconNotebook, label: 'Journal' },
     { id: 'analytics', icon: IconChartBar, label: 'Analytics' },
@@ -116,10 +118,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'broker', icon: IconWorld, label: 'Broker' },
     { id: 'ea-setup', icon: IconLink, label: 'Desktop Bridge', restricted: true },
     { id: 'charts', icon: IconChartCandle, label: 'Market Grid', restricted: true },
-    { id: 'diagrams', icon: IconGitMerge, label: 'Strategy Maps', restricted: true },
     { id: 'goals', icon: IconTargetArrow, label: 'Goals', restricted: true },
     { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
-    { id: 'backtest-lab', icon: IconChartCandle, label: 'Backtest Lab', restricted: true },
+    { id: 'backtest-lab', icon: IconFlask, label: 'Backtest Lab', restricted: true },
+    { id: 'diagrams', icon: IconGitMerge, label: 'Strategy Maps', restricted: true },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {

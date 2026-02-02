@@ -2,7 +2,7 @@ import React from 'react';
 import {
     MousePointer2, Slash, ArrowRight, ArrowUpRight,
     Minus, Columns, Square, Layers, Trash2, GripVertical, Magnet,
-    Pin, Lock, Unlock, TrendingUp, TrendingDown
+    Pin, Lock, Unlock, TrendingUp, TrendingDown, RotateCw
 } from 'lucide-react';
 import { ToolType } from './types';
 
@@ -16,7 +16,11 @@ interface DrawingToolbarProps {
     toggleSticky: () => void;
     isLocked: boolean;
     toggleLocked: () => void;
+    orientation: 'horizontal' | 'vertical';
+    toggleOrientation: () => void;
     isDarkMode?: boolean;
+    style?: React.CSSProperties;
+    onPositionChange?: (pos: { x: number, y: number }) => void;
 }
 
 export const DrawingToolbar = React.memo<DrawingToolbarProps>(({
@@ -29,18 +33,94 @@ export const DrawingToolbar = React.memo<DrawingToolbarProps>(({
     toggleSticky,
     isLocked,
     toggleLocked,
-    isDarkMode
+    orientation,
+    toggleOrientation,
+    isDarkMode,
+    style,
+    onPositionChange
 }) => {
+    const isDragging = React.useRef(false);
+    const dragOffset = React.useRef({ x: 0, y: 0 });
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragging.current = true;
+        
+        // Calculate offset from the top-left of the toolbar
+        // We use closest('.drawing-toolbar-root') to find the toolbar element
+        const toolbarEl = e.currentTarget.closest('.drawing-toolbar-root') as HTMLElement;
+        if (toolbarEl) {
+            const rect = toolbarEl.getBoundingClientRect();
+            dragOffset.current = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            if (!isDragging.current) return;
+            moveEvent.preventDefault();
+            
+            // Find parent container to calculate relative position
+            const toolbarDiv = document.querySelector('.drawing-toolbar-root') as HTMLElement;
+            const container = toolbarDiv?.offsetParent as HTMLElement;
+            
+            if (container) {
+                const containerRect = container.getBoundingClientRect();
+                
+                // Calculate new position relative to container
+                let newX = moveEvent.clientX - containerRect.left - dragOffset.current.x;
+                let newY = moveEvent.clientY - containerRect.top - dragOffset.current.y;
+                
+                // Boundary checks (optional, but good for UX)
+                newX = Math.max(0, Math.min(newX, containerRect.width - (toolbarDiv?.offsetWidth || 50)));
+                newY = Math.max(0, Math.min(newY, containerRect.height - (toolbarDiv?.offsetHeight || 300)));
+
+                if (onPositionChange) {
+                    onPositionChange({ x: newX, y: newY });
+                }
+            }
+        };
+
+        const onMouseUp = () => {
+            isDragging.current = false;
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    };
+
+    const isVertical = orientation === 'vertical';
+
     return (
-        <div className="absolute left-1/2 -translate-x-1/2 top-4 z-30">
-            <div className={`flex items-center gap-1 rounded-full shadow-2xl border px-2 py-1.5 ${isDarkMode 
+        <div className={`absolute z-30 drawing-toolbar-root transition-all duration-200 ease-out`} style={style}>
+            <div className={`flex ${isVertical ? 'flex-col' : 'flex-row'} items-center gap-1 rounded-2xl shadow-2xl border p-1.5 ${isDarkMode 
                 ? 'bg-[#1e222d]/95 border-zinc-700/50 backdrop-blur-sm' 
                 : 'bg-white/95 border-slate-200 backdrop-blur-md'}`}>
-                <div className={`px-1 cursor-grab active:cursor-grabbing ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
-                    <GripVertical size={14} />
+                
+                {/* Drag Handle */}
+                <div 
+                    className={`flex items-center justify-center p-1 cursor-grab active:cursor-grabbing rounded-lg hover:bg-black/5 ${isDarkMode ? 'text-zinc-500 hover:bg-white/5' : 'text-slate-400'}`}
+                    onMouseDown={handleMouseDown}
+                >
+                    <GripVertical size={14} className={isVertical ? 'rotate-90' : ''} />
                 </div>
 
-                <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-zinc-700/50' : 'bg-slate-200'}`} />
+                <div className={`${isVertical ? 'w-5 h-px my-0.5' : 'w-px h-5 mx-0.5'} ${isDarkMode ? 'bg-zinc-700/50' : 'bg-slate-200'}`} />
+
+                {/* Flip Button */}
+                <button
+                    onClick={toggleOrientation}
+                    className={`p-2 rounded-lg ${isDarkMode ? 'text-zinc-400 hover:bg-[#2a2e39]' : 'text-slate-500 hover:bg-slate-100'}`}
+                    title="Flip Toolbar"
+                >
+                    <RotateCw size={16} strokeWidth={1.5} />
+                </button>
+
+                <div className={`${isVertical ? 'w-5 h-px my-0.5' : 'w-px h-5 mx-0.5'} ${isDarkMode ? 'bg-zinc-700/50' : 'bg-slate-200'}`} />
 
                 {[
                     { id: 'cursor', icon: MousePointer2, title: 'Cursor' },
@@ -50,7 +130,6 @@ export const DrawingToolbar = React.memo<DrawingToolbarProps>(({
                     { id: 'horizontal', icon: Minus, title: 'Horizontal Line' },
                     { id: 'vertical', icon: Columns, title: 'Vertical Line' },
                     { id: 'rect', icon: Square, title: 'Rectangle' },
-                    { id: 'fib', icon: Layers, title: 'Fib Retracement' },
                     { id: 'long', icon: TrendingUp, title: 'Long Position' },
                     { id: 'short', icon: TrendingDown, title: 'Short Position' },
                 ].map(tool => (
@@ -84,7 +163,7 @@ export const DrawingToolbar = React.memo<DrawingToolbarProps>(({
                     </button>
                 ))}
 
-                <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-zinc-700/50' : 'bg-slate-200'}`} />
+                <div className={`${isVertical ? 'w-5 h-px my-0.5' : 'w-px h-5 mx-0.5'} ${isDarkMode ? 'bg-zinc-700/50' : 'bg-slate-200'}`} />
 
                 <button
                     onClick={toggleMagnetMode}
