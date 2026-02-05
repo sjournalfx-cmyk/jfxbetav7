@@ -1,29 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import Sidebar from './components/Sidebar';
 import LogTrade from './components/LogTrade';
 import Dashboard from './components/Dashboard';
 import Journal from './components/Journal';
-import Analytics from './components/Analytics';
 import Auth from './components/Auth';
-import { PartyPopper, MessageSquare, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { PartyPopper, MessageSquare, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { UserProfile, Trade, Note, DailyBias, Goal, EASession } from './types';
 
 import Goals from './components/Goals';
-import Notes from './components/Notes';
 import PositionSizeCalculator from './components/PositionSizeCalculator';
-import ChartGrid from './components/ChartGrid';
-import DiagramEditor from './components/DiagramEditor';
 import Calculators from './components/Calculators';
 import Onboarding from './components/Onboarding';
 import Settings from './components/Settings';
 import EASetup from './components/EASetup';
 import BrokerConnect from './components/BrokerConnect';
-import AIChat from './components/AIChat';
-import MobileApp from './components/MobileApp';
 import ConfirmationModal from './components/ConfirmationModal';
 import QuickLogModal from './components/QuickLogModal';
 import ErrorBoundary from './components/ErrorBoundary';
-import BacktestLab from './components/BacktestLab';
 import { APP_CONSTANTS, PLAN_FEATURES } from './lib/constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { getSASTDateTime } from './lib/timeUtils';
@@ -32,6 +25,29 @@ import { ToastProvider, useToast } from './components/ui/Toast';
 import { useAuth } from './hooks/useAuth';
 import { useData } from './hooks/useData';
 import { authService } from './services/authService';
+import { Agentation, type Annotation } from "agentation";
+
+// Lazy load heavy components for performance
+const Analytics = lazy(() => import('./components/Analytics'));
+const AIChat = lazy(() => import('./components/AIChat'));
+const BacktestLab = lazy(() => import('./components/BacktestLab'));
+const ChartGrid = lazy(() => import('./components/ChartGrid'));
+const Notes = lazy(() => import('./components/Notes'));
+
+const LoadingFallback = () => (
+  <div className="w-full h-full flex flex-col items-center justify-center gap-4 animate-in fade-in duration-500">
+    <div className="relative">
+      <Loader2 size={48} className="animate-spin text-[#FF4F01] opacity-20" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Activity size={20} className="text-[#FF4F01] animate-pulse" />
+      </div>
+    </div>
+    <div className="text-center">
+      <p className="text-xs font-black uppercase tracking-[0.3em] opacity-40">Initializing Engine</p>
+      <p className="text-[10px] font-bold opacity-20 mt-1 uppercase tracking-widest">Optimizing Workspace...</p>
+    </div>
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState('dashboard');
@@ -71,23 +87,6 @@ const AppContent: React.FC = () => {
     setEditingTrade
   } = useData(userId, userProfile);
 
-
-  // Mobile Detection (Enhanced with User-Agent check)
-  const checkIfMobile = () => {
-    const isSmallScreen = window.innerWidth < 1024;
-    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    return isSmallScreen || isMobileUA;
-  };
-
-  const [isMobile, setIsMobile] = useState(checkIfMobile());
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(checkIfMobile());
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Persistent State (Theme only)
   const [isDarkMode, setIsDarkMode] = useLocalStorage<boolean>('jfx_theme_dark', true);
@@ -331,11 +330,92 @@ const AppContent: React.FC = () => {
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    try {
-      await dataService.deleteNote(noteId);
-    } catch (error) {
-      console.error("Error deleting note:", error);
+    const noteToDelete = notes.find(n => n.id === noteId);
+    if (!noteToDelete) return;
+
+    if (noteToDelete.isTrashed) {
+      handleDeleteNoteForever(noteId);
+      return;
     }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Note',
+      description: 'Are you sure you want to delete this note? It will be moved to trash.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          // Move to trash instead of hard delete
+          const updatedNote = { ...noteToDelete, isTrashed: true };
+          await dataService.updateNote(updatedNote as any);
+          setNotes(prev => prev.filter(n => n.id !== noteId));
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          addToast({
+            type: 'success',
+            title: 'Note Deleted',
+            message: 'Note has been moved to trash.',
+            duration: 5000
+          });
+        } catch (error) {
+          console.error("Error deleting note:", error);
+          addToast({
+            type: 'error',
+            title: 'Delete Failed',
+            message: 'An error occurred while deleting the note.'
+          });
+        }
+      }
+    });
+  };
+
+  const handleRestoreNote = async (noteId: string) => {
+    const noteToRestore = notes.find(n => n.id === noteId);
+    if (!noteToRestore) return;
+
+    try {
+      const updatedNote = { ...noteToRestore, isTrashed: false };
+      await dataService.updateNote(updatedNote as any);
+      setNotes(prev => prev.map(n => n.id === noteId ? (updatedNote as any) : n));
+      addToast({
+        type: 'success',
+        title: 'Note Restored',
+        message: 'Note has been restored to your library.',
+        duration: 3000
+      });
+    } catch (error) {
+      console.error("Error restoring note:", error);
+    }
+  };
+
+  const handleDeleteNoteForever = async (noteId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Forever',
+      description: 'Are you sure you want to permanently delete this note? This action cannot be undone.',
+      confirmText: 'Delete Forever',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await dataService.deleteNote(noteId);
+          setNotes(prev => prev.filter(n => n.id !== noteId));
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          addToast({
+            type: 'success',
+            title: 'Note Deleted Permanently',
+            message: 'Note has been removed forever.',
+            duration: 5000
+          });
+        } catch (error) {
+          console.error("Error deleting note forever:", error);
+          addToast({
+            type: 'error',
+            title: 'Delete Failed',
+            message: 'An error occurred while deleting the note.'
+          });
+        }
+      }
+    });
   };
 
   const handleAddGoal = async (goal: Goal) => {
@@ -465,21 +545,6 @@ const AppContent: React.FC = () => {
     }} />;
   }
 
-  if (isMobile) {
-    return (
-      <MobileApp 
-        isDarkMode={isDarkMode} 
-        trades={trades} 
-        userProfile={userProfile} 
-        eaSession={eaSession}
-        onLogout={onLogout}
-        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-        goals={goals}
-        dailyBias={dailyBias}
-      />
-    );
-  }
-
   const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
   const currentBalance = eaSession?.data?.account?.balance !== undefined
     ? eaSession.data.account.balance
@@ -532,90 +597,104 @@ const AppContent: React.FC = () => {
         )}
 
         <main className="flex-1 h-full overflow-hidden relative">
-          {currentView === 'dashboard' && (
-            <Dashboard
-              isDarkMode={isDarkMode}
-              trades={trades}
-              dailyBias={dailyBias}
-              onUpdateBias={handleUpdateBias}
-              userProfile={userProfile}
-              onViewChange={setCurrentView}
-              eaSession={eaSession}
-              isLoading={isDataLoading}
-            />
-          )}
-          {currentView === 'ai-chat' && (
-            <AIChat
-              isDarkMode={isDarkMode}
-              trades={trades}
-              userProfile={userProfile}
-              goals={goals}
-              dailyBias={dailyBias}
-            />
-          )}
-          {currentView === 'log-trade' && userProfile && (
-            <LogTrade
-              isDarkMode={isDarkMode}
-              onSave={handleAddTrade}
-              onCancel={() => setCurrentView('dashboard')}
-              initialTrade={editingTrade}
-              currencySymbol={userProfile.currencySymbol}
-              trades={trades}
-              userProfile={userProfile}
-            />
-          )}
-          {currentView === 'backtest-lab' && userProfile && (
-            <BacktestLab isDarkMode={isDarkMode} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} />
-          )}
-          {currentView === 'history' && (
-            <Journal
-              isDarkMode={isDarkMode}
-              trades={trades}
-              onUpdateTrade={handleUpdateTrade}
-              onBatchUpdateTrades={handleBatchUpdateTrades}
-              onDeleteTrades={handleDeleteTrades}
-              onEditTrade={handleEditTrade}
-              userProfile={userProfile}
-            />
-          )}
-          {currentView === 'analytics' && userProfile && (
-            <Analytics
-              isDarkMode={isDarkMode}
-              trades={trades}
-              userProfile={userProfile}
-              eaSession={eaSession}
-              onViewChange={setCurrentView}
-            />
-          )}
+          <Suspense fallback={<LoadingFallback />}>
+            {currentView === 'dashboard' && (
+              <Dashboard
+                isDarkMode={isDarkMode}
+                trades={trades}
+                dailyBias={dailyBias}
+                onUpdateBias={handleUpdateBias}
+                userProfile={userProfile}
+                onViewChange={setCurrentView}
+                eaSession={eaSession}
+                isLoading={isDataLoading}
+              />
+            )}
+            {currentView === 'ai-chat' && (
+              <AIChat
+                isDarkMode={isDarkMode}
+                trades={trades}
+                userProfile={userProfile}
+                goals={goals}
+                dailyBias={dailyBias}
+                onAddNote={handleAddNote}
+              />
+            )}
+            {currentView === 'log-trade' && userProfile && (
+              <LogTrade
+                isDarkMode={isDarkMode}
+                onSave={handleAddTrade}
+                onCancel={() => setCurrentView('dashboard')}
+                initialTrade={editingTrade}
+                currencySymbol={userProfile.currencySymbol}
+                trades={trades}
+                userProfile={userProfile}
+              />
+            )}
+            {currentView === 'backtest-lab' && userProfile && (
+              <BacktestLab isDarkMode={isDarkMode} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} />
+            )}
+            {currentView === 'history' && (
+              <Journal
+                isDarkMode={isDarkMode}
+                trades={trades}
+                onUpdateTrade={handleUpdateTrade}
+                onBatchUpdateTrades={handleBatchUpdateTrades}
+                onDeleteTrades={handleDeleteTrades}
+                onEditTrade={handleEditTrade}
+                userProfile={userProfile}
+              />
+            )}
+            {currentView === 'analytics' && userProfile && (
+              <Analytics
+                isDarkMode={isDarkMode}
+                trades={trades}
+                userProfile={userProfile}
+                eaSession={eaSession}
+                onViewChange={setCurrentView}
+              />
+            )}
 
-          {currentView === 'goals' && userProfile && (
-            <Goals
-              isDarkMode={isDarkMode}
-              trades={trades}
-              goals={goals}
-              onAddGoal={handleAddGoal}
-              onUpdateGoal={handleUpdateGoal}
-              onDeleteGoal={handleDeleteGoal}
-              currencySymbol={userProfile.currencySymbol}
-            />
-          )}
-          {currentView === 'notes' && (
-            <Notes
-              isDarkMode={isDarkMode}
-              notes={notes}
-              goals={goals}
-              onAddNote={handleAddNote}
-              onUpdateNote={handleUpdateNote}
-              onDeleteNote={handleDeleteNote}
-              onUpdateGoal={handleUpdateGoal}
-              userProfile={userProfile}
-              onViewChange={setCurrentView}
-            />
-          )}
+            {currentView === 'goals' && userProfile && (
+              <Goals
+                isDarkMode={isDarkMode}
+                trades={trades}
+                goals={goals}
+                onAddGoal={handleAddGoal}
+                onUpdateGoal={handleUpdateGoal}
+                onDeleteGoal={handleDeleteGoal}
+                currencySymbol={userProfile.currencySymbol}
+              />
+            )}
+            {currentView === 'notes' && (
+              <Notes
+                isDarkMode={isDarkMode}
+                notes={notes}
+                goals={goals}
+                onAddNote={handleAddNote}
+                onUpdateNote={handleUpdateNote}
+                onDeleteNote={handleDeleteNote}
+                onRestoreNote={handleRestoreNote}
+                onUpdateGoal={handleUpdateGoal}
+                userProfile={userProfile}
+                onViewChange={setCurrentView}
+              />
+            )}
 
-          {userProfile?.keepChartsAlive ? (
-            <div className={currentView === 'charts' ? 'h-full w-full' : 'hidden'}>
-              {userProfile && (
+            {userProfile?.keepChartsAlive ? (
+              <div className={currentView === 'charts' ? 'h-full w-full' : 'hidden'}>
+                {userProfile && (
+                  <ChartGrid
+                    isDarkMode={isDarkMode}
+                    isFocusMode={isFocusMode}
+                    onToggleFocus={() => setIsFocusMode(!isFocusMode)}
+                    userProfile={userProfile}
+                    onUpdateProfile={handleUpdateProfile}
+                  />
+                )}
+              </div>
+            ) : (
+              currentView === 'charts' && userProfile && (
                 <ChartGrid
                   isDarkMode={isDarkMode}
                   isFocusMode={isFocusMode}
@@ -623,62 +702,51 @@ const AppContent: React.FC = () => {
                   userProfile={userProfile}
                   onUpdateProfile={handleUpdateProfile}
                 />
-              )}
-            </div>
-          ) : (
-            currentView === 'charts' && userProfile && (
-              <ChartGrid
+              )
+            )}
+
+            {currentView === 'ea-setup' && userProfile && userId && (
+              <EASetup
                 isDarkMode={isDarkMode}
-                isFocusMode={isFocusMode}
-                onToggleFocus={() => setIsFocusMode(!isFocusMode)}
+                userProfile={userProfile}
+                onUpdateProfile={handleUpdateProfile}
+                eaSession={eaSession}
+                onTradeAdded={(newTrade) => {}}
+                onEditTrade={handleEditTrade}
+                trades={trades}
+                userId={userId}
+              />
+            )}
+            {currentView === 'broker' && userProfile && (
+              <BrokerConnect
+                isDarkMode={isDarkMode}
                 userProfile={userProfile}
                 onUpdateProfile={handleUpdateProfile}
               />
-            )
-          )}
-
-          {currentView === 'diagrams' && userId && <DiagramEditor isDarkMode={isDarkMode} userId={userId} />}
-          {currentView === 'ea-setup' && userProfile && userId && (
-            <EASetup
-              isDarkMode={isDarkMode}
-              userProfile={userProfile}
-              onUpdateProfile={handleUpdateProfile}
-              eaSession={eaSession}
-              onTradeAdded={(newTrade) => {}}
-              onEditTrade={handleEditTrade}
-              trades={trades}
-              userId={userId}
-            />
-          )}
-          {currentView === 'broker' && userProfile && (
-            <BrokerConnect
-              isDarkMode={isDarkMode}
-              userProfile={userProfile}
-              onUpdateProfile={handleUpdateProfile}
-            />
-          )}
-          {currentView === 'calculators' && userProfile && (
-            <Calculators
-              isDarkMode={isDarkMode}
-              currencySymbol={userProfile.currencySymbol}
-            />
-          )}
-          {currentView === 'settings' && userProfile && (
-            <Settings
-              isDarkMode={isDarkMode}
-              userProfile={userProfile}
-              userEmail={userEmail}
-              onUpdateProfile={handleUpdateProfile}
-              onLogout={onLogout}
-              onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-              tradesThisMonth={tradesThisMonth}
-              totalNotes={totalNotes}
-              totalImages={totalImages}
-              tradesCount={trades.length}
-              onDeduplicate={handleDeduplicate}
-              initialTab={settingsTab}
-            />
-          )}
+            )}
+            {currentView === 'calculators' && userProfile && (
+              <Calculators
+                isDarkMode={isDarkMode}
+                currencySymbol={userProfile.currencySymbol}
+              />
+            )}
+            {currentView === 'settings' && userProfile && (
+              <Settings
+                isDarkMode={isDarkMode}
+                userProfile={userProfile}
+                userEmail={userEmail}
+                onUpdateProfile={handleUpdateProfile}
+                onLogout={onLogout}
+                onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+                tradesThisMonth={tradesThisMonth}
+                totalNotes={totalNotes}
+                totalImages={totalImages}
+                tradesCount={trades.length}
+                onDeduplicate={handleDeduplicate}
+                initialTab={settingsTab}
+              />
+            )}
+          </Suspense>
         </main>
 
         <QuickLogModal
@@ -756,9 +824,25 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const handleAnnotationAdd = (annotation: Annotation) => {
+    console.group(`🎯 UI Annotation: ${annotation.element}`);
+    console.log(`💬 Comment: ${annotation.comment}`);
+    console.log(`📍 Path: ${annotation.elementPath}`);
+    console.log(`⏰ Time: ${new Date(annotation.timestamp).toLocaleString()}`);
+    if (annotation.selectedText) console.log(`🔍 Selected: "${annotation.selectedText}"`);
+    console.groupEnd();
+  };
+
   return (
     <ToastProvider>
       <AppContent />
+      {import.meta.env.DEV && (
+        <Agentation 
+          onAnnotationAdd={handleAnnotationAdd}
+          onAnnotationUpdate={(a) => console.log("📝 Annotation updated:", a.id)}
+          onAnnotationDelete={(a) => console.log("🗑️ Annotation removed:", a.id)}
+        />
+      )}
     </ToastProvider>
   );
 };

@@ -1,7 +1,7 @@
 # Features
 
 ## Overview
-JournalFX is a comprehensive web-based trading journal application designed for professional traders. It enables logging, analyzing, and managing trades, strategies, and performance metrics. The app integrates AI assistance for insights and supports automated journaling via expert advisors (EAs) for platforms like MetaTrader. Currently in beta (v1.0.0-beta.1), it offers tiered access: Free (Journaler), Pro (Analyst), and Premium features. Desktop-only (blocks mobile access) for optimal experience.
+JournalFX is a comprehensive web-based trading journal application designed for professional traders. It enables logging, analyzing, and managing trades, strategies, and performance metrics. The app integrates AI assistance for insights and supports automated journaling via expert advisors (EAs) for platforms like MetaTrader. Currently in beta (v1.0.0-beta.1), it offers tiered access: Free (Journaler), Pro (Analyst), and Premium features.
 
 ## Core Features
 - **Authentication & Onboarding**: Supabase-based login/signup with user profile setup (experience level, trading style, initial balance).

@@ -305,6 +305,9 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                             <div className="flex items-center gap-3 w-full md:w-auto">
                                 <div className="flex-1 md:w-64">
                                     <select 
+                                        id="setup-linker"
+                                        name="setup-linker"
+                                        aria-label="Select active setup to link trades"
                                         className={`w-full px-4 py-3 rounded-xl border text-xs font-bold outline-none appearance-none cursor-pointer transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 focus:border-violet-500' : 'bg-white border-zinc-200 text-zinc-700 focus:border-violet-500'}`}
                                         value={activeSetup?.id || ''}
                                         onChange={(e) => {
@@ -531,8 +534,11 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                                 );
                                             })
                                         ) : (
-                                            <div className="text-center py-8 opacity-40 text-xs font-medium border-2 border-dashed border-zinc-500/10 rounded-xl">
-                                                No new trades detected
+                                            <div className="text-center py-8 px-4 border-2 border-dashed border-zinc-500/10 rounded-xl">
+                                                <div className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">No new trades detected</div>
+                                                <p className="text-[10px] opacity-30 leading-relaxed">
+                                                    Ensure you've closed trades in MT5. The bridge will detect and display them here automatically for journaling.
+                                                </p>
                                             </div>
                                         )}
                                     </div>
@@ -834,9 +840,14 @@ const BridgeWizard: React.FC<BridgeWizardProps> = ({ isDarkMode, onComplete, use
                                                 </div>
                                             </div>
                                             <h3 className="text-2xl font-black mb-4">Waiting for Connection...</h3>
-                                            <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
+                                            <p className={`max-w-md mx-auto mb-8 ${subTextColor}`}>
                                                 Once you click "Start Bridge" in the desktop app, this screen will update automatically.
                                             </p>
+                                            <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest space-y-2">
+                                                <p>• Check if MT5 is logged in</p>
+                                                <p>• Ensure "Start Bridge" is clicked in the app</p>
+                                                <p>• Keep this page open while connecting</p>
+                                            </div>
                                         </>
                                     ) : (
                                         <div className="animate-in zoom-in duration-500">

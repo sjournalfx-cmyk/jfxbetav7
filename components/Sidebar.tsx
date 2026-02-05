@@ -121,7 +121,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'goals', icon: IconTargetArrow, label: 'Goals', restricted: true },
     { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
     { id: 'backtest-lab', icon: IconFlask, label: 'Backtest Lab', restricted: true },
-    { id: 'diagrams', icon: IconGitMerge, label: 'Strategy Maps', restricted: true },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {

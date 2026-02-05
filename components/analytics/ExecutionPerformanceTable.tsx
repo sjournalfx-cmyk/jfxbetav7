@@ -30,7 +30,7 @@ export const ExecutionPerformanceTable: React.FC<ExecutionPerformanceTableProps>
     }, [trades]);
 
     return (
-        <div className={`rounded-[24px] overflow-hidden border h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={`rounded-none sm:rounded-[24px] overflow-hidden border-y sm:border h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>

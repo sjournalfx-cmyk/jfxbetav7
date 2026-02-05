@@ -105,9 +105,28 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
       const notesChannel = supabase
         .channel('notes_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') setNotes(prev => [{ ...payload.new, isPinned: (payload.new as any).is_pinned } as Note, ...prev]);
-          else if (payload.eventType === 'UPDATE') setNotes(prev => prev.map(n => n.id === payload.new.id ? { ...payload.new, isPinned: (payload.new as any).is_pinned } as Note : n));
-          else if (payload.eventType === 'DELETE') setNotes(prev => prev.filter(n => n.id !== (payload.old as any).id));
+          const mapNote = (dbNote: any): Note => ({
+            ...dbNote,
+            isPinned: dbNote.is_pinned,
+            isArchived: dbNote.is_archived,
+            isTrashed: dbNote.is_trashed,
+            isList: dbNote.is_list,
+            listItems: dbNote.list_items,
+            tableData: dbNote.table_data,
+            date: dbNote.date || dbNote.created_at
+          });
+
+          if (payload.eventType === 'INSERT') {
+            const newNote = mapNote(payload.new);
+            setNotes(prev => [newNote, ...prev]);
+          }
+          else if (payload.eventType === 'UPDATE') {
+            const updatedNote = mapNote(payload.new);
+            setNotes(prev => prev.map(n => n.id === payload.new.id ? updatedNote : n));
+          }
+          else if (payload.eventType === 'DELETE') {
+            setNotes(prev => prev.filter(n => n.id !== (payload.old as any).id));
+          }
         }).subscribe();
 
       const biasChannel = supabase

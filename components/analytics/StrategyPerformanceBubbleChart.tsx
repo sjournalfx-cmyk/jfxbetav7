@@ -35,7 +35,7 @@ export const StrategyPerformanceBubbleChart: React.FC<StrategyPerformanceBubbleC
 
     return (
         <div 
-            className={`p-8 rounded-[32px] border flex flex-col h-full min-h-[450px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
+            className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col h-full min-h-[450px] relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
         >
              <div className="flex items-center justify-between mb-8">
                  <div>

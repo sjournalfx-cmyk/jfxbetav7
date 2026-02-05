@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 /* Global Compact Scaling */
 :root {
   font-size: 14px; /* Scaled down from 16px to fit more on screen */
@@ -49,3 +51,145 @@ h2 { font-size: 1.5rem !important; line-height: 2rem !important; } /* text-2xl *
 /* Tailwind button scaling */
 button.px-8 { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
 button.py-4 { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
+
+/* Notebook Colors */
+:root {
+  --note-default-bg: #ffffff;
+  --note-default-border: #cbd5e1;
+  --note-red-bg: #fee2e2;
+  --note-red-border: #fca5a5;
+  --note-orange-bg: #ffedd5;
+  --note-orange-border: #fdba74;
+  --note-yellow-bg: #fef9c3;
+  --note-yellow-border: #fde047;
+  --note-green-bg: #dcfce7;
+  --note-green-border: #86efac;
+  --note-teal-bg: #ccfbf1;
+  --note-teal-border: #5eead4;
+  --note-blue-bg: #dbeafe;
+  --note-blue-border: #93c5fd;
+  --note-dark-blue-bg: #e0e7ff;
+  --note-dark-blue-border: #a5b4fc;
+  --note-purple-bg: #f3e8ff;
+  --note-purple-border: #d8b4fe;
+  --note-pink-bg: #fce7f3;
+  --note-pink-border: #f9a8d4;
+  --note-brown-bg: #f5ebe0;
+  --note-brown-border: #d5bdaf;
+  --note-gray-bg: #f1f5f9;
+  --note-gray-border: #cbd5e1;
+}
+
+.dark {
+  --note-default-bg: #0a0a0a;
+  --note-default-border: #27272a;
+  --note-red-bg: #421111;
+  --note-red-border: #7f1d1d;
+  --note-orange-bg: #431407;
+  --note-orange-border: #7c2d12;
+  --note-yellow-bg: #422006;
+  --note-yellow-border: #713f12;
+  --note-green-bg: #064e3b;
+  --note-green-border: #065f46;
+  --note-teal-bg: #134e4a;
+  --note-teal-border: #115e59;
+  --note-blue-bg: #0c4a6e;
+  --note-blue-border: #075985;
+  --note-dark-blue-bg: #1e3a8a;
+  --note-dark-blue-border: #1e40af;
+  --note-purple-bg: #4c1d95;
+  --note-purple-border: #5b21b6;
+  --note-pink-bg: #701a75;
+  --note-pink-border: #86198f;
+  --note-brown-bg: #451a03;
+  --note-brown-border: #78350f;
+  --note-gray-bg: #1e293b;
+  --note-gray-border: #27272a;
+}
+
+.theme-midnight {
+  --note-default-bg: #111827;
+  --note-default-border: #334155;
+  --note-red-bg: #450a0a;
+  --note-red-border: #7f1d1d;
+  --note-orange-bg: #431407;
+  --note-orange-border: #7c2d12;
+  --note-yellow-bg: #422006;
+  --note-yellow-border: #713f12;
+  --note-green-bg: #064e3b;
+  --note-green-border: #065f46;
+  --note-teal-bg: #134e4a;
+  --note-teal-border: #115e59;
+  --note-blue-bg: #0c4a6e;
+  --note-blue-border: #075985;
+  --note-dark-blue-bg: #1e3a8a;
+  --note-dark-blue-border: #1e40af;
+  --note-purple-bg: #4c1d95;
+  --note-purple-border: #5b21b6;
+  --note-pink-bg: #701a75;
+  --note-pink-border: #86198f;
+  --note-brown-bg: #451a03;
+  --note-brown-border: #78350f;
+  --note-gray-bg: #1e293b;
+  --note-gray-border: #334155;
+}
+
+.theme-cosmic {
+  --note-default-bg: #121214;
+  --note-default-border: #3f3f46;
+  --note-red-bg: #7f1d1d;
+  --note-red-border: #991b1b;
+  --note-orange-bg: #7c2d12;
+  --note-orange-border: #9a3412;
+  --note-yellow-bg: #713f12;
+  --note-yellow-border: #854d0e;
+  --note-green-bg: #064e3b;
+  --note-green-border: #065f46;
+  --note-teal-bg: #134e4a;
+  --note-teal-border: #115e59;
+  --note-blue-bg: #0c4a6e;
+  --note-blue-border: #075985;
+  --note-dark-blue-bg: #1e3a8a;
+  --note-dark-blue-border: #1e40af;
+  --note-purple-bg: #4c1d95;
+  --note-purple-border: #5b21b6;
+  --note-pink-bg: #701a75;
+  --note-pink-border: #86198f;
+  --note-brown-bg: #451a03;
+  --note-brown-border: #78350f;
+  --note-gray-bg: #18181b;
+  --note-gray-border: #3f3f46;
+}
+
+/* Notebook UI Variables */
+:root {
+  --notebook-text: #0f172a;
+  --notebook-muted: #64748b;
+  --notebook-placeholder: #94a3b8;
+  --notebook-hover: rgba(0, 0, 0, 0.08);
+  --notebook-divider: #cbd5e1;
+}
+
+.dark {
+  --notebook-text: #e8eaed;
+  --notebook-muted: #9aa0a6;
+  --notebook-placeholder: #5f6368;
+  --notebook-hover: rgba(255, 255, 255, 0.08);
+  --notebook-divider: #27272a;
+}
+
+.theme-midnight {
+  --notebook-text: #f1f5f9;
+  --notebook-muted: #94a3b8;
+  --notebook-placeholder: #475569;
+  --notebook-hover: rgba(255, 255, 255, 0.1);
+  --notebook-divider: #334155;
+}
+
+.theme-cosmic {
+  --notebook-text: #fafafa;
+  --notebook-muted: #a1a1aa;
+  --notebook-placeholder: #52525b;
+  --notebook-hover: rgba(255, 255, 255, 0.08);
+  --notebook-divider: #3f3f46;
+}

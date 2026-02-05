@@ -1,511 +1,400 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  X, Save, Plus, Search, Pin, ChevronLeft, Trash2, Clock, Hash, Tag,
-  Flag, ListChecks, Target, Link, Lock, ArrowRight, Maximize, Minimize
-} from 'lucide-react';
-import { Note, Goal, UserProfile } from '../types';
-import { uploadNoteImage } from '../services/dataService';
-import ConfirmationModal from './ConfirmationModal';
-import RichTextEditor, { ToolbarButton } from './RichTextEditor';
-import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
-import { getSASTDateTime } from '../lib/timeUtils';
+import React, { useState, useRef, useEffect } from 'react';
+import CreateArea from './notes/CreateArea';
+import NoteCard from './notes/NoteCard';
+import NoteEditor from './notes/NoteEditor';
+import Sidebar from './notes/Sidebar';
+import { Note as KeepNote, NoteColor, SidebarSection } from './notes/types';
+import { Note as AppNote, Goal, UserProfile } from '../types';
+import { Search, Menu, RefreshCw, Grid, Settings, Trash2, Archive, Lightbulb, ChevronLeft } from 'lucide-react';
 
 interface NotesProps {
   isDarkMode: boolean;
-  notes: Note[];
+  notes: AppNote[];
   goals: Goal[];
-  onAddNote: (note: Note) => Promise<Note>;
-  onUpdateNote: (note: Note) => Promise<void>;
+  onAddNote: (note: any) => Promise<any>;
+  onUpdateNote: (note: any) => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
+  onRestoreNote: (id: string) => Promise<void>;
   onUpdateGoal: (goal: Goal) => Promise<void>;
   userProfile?: UserProfile | null;
   onViewChange: (view: string) => void;
 }
 
-const COLORS = [
-  { id: 'gray', bg: 'bg-zinc-100', darkBg: 'bg-zinc-800', border: 'border-zinc-300' },
-  { id: 'blue', bg: 'bg-blue-50', darkBg: 'bg-blue-900/20', border: 'border-blue-500/30' },
-  { id: 'green', bg: 'bg-emerald-50', darkBg: 'bg-emerald-900/20', border: 'border-emerald-500/30' },
-  { id: 'purple', bg: 'bg-purple-50', darkBg: 'bg-purple-900/20', border: 'border-purple-200', darkBorder: 'border-purple-500/30' },
-  { id: 'rose', bg: 'bg-rose-50', darkBg: 'bg-rose-900/20', border: 'border-rose-500/30' },
-  { id: 'yellow', bg: 'bg-amber-50', darkBg: 'bg-amber-900/20', border: 'border-amber-500/30' },
-];
-
-const Notes: React.FC<NotesProps> = ({ isDarkMode, notes, goals, onAddNote, onUpdateNote, onDeleteNote, onUpdateGoal, userProfile, onViewChange }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+const Notes: React.FC<NotesProps> = ({ 
+  isDarkMode, 
+  notes: appNotes, 
+  onAddNote, 
+  onUpdateNote, 
+  onDeleteNote, 
+  onRestoreNote,
+  userProfile, 
+  onViewChange 
+}) => {
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [draggedNote, setDraggedNote] = useState<KeepNote | null>(null);
+  const [currentSection, setCurrentSection] = useState<SidebarSection>('NOTES');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isFullScreen, setIsFullScreen] = useState(false);
+  
+  // Canvas Size State
+  const [canvasWidth, setCanvasWidth] = useState(700);
+  const [canvasHeight, setCanvasHeight] = useState(0); 
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
 
-  // Editor State
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [selectedColor, setSelectedColor] = useState('gray');
-  const [saveStatus, setSaveStatus] = useState<'Saved' | 'Unsaved' | 'Saving'>('Saved');
-  const [showGoalLinker, setShowGoalLinker] = useState(false);
+  // Map AppNote to KeepNote
+  const notes: KeepNote[] = appNotes.map(n => ({
+    id: n.id,
+    title: n.title,
+    content: n.content,
+    isPinned: !!n.isPinned,
+    isArchived: (n as any).isArchived || false,
+    isTrashed: (n as any).isTrashed || false,
+    color: (n.color?.toUpperCase() as NoteColor) || NoteColor.DEFAULT,
+    labels: n.tags || [],
+    createdAt: new Date(n.date).getTime(),
+    updatedAt: new Date(n.date).getTime(),
+    isList: (n as any).isList || false,
+    listItems: (n as any).listItems || [],
+    image: (n as any).image,
+    tableData: (n as any).tableData,
+  }));
 
-  // Robust free tier check
-  const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
+  const selectedNote = notes.find(n => n.id === selectedNoteId) || null;
 
-  const [confirmModal, setConfirmModal] = useState<{
-    isOpen: boolean;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-    showCancel?: boolean;
-    confirmText?: string;
-  }>({
-    isOpen: false,
-    title: '',
-    description: '',
-    onConfirm: () => { }
+  const handleCreateNote = async (newNoteData: Omit<KeepNote, 'id' | 'createdAt' | 'updatedAt' | 'isArchived' | 'isTrashed' | 'labels'>) => {
+    const newNote: Partial<AppNote> = {
+      title: newNoteData.title,
+      content: newNoteData.content,
+      isPinned: newNoteData.isPinned,
+      color: newNoteData.color.toLowerCase() as any,
+      tags: [],
+      date: new Date().toISOString(),
+    };
+    
+    // Add extra fields for the new notebook
+    (newNote as any).isList = newNoteData.isList;
+    (newNote as any).listItems = newNoteData.listItems;
+    (newNote as any).image = newNoteData.image;
+    (newNote as any).tableData = newNoteData.tableData;
+
+    try {
+      const added = await onAddNote(newNote);
+      if (added) {
+        setSelectedNoteId(added.id);
+      }
+    } catch (e) {
+      console.error("Failed to create note", e);
+    }
+  };
+
+  const handleUpdateKeepNote = (updatedNote: KeepNote) => {
+    const update: Partial<AppNote> & { id: string } = {
+      id: updatedNote.id,
+      title: updatedNote.title,
+      content: updatedNote.content,
+      isPinned: updatedNote.isPinned,
+      color: updatedNote.color.toLowerCase() as any,
+      tags: updatedNote.labels,
+      date: new Date(updatedNote.updatedAt).toISOString(),
+    };
+    
+    // Add extra fields
+    (update as any).isArchived = updatedNote.isArchived;
+    (update as any).isTrashed = updatedNote.isTrashed;
+    (update as any).isList = updatedNote.isList;
+    (update as any).listItems = updatedNote.listItems;
+    (update as any).image = updatedNote.image;
+    (update as any).tableData = updatedNote.tableData;
+
+    onUpdateNote(update);
+  };
+
+  const handlePinNote = (e: React.MouseEvent, note: KeepNote) => {
+    e.stopPropagation();
+    handleUpdateKeepNote({ ...note, isPinned: !note.isPinned });
+  };
+
+  const handleArchiveNote = (e: React.MouseEvent, note: KeepNote) => {
+    e.stopPropagation();
+    const nextArchived = !note.isArchived;
+    handleUpdateKeepNote({ ...note, isArchived: nextArchived });
+    if (selectedNoteId === note.id) setSelectedNoteId(null);
+  };
+  
+  const handleDeleteNote = (id: string) => {
+      onDeleteNote(id);
+      if (selectedNoteId === id) setSelectedNoteId(null);
+  };
+
+  const handleRestoreNote = (e: React.MouseEvent, note: KeepNote) => {
+      e.stopPropagation();
+      onRestoreNote(note.id);
+  };
+
+  const handleDuplicateNote = (note: KeepNote) => {
+      const duplicate = {
+          ...note,
+          id: '', // Will be generated by DB
+          title: note.title + " (Copy)",
+          updatedAt: Date.now(),
+      };
+      handleCreateNote(duplicate);
+  };
+
+  const handleDropNote = (targetNote: KeepNote) => {
+    if (!draggedNote || draggedNote.id === targetNote.id) return;
+    // Reordering logic would go here if we had a position field in DB
+    setDraggedNote(null);
+  };
+
+  // Resize Handlers
+  const startResizing = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: canvasWidth,
+      startHeight: canvasHeight || 0,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !resizeRef.current) return;
+      const deltaX = e.clientX - resizeRef.current.startX;
+      const deltaY = e.clientY - resizeRef.current.startY;
+      const newWidth = Math.max(400, Math.min(2000, resizeRef.current.startWidth + deltaX));
+      const newHeight = Math.max(0, resizeRef.current.startHeight + deltaY);
+      setCanvasWidth(newWidth);
+      setCanvasHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeRef.current = null;
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  const filteredNotes = notes.filter(note => {
+    const matchesSearch = note.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          note.listItems?.some(item => item.text.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    if (currentSection === 'ARCHIVE') return note.isArchived && !note.isTrashed && matchesSearch;
+    if (currentSection === 'TRASH') return note.isTrashed && matchesSearch;
+    return !note.isArchived && !note.isTrashed && matchesSearch;
   });
 
-  // --- HELPERS ---
-  const loadNote = useCallback((note: Note) => {
-    setActiveNoteId(note.id);
-    setTitle(note.title);
-    setTags(note.tags || []);
-    setSelectedColor(note.color || 'gray');
-    setContent(note.content || '');
-    setSaveStatus('Saved');
-    if (window.innerWidth < 1024) setIsSidebarOpen(false);
-  }, []);
-
-  const clearEditor = useCallback(() => {
-    setActiveNoteId(null);
-    setTitle('');
-    setContent('');
-    setTags([]);
-    setSaveStatus('Saved');
-  }, []);
-
-  const createNewNote = async () => {
-    // Enforce Plan Limits
-    const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
-    const features = PLAN_FEATURES[currentPlan];
-
-    if (features.maxNotes !== Infinity && notes.length >= features.maxNotes) {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Notebook Limit Reached',
-        description: `Your current plan is limited to ${features.maxNotes} saved note(s). Please upgrade to create unlimited notes.`,
-        confirmText: 'Upgrade Now',
-        showCancel: true,
-        onConfirm: () => {
-          onViewChange('settings');
-          setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        }
-      });
-      return;
-    }
-
-    const newNote: Note = {
-      id: '',
-      title: '',
-      content: '',
-      tags: [],
-      color: 'gray',
-      date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime,
-      isPinned: false
-    };
-    try {
-      const addedNote = await onAddNote(newNote);
-      loadNote(addedNote);
-      setTimeout(() => document.getElementById('note-title-input')?.focus(), 100);
-    } catch (e) {
-      console.error("Failed to create note");
-    }
-  };
-
-  // --- INITIALIZATION ---
-  useEffect(() => {
-    if (isFullScreen) {
-      setIsSidebarOpen(false);
-    }
-  }, [isFullScreen]);
-
-  useEffect(() => {
-    const activeNoteExists = notes.some(n => n.id === activeNoteId);
-
-    if (notes.length > 0) {
-      if (!activeNoteId || !activeNoteExists) {
-        loadNote(notes[0]);
-      }
-    } else {
-      clearEditor();
-    }
-  }, [notes, activeNoteId, loadNote, clearEditor]);
-
-  // --- SAVING LOGIC ---
-  const handleSave = async () => {
-    if (!activeNoteId) return;
-    setSaveStatus('Saving');
-
-    try {
-      const noteToUpdate = notes.find(n => n.id === activeNoteId);
-      if (!noteToUpdate) {
-        setSaveStatus('Saved');
-        return;
-      }
-
-      const updated: Note = {
-        ...noteToUpdate,
-        title,
-        content,
-        tags,
-        color: selectedColor as any,
-        date: getSASTDateTime().date + 'T' + getSASTDateTime().fullTime
-      };
-
-      await onUpdateNote(updated);
-      setSaveStatus('Saved');
-    } catch (err) {
-      console.error("Failed to save note:", err);
-      setSaveStatus('Unsaved');
-    }
-  };
-
-  // Auto-save debouncer
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (activeNoteId && saveStatus === 'Unsaved') {
-        handleSave();
-      }
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [title, content, tags, selectedColor, saveStatus, activeNoteId]);
-
-  const handleTitleChange = (val: string) => {
-    setTitle(val);
-    setSaveStatus('Unsaved');
-  };
-
-  const handleContentChange = (val: string) => {
-    setContent(val);
-    setSaveStatus('Unsaved');
-  };
-
-  const handleTagKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tagInput.trim()) {
-      e.preventDefault();
-      if (!tags.includes(tagInput.trim())) {
-        setTags([...tags, tagInput.trim()]);
-        setSaveStatus('Unsaved');
-      }
-      setTagInput('');
-    }
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setTags(tags.filter(t => t !== tagToRemove));
-    setSaveStatus('Unsaved');
-  };
-
-  const handleDelete = async () => {
-    if (!activeNoteId) return;
-    setConfirmModal({
-      isOpen: true,
-      title: 'Delete Note',
-      description: 'Are you sure you want to delete this note? This action cannot be undone.',
-      onConfirm: async () => {
-        const idToDelete = activeNoteId;
-        clearEditor(); // Clear immediately for UX
-        await onDeleteNote(idToDelete);
-        setConfirmModal(prev => ({ ...prev, isOpen: false }));
-      }
-    });
-  };
-
-  const handleNoteUpload = (file: File) => {
-    const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
-    const features = PLAN_FEATURES[currentPlan];
-
-    if (!features.allowImageUploads) {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Image Uploads Locked',
-        description: 'Image uploads are not available on your current plan. Please upgrade to unlock this feature.',
-        confirmText: 'Upgrade Now',
-        showCancel: true,
-        onConfirm: () => {
-          onViewChange('settings');
-          setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        }
-      });
-      return Promise.resolve(null);
-    }
-    return uploadNoteImage(file);
-  };
-
-  const linkGoalMilestone = (goalId: string, milestoneId: string, mTitle: string) => {
-    const goal = goals.find(g => g.id === goalId);
-    const html = `
-      <div class="goal-milestone-block" data-goal-id="${goalId}" data-milestone-id="${milestoneId}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin: 16px 0; border-radius: 12px; border: 1px solid ${isDarkMode ? '#3f3f46' : '#e2e8f0'}; background: ${isDarkMode ? 'rgba(99, 102, 241, 0.05)' : '#f5f7ff'}; cursor: pointer;">
-        <div style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; display: flex; align-items: center; justify-content: center;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
-        </div>
-        <div style="display: flex; flex-direction: column;">
-          <span style="font-weight: 700;">${mTitle}</span>
-          <span style="font-size: 10px; opacity: 0.6;">Linked to: ${goal?.title}</span>
-        </div>
-      </div>
-    `;
-    setContent(content + html);
-    setShowGoalLinker(false);
-  };
-
-  const filteredNotes = notes.filter(n =>
-    n.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    n.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (n.tags || []).some(t => t.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const pinnedNotes = filteredNotes.filter(n => n.isPinned);
+  const otherNotes = filteredNotes.filter(n => !n.isPinned);
 
   return (
-    <div className={`w-full h-full flex overflow-hidden ${isFullScreen ? 'fixed inset-0 z-[100]' : ''} ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-[#F8FAFC] text-slate-900'}`}>
-      {/* Sidebar */}
-      <div className={`
-        ${isSidebarOpen && !isFullScreen ? 'w-80 translate-x-0 opacity-100' : 'w-0 -translate-x-full opacity-0 overflow-hidden'} 
-        shrink-0 border-r flex flex-col transition-all duration-300 ease-spring relative z-20
-        ${isDarkMode ? 'border-[#27272a] bg-[#0c0c0e]' : 'border-slate-200 bg-white'}
-      `}>
-        <div className="p-5 border-b shrink-0 space-y-4 border-dashed border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-base flex items-center gap-2"><Save size={18} className="text-indigo-500" /> My Notes</h2>
-            <button 
-              onClick={createNewNote} 
-              className={`p-2 rounded-lg transition-all shadow-lg active:scale-95 flex items-center gap-2 ${
-                PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes !== Infinity && notes.length >= PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes
-                ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed shadow-none border border-zinc-200' 
-                : 'bg-indigo-600 hover:bg-indigo-50 text-white shadow-indigo-500/20'
-              }`}
-            >
-              {PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes !== Infinity && notes.length >= PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes ? <Lock size={16} /> : <Plus size={18} />}
-            </button>
+    <div className={`flex flex-col h-full w-full font-sans overflow-hidden ${isResizing ? 'cursor-nwse-resize select-none' : ''}`} style={{ backgroundColor: 'var(--note-default-bg)', color: 'var(--notebook-text)' }}>
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-2 border-b h-16 shrink-0 z-20" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={isSidebarOpen}
+            className={`p-2 rounded-lg transition-colors hover:bg-[var(--notebook-hover)] text-[var(--notebook-muted)]`}
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setSelectedNoteId(null)}>
+            <div className="p-1.5 rounded-lg bg-indigo-600 text-white shadow-lg shadow-indigo-500/20">
+              <Lightbulb className="w-6 h-6" />
+            </div>
+            <span className="text-xl font-bold tracking-tight">Keep Notebook</span>
           </div>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
+        </div>
+
+        <div className="flex-1 max-w-[720px] mx-8">
+          <div className={`relative flex items-center rounded-xl transition-all group bg-[var(--notebook-hover)] focus-within:bg-[var(--note-default-bg)] focus-within:ring-1 focus-within:ring-[var(--notebook-divider)]`}>
+            <div className={`p-3 text-[var(--notebook-muted)] group-focus-within:text-indigo-500`}>
+              <Search className="w-5 h-5" />
+            </div>
             <input 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-              placeholder="Search..." 
-              className={`w-full pl-9 pr-10 py-2.5 rounded-xl text-sm border outline-none transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 focus:border-indigo-500'}`} 
+              id="notes-search-input"
+              name="search"
+              aria-label="Search your notes"
+              type="text" 
+              placeholder="Search your notes..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-transparent outline-none py-3 text-base placeholder:opacity-50"
+              style={{ color: 'var(--notebook-text)' }}
             />
-            {searchTerm && (
-              <button 
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded-md transition-colors"
-              >
-                <X size={12} className="opacity-50" />
-              </button>
-            )}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-          {filteredNotes.map(note => (
-            <div 
-              key={note.id} 
-              onClick={() => activeNoteId !== note.id && loadNote(note)} 
-              className={`group relative p-4 rounded-xl cursor-pointer transition-all border ${activeNoteId === note.id ? (isDarkMode ? 'bg-zinc-800/80 border-zinc-700 shadow-lg' : 'bg-white border-indigo-200 shadow-md shadow-indigo-100') : 'border-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}
-            >
-              <div className="flex justify-between items-start mb-1.5">
-                <h4 className={`font-bold text-sm truncate pr-4 ${!note.title ? 'opacity-40 italic' : ''}`}>{note.title || 'Untitled Note'}</h4>
-                {note.isPinned && <Pin size={12} className="text-indigo-500 shrink-0" fill="currentColor" />}
-              </div>
-              <p className="text-xs opacity-50 line-clamp-2 mb-3 font-medium leading-relaxed" dangerouslySetInnerHTML={{ __html: note.content.replace(/<[^>]*>/g, '') || 'No additional text' }} />
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {(note.tags || []).slice(0, 2).map(t => (
-                    <span key={t} className={`text-[9px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-zinc-900 border-zinc-700 text-zinc-400' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>#{t}</span>
-                  ))}
-                  {note.content.includes('goal-milestone-block') && <Flag size={10} className="text-indigo-500" fill="currentColor" />}
-                  {note.content.includes('ul data-type="taskList"') && <ListChecks size={10} className="text-emerald-500" />}
-                </div>
-                <span className="text-[10px] opacity-30 font-mono">{new Date(note.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-              </div>
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <HeaderIcon icon={<RefreshCw className="w-5 h-5" />} title="Refresh" isDarkMode={isDarkMode} />
+          <HeaderIcon icon={<Settings className="w-5 h-5" />} title="Settings" isDarkMode={isDarkMode} onClick={() => onViewChange('settings')} />
         </div>
+      </header>
 
-        {/* Upgrade CTA if limit reached */}
-        {PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes !== Infinity && notes.length >= PLAN_FEATURES[userProfile?.plan || APP_CONSTANTS.PLANS.FREE].maxNotes && (
-          <div className="p-4 mt-auto">
-            <button 
-              onClick={() => onViewChange('settings')}
-              className={`w-full p-4 rounded-2xl border border-dashed flex flex-col gap-2 text-left transition-all hover:border-indigo-500 group ${isDarkMode ? 'bg-indigo-500/5 border-zinc-800' : 'bg-indigo-50 border-indigo-200'}`}
-            >
-              <div className="flex items-center justify-between w-full">
-                <div className="p-1.5 rounded-lg bg-indigo-500 text-white shadow-lg shadow-indigo-500/20">
-                  <Lock size={14} />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 opacity-60">Plan Limit</span>
-              </div>
-              <div>
-                <h4 className="text-xs font-bold leading-tight">Unlock Unlimited Notes</h4>
-                <p className="text-[10px] opacity-50 mt-0.5">You've reached your plan's note limit. Upgrade to save more insights.</p>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-indigo-500 mt-1 group-hover:gap-2 transition-all">
-                Upgrade Now <ArrowRight size={12} />
-              </div>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Main Area */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        <header className={`h-16 shrink-0 flex items-center justify-between px-6 border-b z-10 ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-white border-slate-100'}`}>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition-colors ${isFullScreen ? 'hidden' : ''} ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'}`}><ChevronLeft size={20} className={`transition-transform duration-300 ${isSidebarOpen ? '' : 'rotate-180'}`} /></button>
-            <div className="flex items-center gap-1 px-3 py-1 bg-indigo-500/10 rounded-full border border-indigo-500/20">
-              <div className={`w-2 h-2 rounded-full ${saveStatus === 'Saved' ? 'bg-emerald-500' : saveStatus === 'Saving' ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`} />
-              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{saveStatus}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={handleDelete} 
-              disabled={!activeNoteId}
-              className={`p-2 rounded-lg transition-colors ${!activeNoteId ? 'opacity-20 cursor-not-allowed' : 'text-rose-500 hover:bg-rose-500/10'}`} 
-              title="Delete Note"
-            >
-              <Trash2 size={18} />
-            </button>
-            <button 
-              onClick={handleSave} 
-              disabled={saveStatus === 'Saved' || !activeNoteId} 
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all border ${
-                saveStatus === 'Unsaved' && activeNoteId
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20 hover:bg-indigo-500' 
-                  : isDarkMode ? 'bg-zinc-800/50 text-zinc-500 border-transparent cursor-default' : 'bg-slate-100 text-slate-400 border-transparent cursor-default'
-              }`}
-            >
-              {saveStatus === 'Saving' ? <Clock size={14} className="animate-spin" /> : <Save size={14} />}
-              <span>Save Changes</span>
-            </button>
-            <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-dashed border-zinc-200 dark:border-zinc-800">
-              {COLORS.map(c => (
-                <button 
-                  key={c.id} 
-                  disabled={!activeNoteId}
-                  onClick={() => { setSelectedColor(c.id); setSaveStatus('Unsaved'); }} 
-                  className={`w-3 h-3 rounded-full transition-transform hover:scale-125 ${!activeNoteId ? 'opacity-20 cursor-not-allowed' : ''} ${selectedColor === c.id ? `scale-125 ring-2 ring-offset-2 ${isDarkMode ? 'ring-white ring-offset-[#09090b]' : 'ring-black ring-offset-white'}` : ''} ${c.id === 'gray' ? 'bg-zinc-500' : `bg-${c.id}-500`}`} 
-                  style={{ backgroundColor: c.id === 'gray' ? '#71717a' : `var(--color-${c.id}-500)` }} 
-                />
-              ))}
-            </div>
-          </div>
-        </header>
-
-        <div className={`flex-1 overflow-y-auto custom-scrollbar relative`}>
-          {!activeNoteId ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
-              <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-6 border-2 border-dashed ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-700' : 'bg-white border-slate-200 text-slate-300'}`}>
-                <Save size={32} />
-              </div>
-              <h3 className="text-xl font-black mb-2 uppercase tracking-tight">No Note Selected</h3>
-              <p className="text-sm opacity-50 max-w-xs leading-relaxed">Select an existing note from the sidebar or create a new one to start writing.</p>
-              <button 
-                onClick={createNewNote}
-                className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-xl shadow-indigo-500/20 hover:bg-indigo-500 active:scale-95 transition-all flex items-center gap-2"
-              >
-                <Plus size={18} /> Create New Note
-              </button>
-            </div>
-          ) : (
-            <div key={activeNoteId} className={`mx-auto py-12 min-h-full flex flex-col ${isFullScreen ? 'w-full max-w-full px-12' : 'max-w-7xl px-8'}`}>
-              <input 
-                id="note-title-input" 
-                value={title} 
-                onChange={(e) => handleTitleChange(e.target.value)} 
-                placeholder="Note Title" 
-                autoComplete="off"
-                name="jfx-note-title"
-                className={`w-full text-4xl font-black bg-transparent outline-none mb-6 placeholder:opacity-20 ${isDarkMode ? 'text-zinc-100' : 'text-slate-900'}`} 
-              />
-
-              <div className="flex flex-wrap items-center gap-2 mb-8">
-                {tags.map(tag => (
-                  <span key={tag} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
-                    <Hash size={10} className="opacity-50" /> {tag}
-                    <button onClick={() => removeTag(tag)} className="ml-1 hover:text-rose-500"><X size={10} /></button>
-                  </span>
-                ))}
-                <div className="relative group">
-                  <Tag size={14} className={`absolute left-2 top-1/2 -translate-y-1/2 transition-colors ${isDarkMode ? 'text-zinc-600 group-focus-within:text-indigo-500' : 'text-slate-400 group-focus-within:text-indigo-500'}`} />
-                  <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} placeholder="Add tag..." className={`pl-8 pr-3 py-1.5 rounded-full text-xs font-medium outline-none border border-transparent transition-all w-32 focus:w-48 ${isDarkMode ? 'bg-zinc-900 focus:bg-zinc-800 focus:border-zinc-700 placeholder-zinc-600' : 'bg-white focus:bg-slate-50 focus:border-slate-200 placeholder-slate-400'}`} />
-                </div>
-              </div>
-
-              <div className="flex-1 relative min-h-[400px] flex flex-col">
-                <RichTextEditor
-                  content={content}
-                  onChange={handleContentChange}
-                  isDarkMode={isDarkMode}
-                  placeholder="Start writing your masterpiece..."
-                  minHeight="500px"
-                  showToolbar={true}
-                  onImageUpload={handleNoteUpload}
-                  customToolbarItems={
-                    <>
-                      <div className="relative">
-                        <ToolbarButton
-                          onClick={() => setShowGoalLinker(!showGoalLinker)}
-                          isActive={showGoalLinker}
-                          icon={Link}
-                          title="Link to Goal"
-                        />
-                        {showGoalLinker && (
-                          <div className={`absolute top-full left-0 mt-2 w-64 p-3 rounded-xl border shadow-2xl z-50 ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-slate-200'}`}>
-                            <h4 className="text-xs font-bold mb-3 opacity-50 uppercase tracking-wider">Link Goal Milestone</h4>
-                            <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-3">
-                              {goals.length === 0 && <p className="text-xs opacity-50 italic">No goals found...</p>}
-                              {goals.map(goal => (
-                                <div key={goal.id} className="space-y-1">
-                                  <div className="flex items-center gap-2 text-[10px] font-black opacity-40 px-1"><Target size={10} /> {goal.title}</div>
-                                  {goal.milestones.map(m => (
-                                    <button key={m.id} onClick={() => linkGoalMilestone(goal.id, m.id, m.title)} className={`w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-slate-50 text-slate-700'}`}>
-                                      {m.title}
-                                    </button>
-                                  ))}
-                                </div>
-                              ))}
+      {/* Main Content Area */}
+      <div className="flex flex-1 overflow-hidden relative">
+        <Sidebar 
+            activeSection={currentSection} 
+            onSectionChange={setCurrentSection} 
+            isOpen={isSidebarOpen} 
+        />
+        
+        <div className={`flex flex-1 overflow-hidden transition-all duration-300`}>
+            {/* Left Side: Scrollable Notes List */}
+            <aside className="w-[380px] flex flex-col border-r shrink-0 overflow-y-auto custom-scrollbar transition-all duration-300" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
+                <div className="p-4 space-y-4">
+                    {pinnedNotes.length > 0 && (
+                        <div className="mb-8">
+                            <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Pinned</h2>
+                            <div className="flex flex-col gap-3">
+                                {pinnedNotes.map(note => (
+                                    <NoteCard 
+                                        key={note.id} 
+                                        note={note} 
+                                        isDragging={draggedNote?.id === note.id}
+                                        onClick={(n) => setSelectedNoteId(n.id)}
+                                        onPin={handlePinNote}
+                                        onArchive={handleArchiveNote}
+                                        onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
+                                        onRestore={handleRestoreNote}
+                                        onUpdate={handleUpdateKeepNote}
+                                        onDragStart={setDraggedNote}
+                                        onDragEnd={() => setDraggedNote(null)}
+                                        onDrop={handleDropNote}
+                                    />
+                                ))}
                             </div>
-                          </div>
-                        )}
-                      </div>
-                      <ToolbarButton
-                        onClick={() => setIsFullScreen(!isFullScreen)}
-                        icon={isFullScreen ? Minimize : Maximize}
-                        title={isFullScreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                        </div>
+                    )}
+
+                    {(pinnedNotes.length > 0 || otherNotes.length > 0) ? (
+                        <div>
+                            {pinnedNotes.length > 0 && otherNotes.length > 0 && (
+                                <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Others</h2>
+                            )}
+                            <div className="flex flex-col gap-3">
+                                {otherNotes.map(note => (
+                                    <NoteCard 
+                                        key={note.id} 
+                                        note={note} 
+                                        isDragging={draggedNote?.id === note.id}
+                                        onClick={(n) => setSelectedNoteId(n.id)}
+                                        onPin={handlePinNote}
+                                        onArchive={handleArchiveNote}
+                                        onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
+                                        onRestore={handleRestoreNote}
+                                        onUpdate={handleUpdateKeepNote}
+                                        onDragStart={setDraggedNote}
+                                        onDragEnd={() => setDraggedNote(null)}
+                                        onDrop={handleDropNote}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-20 opacity-20">
+                            <Lightbulb className="w-16 h-16 mb-4" />
+                            <p className="text-sm font-bold uppercase tracking-wider">No notes found</p>
+                        </div>
+                    )}
+                </div>
+            </aside>
+
+            {/* Right Side: Workspace Canvas */}
+            <main className={`flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center py-12 px-8 relative bg-[var(--note-default-bg)]`}>
+              
+              <div 
+                className={`relative transition-all duration-300 ${isResizing ? 'ring-2 ring-indigo-500/50' : ''}`}
+                style={{ 
+                  width: `${canvasWidth}px`, 
+                  height: canvasHeight > 0 ? `${canvasHeight}px` : 'auto',
+                  minWidth: '400px'
+                }}
+              >
+                {selectedNote ? (
+                  <div className="w-full flex justify-center animate-in fade-in slide-in-from-bottom-4 duration-500 ease-spring">
+                                        <NoteEditor 
+                                            note={selectedNote} 
+                                            onClose={() => setSelectedNoteId(null)}
+                                            onUpdate={handleUpdateKeepNote}
+                                            onDelete={handleDeleteNote}
+                                            onRestore={onRestoreNote}
+                                            onDuplicate={handleDuplicateNote}
+                                            canvasWidth={canvasWidth}
+                                            setCanvasWidth={setCanvasWidth}
+                                        />                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <div className="w-full mb-20">
+                      <CreateArea 
+                        onCreate={handleCreateNote} 
+                        canvasWidth={canvasWidth}
+                        setCanvasWidth={setCanvasWidth}
                       />
-                    </>
-                  }
-                />
+                    </div>
+
+                    <div className={`w-full flex flex-col items-center text-center opacity-10 select-none pointer-events-none mt-12 text-[var(--notebook-text)]`}>
+                            <div className="mb-6">
+                               <Lightbulb className="w-32 h-32 mx-auto stroke-1" />
+                            </div>
+                            <h3 className="text-3xl font-black uppercase tracking-tight">Your Ideas Await</h3>
+                            <p className="mt-2 text-lg font-medium">Select a note from the list to refine your thoughts</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Canvas Resize Handle */}
+                <div 
+                  onMouseDown={startResizing}
+                  className={`absolute bottom-0 right-0 w-10 h-10 flex items-center justify-center cursor-nwse-resize z-50 group pointer-events-auto
+                    ${isResizing ? 'text-indigo-500' : 'text-zinc-500 opacity-0 group-hover:opacity-100'} 
+                    hover:opacity-100 transition-all`}
+                  title="Resize canvas"
+                >
+                  <svg 
+                    className="w-6 h-6 rotate-45 transform" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="3" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                  >
+                    <line x1="16" y1="21" x2="21" y2="16" />
+                    <line x1="11" y1="21" x2="21" y2="11" />
+                  </svg>
+                </div>
               </div>
-            </div>
-          )}
+            </main>
         </div>
       </div>
-
-      {/* Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={confirmModal.isOpen}
-        title={confirmModal.title}
-        description={confirmModal.description}
-        onConfirm={confirmModal.onConfirm}
-        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
-        isDarkMode={isDarkMode}
-        confirmText={confirmModal.confirmText || "Delete"}
-        variant="danger"
-        showCancel={confirmModal.showCancel}
-      />
     </div>
   );
 };
+
+const HeaderIcon = ({ icon, title, isDarkMode, onClick }: { icon: React.ReactNode, title: string, isDarkMode: boolean, onClick?: () => void }) => (
+    <button 
+      onClick={onClick}
+      className={`p-2.5 rounded-xl transition-all active:scale-95 hover:bg-[var(--notebook-hover)] text-[var(--notebook-muted)] hover:text-[var(--notebook-text)]`} 
+      title={title}
+    >
+        {icon}
+    </button>
+);
 
 export default Notes;

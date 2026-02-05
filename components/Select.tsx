@@ -19,8 +19,8 @@ interface SelectProps {
   disabled?: boolean;
 }
 
-const Label = ({ children, className = "" }: { children?: React.ReactNode, className?: string }) => (
-  <label className={`block text-[11px] font-bold uppercase tracking-widest mb-2 opacity-60 ${className}`}>
+const Label = ({ children, className = "", id }: { children?: React.ReactNode, className?: string, id?: string }) => (
+  <label id={id} className={`block text-[11px] font-bold uppercase tracking-widest mb-2 opacity-60 ${className}`}>
     {children}
   </label>
 );
@@ -39,6 +39,7 @@ export const Select: React.FC<SelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const labelId = useRef(`select-label-${Math.random().toString(36).substring(2, 9)}`);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -55,11 +56,12 @@ export const Select: React.FC<SelectProps> = ({
 
   return (
     <div className={`relative group ${className} ${disabled ? 'pointer-events-none opacity-50' : ''}`} ref={containerRef}>
-      {label && <Label>{label}</Label>}
+      {label && <Label id={labelId.current}>{label}</Label>}
       
       <button
         type="button"
         disabled={disabled}
+        aria-labelledby={label ? labelId.current : undefined}
         onClick={() => !disabled && setIsOpen(!isOpen)}
         className={`w-full text-left ${Icon ? 'pl-11' : 'pl-4'} pr-10 py-3.5 rounded-lg border outline-none font-medium transition-all text-sm flex items-center justify-between relative
           ${isOpen ? 'ring-2 ring-violet-500/20 border-violet-500' : ''}

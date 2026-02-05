@@ -10,11 +10,33 @@ interface EquityCurveWidgetProps {
     currencySymbol: string;
     currentBalanceOverride?: number;
     onInfoClick?: () => void;
+    isLoading?: boolean;
 }
 
-export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [], equityData = [], isDarkMode, currencySymbol = '$', currentBalanceOverride, onInfoClick }) => {
+export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [], equityData = [], isDarkMode, currencySymbol = '$', currentBalanceOverride, onInfoClick, isLoading = false }) => {
     const [hoverIndex, setHoverIndex] = useState<number | null>(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+    if (isLoading) {
+        return (
+            <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col min-h-[350px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+                <div className="flex justify-between items-start mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-zinc-500/10 animate-pulse" />
+                        <div className="space-y-2">
+                            <div className="w-24 h-4 bg-zinc-500/10 rounded animate-pulse" />
+                            <div className="w-32 h-2 bg-zinc-500/10 rounded animate-pulse" />
+                        </div>
+                    </div>
+                </div>
+                <div className="flex-1 flex items-end gap-1 px-4">
+                    {[...Array(20)].map((_, i) => (
+                        <div key={i} className="flex-1 bg-zinc-500/5 rounded-t animate-pulse" style={{ height: `${20 + Math.random() * 60}%` }} />
+                    ))}
+                </div>
+            </div>
+        );
+    }
 
     const generatePath = (data: number[], width: number, height: number) => {
         if (!data || data.length < 2) return "";
@@ -48,7 +70,7 @@ export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [
     const hoverY = hoverIndex !== null ? 240 - ((equityData[hoverIndex] - min) / range) * 240 : 0;
 
     return (
-        <div className={`p-8 rounded-[32px] border flex flex-col min-h-[350px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
+        <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col min-h-[350px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
             <div className="flex justify-between items-start mb-6 relative">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500"><TrendingUp size={20} /></div>
@@ -95,7 +117,17 @@ export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [
                         )}
                     </svg>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center opacity-20 text-center gap-4"><Activity size={48} strokeWidth={1} /><p className="text-sm font-medium">Insufficient trade data to generate curve</p></div>
+                    <div className="h-full flex flex-col items-center justify-center text-center p-6 gap-4">
+                        <div className="w-16 h-16 rounded-2xl bg-indigo-500/5 flex items-center justify-center text-indigo-500/20">
+                            <Activity size={48} strokeWidth={1} />
+                        </div>
+                        <div className="space-y-1">
+                            <p className="text-sm font-black uppercase tracking-widest opacity-40">Insufficient Data</p>
+                            <p className="text-[10px] font-medium opacity-30 max-w-[200px] leading-relaxed">
+                                Start journaling your trades to visualize your account growth and equity curve here.
+                            </p>
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

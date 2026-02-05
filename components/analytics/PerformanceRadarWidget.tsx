@@ -64,7 +64,7 @@ export const PerformanceRadarWidget: React.FC<PerformanceRadarWidgetProps> = ({ 
     return (
         <div 
             onMouseMove={handleMouseMove}
-            className={`p-8 rounded-[32px] border flex flex-col items-center min-h-[400px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
+            className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col items-center min-h-[400px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}
         >
             <div className="text-center mb-8">
                 <div className="flex items-center gap-2 justify-center">

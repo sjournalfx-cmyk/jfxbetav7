@@ -37,12 +37,16 @@ const OpenPositions: React.FC<OpenPositionsProps> = ({ positions, isDarkMode, cu
 
     if (!positions || positions.length === 0) {
         return (
-            <div className={`h-full flex flex-col items-center justify-center p-8 text-center rounded-2xl border-2 border-dashed ${isDarkMode ? 'border-zinc-800 bg-zinc-900/20' : 'border-zinc-200 bg-zinc-50/50'}`}>
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${isDarkMode ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-400'}`}>
-                    <Activity size={24} />
+            <div className={`h-full flex flex-col items-center justify-center p-8 text-center rounded-[32px] border-2 border-dashed transition-all ${isDarkMode ? 'border-zinc-800 bg-zinc-900/20' : 'border-zinc-200 bg-zinc-50/50'}`}>
+                <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 animate-pulse ${isDarkMode ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-100 text-zinc-400'}`}>
+                    <Activity size={32} strokeWidth={1.5} />
                 </div>
-                <h3 className={`font-bold mb-1 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>No Active Positions</h3>
-                <p className={`text-xs ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>Real-time trades from MT4/MT5 will appear here.</p>
+                <div className="space-y-2">
+                    <h3 className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`}>No Active Positions</h3>
+                    <p className={`text-[10px] font-medium leading-relaxed max-w-[200px] mx-auto ${isDarkMode ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                        Connect your broker via the Desktop Bridge to monitor your live trades in real-time.
+                    </p>
+                </div>
             </div>
         );
     }

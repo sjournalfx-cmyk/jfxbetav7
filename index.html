@@ -5,39 +5,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>JFX Journal</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
-  <script>
-    tailwind.config = {
-      darkMode: 'class', // Manual dark mode toggling
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-          colors: {
-            border: "hsl(var(--border))",
-            background: "hsl(var(--background))",
-            foreground: "hsl(var(--foreground))",
-            obsidian: '#050505',
-            zinc: {
-              850: '#1f1f22',
-              950: '#0c0c0e',
-            }
-          },
-          gridTemplateColumns: {
-            '15': 'repeat(15, minmax(0, 1fr))',
-            '20': 'repeat(20, minmax(0, 1fr))',
-            '24': 'repeat(24, minmax(0, 1fr))',
-            '30': 'repeat(30, minmax(0, 1fr))',
-          }
-        },
-      },
-    }
-  </script>
   <style>
     :root {
       --glass-bg: rgba(20, 20, 22, 0.7);

@@ -384,6 +384,9 @@ const ChartGrid: React.FC<ChartGridProps> = ({ isDarkMode, isFocusMode = false, 
                             <div className={`flex items-center px-3 py-1.5 rounded-lg border transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-slate-50 border-slate-200'}`}>
                                 <Search size={14} className="opacity-50 mr-2" />
                                 <input
+                                    id="chart-symbol-input"
+                                    name="symbol"
+                                    aria-label="Enter trading symbol"
                                     value={symbolInput}
                                     onChange={(e) => setSymbolInput(e.target.value.toUpperCase())}
                                     onKeyDown={(e) => e.key === 'Enter' && handleSymbolChange(symbolInput)}
@@ -476,15 +479,44 @@ const ChartGrid: React.FC<ChartGridProps> = ({ isDarkMode, isFocusMode = false, 
                                         </div>
                                         {layoutSettings.isScrollable && (
                                             <div className="mb-4">
-                                                <div className="flex justify-between text-xs font-bold mb-1.5"><span className="opacity-50">Chart Height</span><span>{layoutSettings.minHeight}px</span></div>
-                                                <input type="range" min="300" max="1000" step="50" value={layoutSettings.minHeight} onChange={(e) => setLayoutSettings({ ...layoutSettings, minHeight: parseInt(e.target.value) })} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                                                <div className="flex justify-between text-xs font-bold mb-1.5">
+                                                    <label htmlFor="chart-height-range" className="opacity-50">Chart Height</label>
+                                                    <span>{layoutSettings.minHeight}px</span>
+                                                </div>
+                                                <input 
+                                                    id="chart-height-range"
+                                                    name="chart-height"
+                                                    type="range" 
+                                                    min="300" 
+                                                    max="1000" 
+                                                    step="50" 
+                                                    value={layoutSettings.minHeight} 
+                                                    onChange={(e) => setLayoutSettings({ ...layoutSettings, minHeight: parseInt(e.target.value) })} 
+                                                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
+                                                />
                                             </div>
                                         )}
                                         {layout !== 'single' && layout !== 'quad' && (
                                             <div className="mb-4">
                                                 <h4 className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 pt-3 border-t border-dashed border-gray-500/20">Split Ratio</h4>
-                                                <div className="flex justify-between text-xs font-bold mb-1.5"><span className="flex items-center gap-1 opacity-50">{layout === 'split-v' ? <ArrowLeftRight size={12} /> : <ArrowUpDown size={12} />}{layout === 'split-v' ? 'Width' : 'Height'}</span><span>{layoutSettings.splitRatio}%</span></div>
-                                                <input type="range" min="20" max="80" step="5" value={layoutSettings.splitRatio} onChange={(e) => setLayoutSettings({ ...layoutSettings, splitRatio: parseInt(e.target.value) })} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500" />
+                                                <div className="flex justify-between text-xs font-bold mb-1.5">
+                                                    <label htmlFor="split-ratio-range" className="flex items-center gap-1 opacity-50">
+                                                        {layout === 'split-v' ? <ArrowLeftRight size={12} /> : <ArrowUpDown size={12} />}
+                                                        {layout === 'split-v' ? 'Width' : 'Height'}
+                                                    </label>
+                                                    <span>{layoutSettings.splitRatio}%</span>
+                                                </div>
+                                                <input 
+                                                    id="split-ratio-range"
+                                                    name="split-ratio"
+                                                    type="range" 
+                                                    min="20" 
+                                                    max="80" 
+                                                    step="5" 
+                                                    value={layoutSettings.splitRatio} 
+                                                    onChange={(e) => setLayoutSettings({ ...layoutSettings, splitRatio: parseInt(e.target.value) })} 
+                                                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
+                                                />
                                             </div>
                                         )}
 

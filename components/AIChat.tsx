@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Trade, UserProfile, Goal, DailyBias } from '../types';
 import { geminiService } from '../services/geminiService';
 import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
@@ -13,9 +13,12 @@ import { StrategyPerformanceBubbleChart } from './analytics/StrategyPerformanceB
 import { SymbolPerformanceWidget } from './analytics/SymbolPerformanceWidget';
 import TradingViewWidget from './TradingViewWidget';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { TrendingUp, PieChart, Brain, Clock, Wand2, Send, Bot, User, Trash2, Coins, ChevronDown, List, Settings as SettingsIcon, X, History, Plus } from 'lucide-react';
+import { TrendingUp, PieChart, Brain, Clock, Wand2, Send, Bot, User, Trash2, Coins, ChevronDown, List, Settings as SettingsIcon, X, History, Plus, ChevronRight, Workflow, CheckCircle2, StickyNote, Download, FileText, Activity } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import mermaid from 'mermaid';
+import { ChecklistWidget, MermaidWidget } from './ai/AIWidgets';
+import { AISettingsDrawer } from './ai/AISettingsDrawer';
 
 interface Message {
   id: string;
@@ -25,6 +28,8 @@ interface Message {
   widgetKeys?: string[];
   chartSymbols?: Record<string, string>;
   sections?: Record<string, string>;
+  mermaidData?: Record<string, { type: string, code: string }>;
+  checklistData?: Record<string, { title: string, items: { text: string, checked: boolean }[] }>;
 }
 
 interface AIChatProps {
@@ -33,18 +38,26 @@ interface AIChatProps {
   userProfile: UserProfile | null;
   goals?: Goal[];
   dailyBias?: DailyBias[];
+  onAddNote?: (note: any) => Promise<any>;
 }
 
-const AIChat: React.FC<AIChatProps> = ({ 
-  isDarkMode, 
-  trades, 
-  userProfile, 
-  goals = [], 
-  dailyBias = [] 
+const AIChat: React.FC<AIChatProps> = ({
+  isDarkMode,
+  trades,
+  userProfile,
+  goals = [],
+  dailyBias = [],
+  onAddNote
 }) => {
   const [persistedMessages, setPersistedMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history', []);
   const [selectedModel, setSelectedModel] = useLocalStorage<string>('jfx_ai_selected_model', 'gemini-1.5-flash');
-  
+  const [communicationStyle, setCommunicationStyle] = useLocalStorage<string>('jfx_ai_communication_style', 'Professional');
+  const [autoRevealCharts, setAutoRevealCharts] = useLocalStorage<boolean>('jfx_ai_auto_reveal', false);
+  const [recallMemory, setRecallMemory] = useLocalStorage<boolean>('jfx_ai_recall_memory', true);
+  const [isPlanMode, setIsPlanMode] = useState(false);
+  const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const [messages, setMessages] = useState<Message[]>(() => {
     if (persistedMessages.length > 0) {
       return persistedMessages.map(m => ({
@@ -80,6 +93,7 @@ const AIChat: React.FC<AIChatProps> = ({
   const [mentionFilter, setMentionMenuFilter] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
   const [expandedWidgets, setExpandedWidgets] = useState<Record<string, boolean>>({});
+  const [isListening, setIsListening] = useState(false);
 
   const availableMentions = useMemo(() => {
     const widgets = [
@@ -108,7 +122,7 @@ const AIChat: React.FC<AIChatProps> = ({
 
   const renderWithMentions = (content: React.ReactNode): React.ReactNode => {
     if (typeof content !== 'string') return content;
-    
+
     const parts = content.split(/(@[a-zA-Z0-9_/.:-]+)/g);
     return parts.map((part, i) => {
       if (part.startsWith('@')) {
@@ -124,8 +138,8 @@ const AIChat: React.FC<AIChatProps> = ({
 
   const filteredMentions = useMemo(() => {
     if (!mentionFilter) return [];
-    return availableMentions.filter(m => 
-      m.label.toLowerCase().includes(mentionFilter.toLowerCase()) || 
+    return availableMentions.filter(m =>
+      m.label.toLowerCase().includes(mentionFilter.toLowerCase()) ||
       m.value.toLowerCase().includes(mentionFilter.toLowerCase())
     );
   }, [availableMentions, mentionFilter]);
@@ -167,7 +181,103 @@ const AIChat: React.FC<AIChatProps> = ({
     'table': 'Recent Trade History',
     'chart': 'Live Market Chart',
     'strategy': 'Strategy Efficiency',
-    'symbol': 'Symbol Performance'
+    'symbol': 'Symbol Performance',
+    'mermaid': 'Strategic Diagram',
+    'checklist': 'Interactive Plan Checklist'
+  };
+
+  const handleSaveToNotebook = async (title: string, content: string) => {
+    if (!onAddNote) return;
+    try {
+      // For Mermaid diagrams, we wrap them in a special div that our notebook will recognize
+      const formattedContent = content.startsWith('```mermaid')
+        ? `<div class="mermaid-diagram-note">${content}</div>`
+        : content;
+
+      await onAddNote({
+        title: title,
+        content: formattedContent,
+        category: 'Strategy',
+        tags: ['AI Generated', 'Plan Mode'],
+        id: '',
+        date: new Date().toISOString(),
+        isPinned: false,
+        color: 'gray'
+      });
+    } catch (error) {
+      console.error("Failed to save note:", error);
+    }
+  };
+
+  const handleExportStrategy = () => {
+    // Collect all strategy artifacts from the chat
+    let exportContent = `# Trading Strategy: ${userProfile?.name || 'Trader'}'s Plan\n`;
+    exportContent += `Exported on: ${new Date().toLocaleString()}\n\n`;
+
+    messages.forEach(msg => {
+      if (msg.role === 'assistant') {
+        // Add text content
+        if (msg.content && !msg.content.includes('Hello')) {
+          exportContent += `${msg.content}\n\n`;
+        }
+
+        // Add Checklists
+        if (msg.checklistData) {
+          Object.values(msg.checklistData).forEach(checklist => {
+            exportContent += `## ${checklist.title}\n`;
+            checklist.items.forEach(item => {
+              exportContent += `- [${item.checked ? 'x' : ' '}] ${item.text}\n`;
+            });
+            exportContent += `\n`;
+          });
+        }
+
+        // Add Mermaid Diagrams
+        if (msg.mermaidData) {
+          Object.values(msg.mermaidData).forEach(diagram => {
+            exportContent += `### ${diagram.type} Diagram\n`;
+            exportContent += `\`\`\`mermaid\n${diagram.code}\n\`\`\`\n\n`;
+          });
+        }
+      }
+    });
+
+    // Create a blob and download it
+    const blob = new Blob([exportContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `JFX-Strategy-Plan-${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFixMermaid = async (type: string, code: string) => {
+    const fixPrompt = `The Mermaid ${type} diagram you generated has a syntax error. Please fix the following code and return ONLY the corrected [WIDGET:MERMAID:${type}]CODE[/WIDGET:MERMAID] block:
+
+\`\`\`mermaid
+${code}
+\`\`\``;
+
+    // Directly send the fix request instead of using setTimeout
+    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: fixPrompt, timestamp: new Date() };
+    setMessages(prev => [...prev, userMessage]);
+    setIsTyping(true);
+    setErrorMessage(null);
+
+    try {
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      const fullResponse = await geminiService.generateResponse(fixPrompt, trades, userProfile, goals, dailyBias, false, history, selectedModel, isPlanMode, communicationStyle);
+      const aiMessageId = (Date.now() + 1).toString();
+      processResponse(fullResponse, aiMessageId);
+    } catch (error) {
+      console.error("Fix Mermaid Error:", error);
+      setErrorMessage("Failed to fix the diagram. Please try again.");
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const renderWidget = (key: string, messageId: string, message: Message) => {
@@ -186,37 +296,61 @@ const AIChat: React.FC<AIChatProps> = ({
               equityData.push(cumulative);
             });
           return (
-            <div className="p-2 sm:p-4 w-full h-full">
+            <div className="p-0 sm:p-2 w-full h-full">
               <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={currencySymbol} />
             </div>
           );
         }
         case 'winrate':
-          return <div className="p-2 sm:p-4 w-full h-full"><OutcomeDistributionWidget trades={trades} isDarkMode={isDarkMode} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><OutcomeDistributionWidget trades={trades} isDarkMode={isDarkMode} /></div>;
         case 'pair':
-          return <div className="p-2 sm:p-4 w-full h-full"><PerformanceByPairWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceByPairWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'mindset':
-          return <div className="p-2 sm:p-4 w-full h-full"><PerformanceRadarWidget trades={trades} isDarkMode={isDarkMode} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceRadarWidget trades={trades} isDarkMode={isDarkMode} /></div>;
         case 'sessions':
-          return <div className="p-2 sm:p-4 w-full h-full"><PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'drawdown':
-          return <div className="p-2 sm:p-4 w-full h-full"><DrawdownOverTimeWidget trades={trades} isDarkMode={isDarkMode} userProfile={userProfile!} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><DrawdownOverTimeWidget trades={trades} isDarkMode={isDarkMode} userProfile={userProfile!} /></div>;
         case 'table':
-          return <div className="p-2 sm:p-4 w-full h-full overflow-x-auto"><ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} initialBalance={userProfile?.initialBalance || 0} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full overflow-x-auto"><ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} initialBalance={userProfile?.initialBalance || 0} /></div>;
         case 'strategy':
-          return <div className="p-2 sm:p-4 w-full h-full"><StrategyPerformanceBubbleChart trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><StrategyPerformanceBubbleChart trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'symbol':
-          return <div className="p-2 sm:p-4 w-full h-full"><SymbolPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+          return <div className="p-0 sm:p-2 w-full h-full"><SymbolPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'chart': {
           const symbol = message.chartSymbols?.[`${messageId}-chart`] || "FX:EURUSD";
           return (
-            <div className="p-2 sm:p-4 w-full h-[300px] sm:h-[450px]">
-              <TradingViewWidget 
-                symbol={symbol} 
-                theme={isDarkMode ? 'dark' : 'light'} 
+            <div className="p-0 sm:p-2 w-full h-[300px] sm:h-[450px]">
+              <TradingViewWidget
+                symbol={symbol}
+                theme={isDarkMode ? 'dark' : 'light'}
                 chartId={`${messageId}-chart`}
                 showToolbar={false}
               />
+            </div>
+          );
+        }
+        case 'mermaid': {
+          const mData = message.mermaidData?.[`${messageId}-mermaid`];
+          if (!mData) return null;
+          return (
+            <div className="p-0 sm:p-2 w-full h-full">
+              <MermaidWidget
+                code={mData.code}
+                type={mData.type}
+                isDarkMode={isDarkMode}
+                onSave={() => handleSaveToNotebook(`Strategy Map: ${mData.type}`, `\`\`\`mermaid\n${mData.code}\n\`\`\``)}
+                onFix={() => handleFixMermaid(mData.type, mData.code)}
+              />
+            </div>
+          );
+        }
+        case 'checklist': {
+          const cData = message.checklistData?.[`${messageId}-checklist`];
+          if (!cData) return null;
+          return (
+            <div className="p-0 sm:p-2 w-full h-full">
+              <ChecklistWidget title={cData.title} items={cData.items} isDarkMode={isDarkMode} />
             </div>
           );
         }
@@ -225,27 +359,45 @@ const AIChat: React.FC<AIChatProps> = ({
     };
 
     return (
-      <div key={key} className={`mt-4 rounded-xl sm:rounded-2xl border transition-all duration-300 overflow-hidden w-full ${
-        isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'
-      }`}>
-        <button 
+      <div key={key} className={`rounded-2xl border transition-all duration-300 overflow-hidden w-full ${isDarkMode
+        ? 'bg-zinc-900/40 border-white/5 shadow-lg'
+        : 'bg-white border-slate-200 shadow-sm'
+        } ${isExpanded ? 'ring-1 ring-indigo-500/30' : ''}`}>
+        <button
           onClick={() => toggleWidget(`${messageId}-${key}`)}
-          className={`w-full flex items-center justify-between p-2.5 sm:p-3 px-3 sm:px-4 text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-colors ${
-            isExpanded ? 'bg-indigo-500/10 text-indigo-500 border-b border-indigo-500/10' : 'hover:bg-white/5 text-zinc-500'
-          }`}
+          className={`w-full flex items-center justify-between p-3 px-4 transition-all ${isExpanded
+            ? (isDarkMode ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600')
+            : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-500')
+            }`}
         >
-          <div className="flex items-center gap-2">
-            <Brain size={12} className={isExpanded ? 'text-indigo-500' : 'text-zinc-600'} />
-            {isExpanded ? `Hide ${tagToLabel[key]}` : `View ${tagToLabel[key]}`}
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl ${isExpanded ? 'bg-indigo-500/20' : 'bg-zinc-500/5'}`}>
+              {key === 'mermaid' ? <Workflow size={14} /> :
+                key === 'checklist' ? <List size={14} /> :
+                  <TrendingUp size={14} />}
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-[0.15em]">
+              {tagToLabel[key] || 'Data Widget'}
+            </span>
           </div>
-          <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.3 }}>
-            <ChevronDown size={14} />
+          <motion.div
+            animate={{ rotate: isExpanded ? 180 : 0 }}
+            className={`${isExpanded ? 'text-indigo-500' : 'opacity-40'}`}
+          >
+            <ChevronDown size={16} />
           </motion.div>
         </button>
         <AnimatePresence>
           {isExpanded && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: 'easeInOut' }}>
-              {getWidgetContent()}
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-t border-white/5"
+            >
+              <div className="p-2 sm:p-4">
+                {getWidgetContent()}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -300,6 +452,49 @@ const AIChat: React.FC<AIChatProps> = ({
     }
   };
 
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      setErrorMessage("Voice input is not supported in this browser.");
+      return;
+    }
+
+    setIsListening(true);
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(prev => prev + (prev ? ' ' : '') + transcript);
+      setIsListening(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+      if (event.error === 'not-allowed') {
+        setErrorMessage("Microphone access denied.");
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
   const handleSend = async () => {
     if (!input.trim()) return;
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input, timestamp: new Date() };
@@ -307,14 +502,31 @@ const AIChat: React.FC<AIChatProps> = ({
     const currentInput = input;
     setInput('');
     setIsTyping(true);
+    setErrorMessage(null);
 
     try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const fullResponse = await geminiService.generateResponse(currentInput, trades, userProfile, goals, dailyBias, false, history, selectedModel);
+      const history = recallMemory ? messages.map(m => ({ role: m.role, content: m.content })) : [];
+      const fullResponse = await geminiService.generateResponse(currentInput, trades, userProfile, goals, dailyBias, false, history, selectedModel, isPlanMode, communicationStyle);
       const aiMessageId = (Date.now() + 1).toString();
       processResponse(fullResponse, aiMessageId);
-    } catch (error) {
+
+      // Auto-expand widgets if autoRevealCharts is enabled
+      if (autoRevealCharts) {
+        // Will be handled in processResponse
+      }
+    } catch (error: any) {
       console.error("Chat Error:", error);
+      const errorMsg = error?.message || "I'm experiencing a connection issue. Please check your internet and try again.";
+      setErrorMessage(errorMsg);
+
+      // Add error message to chat
+      const errorResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `⚠️ **Connection Issue**\n\nI couldn't process your request. ${errorMsg}\n\n> Try again in a moment, or rephrase your question.`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
     } finally {
       setIsTyping(false);
     }
@@ -324,30 +536,30 @@ const AIChat: React.FC<AIChatProps> = ({
     setIsTyping(true);
     setAnalysisStatus('analyzing');
     setCurrentStepIndex(0);
-    
+
     // Cycle through steps
     const stepInterval = setInterval(() => {
       setCurrentStepIndex(prev => (prev < analysisSteps.length - 1 ? prev + 1 : prev));
     }, 1500);
 
     const analysisId = Date.now().toString();
-    const analysisRequest: Message = { 
-      id: analysisId, 
-      role: 'user', 
-      content: "Deep Performance Analysis & Goal Suggestion", 
-      timestamp: new Date() 
+    const analysisRequest: Message = {
+      id: analysisId,
+      role: 'user',
+      content: isPlanMode ? "Start New Strategy Planning Session" : "Deep Performance Analysis & Goal Suggestion",
+      timestamp: new Date()
     };
     setMessages(prev => [...prev, analysisRequest]);
 
     try {
       const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const fullResponse = await geminiService.generateResponse("", trades, userProfile, goals, dailyBias, true, history, selectedModel);
+      const fullResponse = await geminiService.generateResponse(isPlanMode ? "Let's start building a new strategy." : "", trades, userProfile, goals, dailyBias, !isPlanMode, history, selectedModel, isPlanMode, communicationStyle);
       clearInterval(stepInterval);
       setCurrentStepIndex(analysisSteps.length - 1);
       const aiMessageId = (Date.now() + 1).toString();
       setAnalysisStatus('success');
       processResponse(fullResponse, aiMessageId);
-      
+
       // Keep success state for 1.5 seconds before resetting
       setTimeout(() => {
         setAnalysisStatus('idle');
@@ -368,6 +580,7 @@ const AIChat: React.FC<AIChatProps> = ({
     const foundKeys: string[] = [];
     const chartSymbols: Record<string, string> = {};
     const sections: Record<string, string> = {};
+    const mermaidData: Record<string, { type: string, code: string }> = {};
 
     // Parse Sections
     const sectionNames = ['LACKS', 'RECOMMENDATIONS', 'GOALS'];
@@ -384,7 +597,7 @@ const AIChat: React.FC<AIChatProps> = ({
           }
         });
         // Also strip widgets from section content
-        sectionContent = sectionContent.replace(/\[WIDGET:[A-Z_:]+\]/g, '').trim();
+        sectionContent = sectionContent.replace(/\[\/?WIDGET:[\s\S]+?\]/g, '').trim();
         sections[name] = sectionContent;
         // Remove from main content to avoid double display if we choose
         cleanContent = cleanContent.replace(tag, '').replace(sectionContent, '');
@@ -413,40 +626,77 @@ const AIChat: React.FC<AIChatProps> = ({
       chartSymbols[`${messageId}-chart`] = symbol;
     }
 
+    // Mermaid Parsing [WIDGET:MERMAID:TYPE]CODE[/WIDGET:MERMAID]
+    const mermaidRegex = /\[WIDGET:MERMAID:([A-Z]+)\]([\s\S]+?)\[\/WIDGET:MERMAID\]/g;
+    let mermaidMatch;
+    while ((mermaidMatch = mermaidRegex.exec(fullResponse)) !== null) {
+      const type = mermaidMatch[1];
+      const code = mermaidMatch[2].trim().replace(/\\n/g, '\n');
+      cleanContent = cleanContent.replace(mermaidMatch[0], '');
+      foundKeys.push('mermaid');
+      mermaidData[`${messageId}-mermaid`] = { type, code };
+    }
+
+    // Checklist Parsing [WIDGET:CHECKLIST:TITLE]ITEM1|ITEM2|...[/WIDGET:CHECKLIST]
+    const checklistRegex = /\[WIDGET:CHECKLIST:([^\]]+)\]([\s\S]+?)\[\/WIDGET:CHECKLIST\]/g;
+    let checklistMatch;
+    const checklistData: Record<string, { title: string, items: { text: string, checked: boolean }[] }> = {};
+    while ((checklistMatch = checklistRegex.exec(fullResponse)) !== null) {
+      const title = checklistMatch[1];
+      const items = checklistMatch[2].split('|').map(item => ({ text: item.trim(), checked: false }));
+      cleanContent = cleanContent.replace(checklistMatch[0], '');
+      foundKeys.push('checklist');
+      checklistData[`${messageId}-checklist`] = { title, items };
+    }
+
     const aiMessage: Message = {
-      id: messageId, 
-      role: 'assistant', 
+      id: messageId,
+      role: 'assistant',
       content: cleanContent.trim(),
-      timestamp: new Date(), 
+      timestamp: new Date(),
       widgetKeys: foundKeys.length > 0 ? foundKeys : undefined,
       chartSymbols: Object.keys(chartSymbols).length > 0 ? chartSymbols : undefined,
       sections: Object.keys(sections).length > 0 ? sections : undefined,
+      mermaidData: Object.keys(mermaidData).length > 0 ? mermaidData : undefined,
+      checklistData: Object.keys(checklistData).length > 0 ? checklistData : undefined,
     };
     setMessages(prev => [...prev, aiMessage]);
+
+    // Auto-expand widgets if autoRevealCharts is enabled
+    if (autoRevealCharts && foundKeys.length > 0) {
+      const newExpandedWidgets: Record<string, boolean> = {};
+      foundKeys.forEach(key => {
+        newExpandedWidgets[`${messageId}-${key}`] = true;
+      });
+      setExpandedWidgets(prev => ({ ...prev, ...newExpandedWidgets }));
+    }
   };
 
   const renderSectionCards = (sections: Record<string, string>) => {
-    const config: Record<string, { title: string, icon: any, color: string, bg: string, border: string }> = {
-      'LACKS': { 
-        title: 'Performance Leaks', 
-        icon: <Trash2 size={16} />, 
-        color: 'text-rose-500', 
-        bg: isDarkMode ? 'bg-rose-500/10' : 'bg-rose-50',
-        border: isDarkMode ? 'border-rose-500/20' : 'border-rose-100'
+    const config: Record<string, { title: string, icon: any, color: string, bg: string, border: string, dot: string }> = {
+      'LACKS': {
+        title: 'Performance Leaks',
+        icon: <Trash2 size={16} />,
+        color: 'text-rose-500',
+        bg: isDarkMode ? 'bg-rose-500/5' : 'bg-rose-50/50',
+        border: isDarkMode ? 'border-rose-500/10' : 'border-rose-200/50',
+        dot: 'bg-rose-500'
       },
-      'RECOMMENDATIONS': { 
-        title: 'Strategic Fixes', 
-        icon: <Wand2 size={16} />, 
-        color: 'text-amber-500', 
-        bg: isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50',
-        border: isDarkMode ? 'border-amber-500/20' : 'border-amber-100'
+      'RECOMMENDATIONS': {
+        title: 'Strategic Fixes',
+        icon: <Wand2 size={16} />,
+        color: 'text-amber-500',
+        bg: isDarkMode ? 'bg-amber-500/5' : 'bg-amber-50/50',
+        border: isDarkMode ? 'border-amber-500/10' : 'border-amber-200/50',
+        dot: 'bg-amber-500'
       },
-      'GOALS': { 
-        title: '30-Day Roadmap', 
-        icon: <TrendingUp size={16} />, 
-        color: 'text-emerald-500', 
-        bg: isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50',
-        border: isDarkMode ? 'border-emerald-500/20' : 'border-emerald-100'
+      'GOALS': {
+        title: '30-Day Roadmap',
+        icon: <TrendingUp size={16} />,
+        color: 'text-emerald-500',
+        bg: isDarkMode ? 'bg-emerald-500/5' : 'bg-emerald-50/50',
+        border: isDarkMode ? 'border-emerald-500/10' : 'border-emerald-200/50',
+        dot: 'bg-emerald-500'
       }
     };
 
@@ -454,54 +704,45 @@ const AIChat: React.FC<AIChatProps> = ({
       const content = sections[id];
       if (!content) return null;
       return (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4 }}
-          className={`p-5 sm:p-6 rounded-[24px] sm:rounded-[32px] border ${config[id].bg} ${config[id].border} flex flex-col gap-3 sm:gap-4 relative overflow-hidden group hover:shadow-xl transition-all duration-500 h-fit`}
+          className={`p-5 rounded-3xl border ${config[id].bg} ${config[id].border} flex flex-col gap-4 relative overflow-hidden group hover:shadow-xl transition-all duration-500`}
         >
-          {/* Background Decorative Icon */}
-          <div className={`absolute -right-8 -bottom-8 opacity-[0.04] group-hover:scale-110 group-hover:-rotate-12 transition-transform duration-700 ${config[id].color}`}>
-            {React.cloneElement(config[id].icon as React.ReactElement<{ size: number }>, { size: 120 })}
-          </div>
-
           <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className={`p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-white/10 backdrop-blur-md ${config[id].color} shadow-sm`}>
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-xl bg-white/10 backdrop-blur-md ${config[id].color} shadow-sm border border-white/5`}>
                 {config[id].icon}
               </div>
-              <h4 className={`text-[10px] sm:text-[12px] font-black uppercase tracking-[0.2em] ${config[id].color}`}>
+              <h4 className={`text-[11px] font-black uppercase tracking-[0.2em] ${config[id].color}`}>
                 {config[id].title}
               </h4>
             </div>
-            <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${config[id].color.replace('text', 'bg')} animate-pulse`} />
+            <div className={`w-2 h-2 rounded-full ${config[id].dot} animate-pulse shadow-[0_0_8px] ${config[id].dot.replace('bg-', 'shadow-')}`} />
           </div>
-          
-          <div className={`text-[12px] sm:text-[13px] leading-relaxed opacity-90 relative z-10 prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''} 
+
+          <div className={`text-[12.5px] leading-relaxed relative z-10 prose prose-sm max-w-none ${isDarkMode ? 'prose-invert opacity-80' : 'text-slate-600'} 
             prose-strong:font-black
           `}>
-            <ReactMarkdown 
+            <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
                 strong: ({ children }) => <strong className={`font-black ${config[id].color}`}>{children}</strong>,
-                li: ({ children }) => <li className={`marker:${config[id].color} ml-[-1rem]`}>{children}</li>
+                li: ({ children }) => <li className={`marker:${config[id].color} pl-1`}>{children}</li>
               }}
             >
               {content}
             </ReactMarkdown>
           </div>
-          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
         </motion.div>
       );
     };
 
     return (
-      <div className="flex flex-col gap-4 mt-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-           <Card id="LACKS" />
-           <Card id="RECOMMENDATIONS" />
-           <Card id="GOALS" />
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+        <Card id="LACKS" />
+        <Card id="RECOMMENDATIONS" />
+        <Card id="GOALS" />
       </div>
     );
   };
@@ -525,110 +766,167 @@ const AIChat: React.FC<AIChatProps> = ({
   }, [messages]);
 
   return (
-    <div className={`flex flex-col h-full transition-all duration-500 ${
-      isDarkMode ? 'bg-[#050505] text-zinc-100' : 'bg-[#F8FAFC] text-slate-900'
-    }`}>
+    <div className={`flex flex-col h-full transition-all duration-500 overflow-hidden ${isDarkMode ? 'bg-[#050505] text-zinc-100' : 'bg-[#F8FAFC] text-slate-900'
+      }`}>
       {/* Header */}
-      <div className={`px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between border-b transition-all duration-500 ${
-        isDarkMode ? 'border-white/5 bg-black/20' : 'border-slate-200 bg-white/50'
-      } backdrop-blur-xl z-20 sticky top-0`}>
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="relative">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-indigo-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 rotate-3 transition-transform hover:rotate-0 duration-300">
-              <Bot size={24} className="sm:size-7" />
+      <div className={`px-4 sm:px-6 py-4 flex items-center justify-between border-b transition-all duration-500 z-30 sticky top-0 ${isDarkMode ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white/60'
+        } backdrop-blur-2xl`}>
+        <div className="flex items-center gap-4">
+          <div className="relative group">
+            <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-white shadow-xl transition-all duration-500 group-hover:scale-105 ${isPlanMode
+              ? 'bg-gradient-to-br from-[#FF4F01] to-[#FF8F01] shadow-[#FF4F01]/20'
+              : 'bg-gradient-to-br from-indigo-600 to-violet-600 shadow-indigo-500/20'
+              }`}>
+              {isPlanMode ? <Workflow size={24} className="sm:size-7" /> : <Bot size={24} className="sm:size-7" />}
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-emerald-500 rounded-full border-2 border-current shadow-lg" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-[#050505] shadow-lg" />
           </div>
-          <div>
-            <h2 className="text-sm sm:text-base font-black uppercase tracking-widest transition-colors">JFX Assistant</h2>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[8px] sm:text-[10px] font-bold opacity-40 uppercase tracking-widest">Always Learning</span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-black uppercase tracking-widest">
+                {isPlanMode ? 'Strategy Architect' : 'JFX AI Assistant'}
+              </h2>
+              {!isPlanMode && (
+                <div className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-widest border border-indigo-500/20">
+                  v3.0
+                </div>
+              )}
+              {isPlanMode && (
+                <div className="px-2 py-0.5 rounded-full bg-[#FF4F01]/10 text-[#FF4F01] text-[8px] font-black uppercase tracking-widest border border-[#FF4F01]/20 animate-pulse">
+                  Active Plan
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex gap-0.5">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className={`w-1 h-1 rounded-full bg-emerald-500/40 ${isTyping ? 'animate-bounce' : ''}`} style={{ animationDelay: `${i * 0.1}s` }} />
+                ))}
+              </div>
+              <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">{isTyping ? 'Thinking...' : 'System Ready'}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
-          <button 
-            onClick={() => setIsHistoryOpen(true)}
-            className={`p-2 sm:p-2.5 rounded-xl transition-all ${
-              isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-black/5 text-slate-500'
-            }`}
-            title="Analysis History"
-          >
-            <History size={18} />
-          </button>
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className={`p-2 sm:p-2.5 rounded-xl transition-all ${
-              isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-black/5 text-slate-500'
-            }`}
-            title="Settings"
-          >
-            <SettingsIcon size={18} />
-          </button>
-          <button 
-            onClick={clearChat}
-            className={`p-2 sm:p-2.5 rounded-xl transition-all ${
-              isDarkMode ? 'hover:bg-indigo-500/10 text-zinc-400 hover:text-indigo-500' : 'hover:bg-indigo-50 text-slate-500 hover:text-indigo-600'
-            }`}
-            title="New Chat"
-          >
-            <Plus size={18} />
-          </button>
+        <div className="flex items-center gap-2">
+          {isPlanMode && (
+            <button
+              onClick={handleExportStrategy}
+              className={`hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest ${isDarkMode
+                ? 'bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/5'
+                : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 shadow-sm'
+                }`}
+            >
+              <Download size={15} />
+              Export Plan
+            </button>
+          )}
+          <div className={`h-8 w-px mx-1 hidden sm:block ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`} />
+          <div className="flex items-center bg-zinc-500/5 rounded-2xl p-1 gap-1">
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500 shadow-sm'
+                }`}
+              title="Analysis History"
+            >
+              <History size={18} />
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500 shadow-sm'
+                }`}
+              title="Settings"
+            >
+              <SettingsIcon size={18} />
+            </button>
+            <button
+              onClick={clearChat}
+              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-indigo-500/10 text-zinc-400 hover:text-indigo-400' : 'hover:bg-indigo-50 text-slate-500 hover:text-indigo-600'
+                }`}
+              title="Reset Conversation"
+            >
+              <Plus size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 sm:space-y-8 custom-scrollbar scroll-smooth relative">
-        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
-            <div className="absolute top-1/4 left-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-indigo-500/10 rounded-full blur-[80px] sm:blur-[120px]" />
-            <div className="absolute bottom-1/4 right-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-purple-500/10 rounded-full blur-[80px] sm:blur-[120px]" />
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 space-y-10 custom-scrollbar scroll-smooth relative">
+        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-[0.03] dark:opacity-[0.05]">
+          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500 rounded-full blur-[120px]" />
+          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-purple-500 rounded-full blur-[120px]" />
         </div>
 
         <AnimatePresence initial={false}>
           {messages.map((message) => (
-            <motion.div key={message.id} ref={el => { messageRefs.current[message.id] = el; }} initial={{ opacity: 0, y: 15, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} relative z-10`}>
-              <div className={`flex gap-3 sm:gap-4 max-w-[95%] sm:max-w-[90%] lg:max-w-[70%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center border overflow-hidden transition-all duration-500 ${
-                  message.role === 'user' ? (isDarkMode ? 'bg-zinc-900 border-white/5' : 'bg-white border-slate-200 shadow-sm')
-                    : 'bg-indigo-600 border-indigo-400 text-white shadow-xl shadow-indigo-500/20'
-                }`}>
-                  {message.role === 'user' ? (userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="User" className="w-full h-full object-cover" /> : <User size={20} className={isDarkMode ? 'text-zinc-400' : 'text-slate-500'} />) : <Brain size={20} className="sm:size-6" />}
-                </div>
-                <div className="space-y-2 flex-1 relative min-w-0">
-                  <div className={`p-4 sm:p-5 rounded-[20px] sm:rounded-[24px] relative transition-all duration-500 ${
-                    message.role === 'user' ? (isDarkMode ? 'bg-zinc-900/40 border border-white/5 backdrop-blur-md' : 'bg-white border border-slate-200 shadow-sm')
-                      : (isDarkMode ? 'bg-indigo-500/10 border border-indigo-500/20 backdrop-blur-md' : 'bg-indigo-50 border border-indigo-100 shadow-sm')
+            <motion.div
+              key={message.id}
+              ref={el => { messageRefs.current[message.id] = el; }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full relative z-10`}
+            >
+              <div className={`flex gap-4 sm:gap-5 w-full sm:max-w-[85%] lg:max-w-[75%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                {/* Avatar */}
+                <div className={`shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center border transition-all duration-500 ${message.role === 'user'
+                  ? (isDarkMode ? 'bg-zinc-900 border-white/5 shadow-lg shadow-black/20' : 'bg-white border-slate-200 shadow-sm')
+                  : (isDarkMode ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20')
                   }`}>
-                    <div className={`text-[12.5px] sm:text-[13.5px] leading-relaxed ${message.role === 'user' ? 'font-medium' : 'font-normal'} prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                      <ReactMarkdown 
+                  {message.role === 'user'
+                    ? (userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="User" className="w-full h-full object-cover" /> : <User size={18} className={isDarkMode ? 'text-zinc-500' : 'text-slate-400'} />)
+                    : <Bot size={20} className="sm:size-6" />
+                  }
+                </div>
+
+                <div className={`flex flex-col gap-2 flex-1 min-w-0 ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  {/* Message Bubble */}
+                  <div className={`w-full overflow-hidden transition-all duration-500 ${message.role === 'user'
+                    ? (isDarkMode ? 'bg-zinc-900/50 border border-white/5 rounded-[24px] rounded-tr-none' : 'bg-white border border-slate-200 shadow-sm rounded-[24px] rounded-tr-none')
+                    : (isDarkMode ? 'bg-[#0d0d0f]/80 border border-white/5 rounded-[28px] rounded-tl-none backdrop-blur-xl' : 'bg-white border border-slate-200 shadow-sm rounded-[28px] rounded-tl-none')
+                    }`}>
+                    <div className={`p-5 sm:p-6 text-[13px] sm:text-[14px] leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'} prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
+                      <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          p: ({ children }) => <p className="mb-2 last:mb-0">{renderWithMentions(children)}</p>,
-                          ul: ({ children }) => <ul className="list-disc ml-4 mb-2 space-y-1">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal ml-4 mb-2 space-y-1">{children}</ol>,
-                          li: ({ children }) => <li className="marker:text-indigo-500">{renderWithMentions(children)}</li>,
-                          strong: ({ children }) => <strong className={`font-black ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
-                          code: ({ children }) => <code className={`px-1.5 py-0.5 rounded-md font-mono text-[11px] sm:text-[12px] ${isDarkMode ? 'bg-white/10 text-indigo-300' : 'bg-indigo-50 text-indigo-600'}`}>{children}</code>,
-                          blockquote: ({ children }) => <blockquote className={`border-l-4 border-indigo-500/50 pl-4 py-1 my-2 italic ${isDarkMode ? 'bg-white/5' : 'bg-indigo-50/50'}`}>{children}</blockquote>,
+                          p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{renderWithMentions(children)}</p>,
+                          ul: ({ children }) => <ul className="list-disc ml-4 mb-4 space-y-2">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal ml-4 mb-4 space-y-2">{children}</ol>,
+                          li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
+                          strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{renderWithMentions(children)}</strong>,
+                          code: ({ children }) => <code className={`px-1.5 py-0.5 rounded-md font-mono text-[12px] ${isDarkMode ? 'bg-white/10 text-indigo-300' : 'bg-slate-100 text-indigo-600'}`}>{children}</code>,
+                          blockquote: ({ children }) => <blockquote className={`border-l-4 border-indigo-500/50 pl-5 py-2 my-4 italic rounded-r-xl ${isDarkMode ? 'bg-white/5' : 'bg-indigo-50/30'}`}>{children}</blockquote>,
                           table: ({ children }) => (
-                            <div className="overflow-x-auto my-4 rounded-xl border border-zinc-500/20">
+                            <div className="overflow-x-auto my-6 rounded-2xl border border-zinc-500/10">
                               <table className="w-full text-left border-collapse">{children}</table>
                             </div>
                           ),
-                          th: ({ children }) => <th className={`p-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest border-b border-zinc-500/20 ${isDarkMode ? 'bg-white/5' : 'bg-slate-50'}`}>{children}</th>,
-                          td: ({ children }) => <td className="p-2 border-b border-zinc-500/10 text-[11px] sm:text-[12px]">{children}</td>,
+                          th: ({ children }) => <th className={`p-3 text-[10px] font-black uppercase tracking-widest border-b border-zinc-500/10 ${isDarkMode ? 'bg-white/5' : 'bg-slate-50'}`}>{children}</th>,
+                          td: ({ children }) => <td className="p-3 border-b border-zinc-500/5 text-[12px] font-medium">{children}</td>,
                         }}
                       >
                         {message.content}
                       </ReactMarkdown>
                     </div>
-                    {message.sections && renderSectionCards(message.sections)}
-                    {message.widgetKeys && message.widgetKeys.map(key => renderWidget(key, message.id, message))}
+
+                    {/* Conditional Sections & Widgets Area */}
+                    {(message.sections || (message.widgetKeys && message.widgetKeys.length > 0)) && (
+                      <div className={`p-4 sm:p-6 pt-0 space-y-6 ${message.role === 'assistant' ? 'border-t border-white/5 mt-0' : ''}`}>
+                        {message.sections && renderSectionCards(message.sections)}
+                        {message.widgetKeys && (
+                          <div className="grid grid-cols-1 gap-4">
+                            {message.widgetKeys.map(key => renderWidget(key, message.id, message))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.15em] opacity-30 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
-                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+                  {/* Timestamp */}
+                  <div className={`px-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] opacity-30 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                    <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="w-1 h-1 rounded-full bg-current" />
+                    <span>{message.role === 'user' ? 'Sent' : 'Assistant'}</span>
                   </div>
                 </div>
               </div>
@@ -637,11 +935,20 @@ const AIChat: React.FC<AIChatProps> = ({
         </AnimatePresence>
 
         {isTyping && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start relative z-10">
-            <div className={`flex gap-3 sm:gap-4 items-center`}>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-500/20"><Brain size={20} className="animate-pulse" /></div>
-              <div className="flex gap-1.5 p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-indigo-500/5 border border-indigo-500/10">
-                {[0, 1, 2].map((i) => (<motion.div key={i} animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }} transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.2 }} className="w-1.5 h-1.5 rounded-full bg-indigo-400" />))}
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start relative z-10 pl-1">
+            <div className="flex gap-4 items-center">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+                <Brain size={20} className="animate-pulse" />
+              </div>
+              <div className={`flex gap-1.5 p-4 rounded-2xl rounded-tl-none border ${isDarkMode ? 'bg-indigo-500/5 border-indigo-500/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                    className="w-1.5 h-1.5 rounded-full bg-indigo-500"
+                  />
+                ))}
               </div>
             </div>
           </motion.div>
@@ -650,102 +957,128 @@ const AIChat: React.FC<AIChatProps> = ({
 
       {/* Input Section */}
       <div className="p-4 sm:p-6 pt-2 relative z-20">
-        <div className={`relative max-w-4xl mx-auto rounded-[24px] sm:rounded-[32px] border transition-all duration-500 backdrop-blur-2xl ${
-          isDarkMode ? 'bg-white/[0.03] border-white/10 hover:border-white/20 shadow-2xl shadow-black/40' 
-            : 'bg-white/80 border-slate-200/60 hover:border-slate-300 shadow-xl shadow-slate-200/40'
-        }`}>
-          <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 px-3 sm:px-4">
-            <div className="relative">
-              <AnimatePresence>
-                {analysisStatus === 'analyzing' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, x: '-50%' }}
-                    animate={{ opacity: 1, y: -45, x: '-50%' }}
-                    exit={{ opacity: 0, y: 10, x: '-50%' }}
-                    className={`absolute left-1/2 whitespace-nowrap px-3 py-1.5 rounded-lg text-[9px] sm:text-[10px] font-bold uppercase tracking-widest z-50 shadow-xl border ${
-                      isDarkMode ? 'bg-zinc-900 border-white/10 text-indigo-400' : 'bg-white border-slate-200 text-indigo-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                      {analysisSteps[currentStepIndex]}
-                    </div>
-                    {/* Tooltip Arrow */}
-                    <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 border-b border-r ${
-                      isDarkMode ? 'bg-zinc-900 border-white/10' : 'bg-white border-slate-200'
-                    }`} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <button 
-                onClick={handleSpecialAnalysis}
-                disabled={isTyping}
-                className={`p-2 sm:p-2.5 rounded-lg sm:rounded-2xl transition-all group flex items-center gap-2 border relative overflow-hidden ${
-                  isDarkMode ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20' 
-                    : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100'
-                }`}
-                title="Deep Performance Analysis"
-              >
-                <Brain size={18} className="group-hover:rotate-12 transition-transform" />
-                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest hidden sm:inline">Analyze & Suggest</span>
-                
-                {analysisStatus !== 'idle' && (
-                  <div className="absolute bottom-0 left-0 w-full h-1 flex gap-0.5 px-0.5">
-                    {analysisSteps.map((_, i) => (
-                      <div key={i} className={`flex-1 h-full overflow-hidden rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}>
-                        <motion.div 
-                          initial={{ width: "0%" }}
-                          animate={{ 
-                            width: i <= currentStepIndex ? "100%" : "0%",
-                            backgroundColor: analysisStatus === 'success' ? "#10b981" : "#6366f1"
-                          }}
-                          transition={{ 
-                            width: { duration: 0.5, ease: "easeInOut" },
-                            backgroundColor: { duration: 0.3 }
-                          }}
-                          className="h-full"
-                        />
+        <div className={`relative max-w-4xl mx-auto rounded-[24px] sm:rounded-[32px] border transition-all duration-500 backdrop-blur-3xl shadow-2xl ${isDarkMode
+          ? 'bg-zinc-900/40 border-white/10 hover:border-white/20 shadow-black/40'
+          : 'bg-white/80 border-slate-200/60 hover:border-slate-300 shadow-slate-200/40'
+          }`}>
+          <div className="flex items-center gap-2 p-2 px-4 sm:px-6">
+            <div className="flex items-center gap-1">
+              <div className="relative">
+                <AnimatePresence>
+                  {analysisStatus === 'analyzing' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, x: '-50%' }}
+                      animate={{ opacity: 1, y: -40, x: '-50%' }}
+                      exit={{ opacity: 0, y: 10, x: '-50%' }}
+                      className={`absolute left-1/2 whitespace-nowrap px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest z-50 shadow-2xl border ${isDarkMode ? 'bg-zinc-900 border-white/10 text-indigo-400' : 'bg-white border-slate-200 text-indigo-600'
+                        }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-0.5">
+                          {[0, 1, 2].map((i) => (
+                            <div key={i} className="w-1 h-1 rounded-full bg-indigo-500 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+                          ))}
+                        </div>
+                        {analysisSteps[currentStepIndex]}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <button
+                  onClick={handleSpecialAnalysis}
+                  disabled={isTyping}
+                  className={`p-1.5 rounded-lg transition-all group flex items-center gap-1.5 border relative overflow-hidden ${isDarkMode
+                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20'
+                    : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100'
+                    }`}
+                  title={isPlanMode ? 'Strategy Architect' : 'Performance Analysis'}
+                >
+                  <Brain size={14} className="group-hover:scale-110 transition-transform" />
+                  {analysisStatus !== 'idle' && (
+                    <div className="absolute bottom-0 left-0 w-full h-0.5 flex gap-0.5">
+                      <motion.div
+                        initial={{ width: "0%" }}
+                        animate={{ width: "100%" }}
+                        className="h-full bg-indigo-500"
+                      />
+                    </div>
+                  )}
+                </button>
+              </div>
+
+              <div className="relative">
+                <button
+                  onClick={() => setShowModeDropdown(!showModeDropdown)}
+                  className={`p-1.5 border rounded-lg transition-all ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-400 hover:bg-white/5' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white'
+                    }`}
+                >
+                  {isPlanMode ? <Workflow size={14} className="text-[#FF4F01]" /> : <Activity size={14} className="text-indigo-500" />}
+                </button>
+
+                <AnimatePresence>
+                  {showModeDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                      className={`absolute bottom-full left-0 mb-2 w-44 rounded-xl border shadow-2xl overflow-hidden z-[100] ${isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'
+                        }`}
+                    >
+                      <div className="p-1.5 space-y-1">
+                        <button
+                          onClick={() => { setIsPlanMode(false); setShowModeDropdown(false); }}
+                          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all text-left group ${!isPlanMode ? 'bg-indigo-600 text-white' : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')}`}
+                        >
+                          <Brain size={14} />
+                          <span className="text-[10px] font-black uppercase">Analysis</span>
+                        </button>
+                        <button
+                          onClick={() => { setIsPlanMode(true); setShowModeDropdown(false); }}
+                          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all text-left group ${isPlanMode ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')}`}
+                        >
+                          <Workflow size={14} />
+                          <span className="text-[10px] font-black uppercase">Strategy</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
-            <div className={`w-px h-6 sm:h-8 mx-0.5 sm:mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-            
+
+            <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
+
             <div className="flex-1 relative">
               <AnimatePresence>
                 {showMentionMenu && filteredMentions.length > 0 && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: -10 }}
                     exit={{ opacity: 0, y: 10 }}
-                    className={`absolute bottom-full left-0 w-56 sm:w-64 mb-4 rounded-2xl sm:rounded-3xl border shadow-2xl overflow-hidden transition-colors duration-500 z-[100] ${
-                      isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'
-                    }`}
+                    className={`absolute bottom-full left-0 w-56 sm:w-64 mb-3 rounded-[24px] border shadow-2xl overflow-hidden transition-colors duration-500 z-[100] ${isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'
+                      }`}
                   >
-                    <div className="p-2 sm:p-3 border-b border-white/5 bg-white/[0.02]">
-                      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.2em] opacity-40 ml-2">Quick Mentions</span>
+                    <div className="p-3 border-b border-white/5 bg-white/[0.01]">
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 ml-1">Mentions</span>
                     </div>
-                    <div className="max-h-48 sm:max-h-64 overflow-y-auto custom-scrollbar p-1.5 sm:p-2">
+                    <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
                       {filteredMentions.map((m, i) => (
                         <button
                           key={m.value}
                           onClick={() => insertMention(m.value)}
                           onMouseEnter={() => setMentionIndex(i)}
-                          className={`w-full flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl transition-all text-left group ${
-                            mentionIndex === i 
-                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                              : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')
-                          }`}
+                          aria-label={`Mention ${m.label}`}
+                          className={`w-full flex items-center gap-3 p-3 rounded-[16px] transition-all text-left group ${mentionIndex === i
+                            ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20'
+                            : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')
+                            }`}
                         >
-                          <div className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl ${mentionIndex === i ? 'bg-white/20' : (isDarkMode ? 'bg-white/5' : 'bg-slate-100')}`}>
-                            {React.cloneElement(m.icon as React.ReactElement, { size: 14 })}
+                          <div className={`p-1.5 rounded-lg ${mentionIndex === i ? 'bg-white/20' : (isDarkMode ? 'bg-white/5' : 'bg-slate-100')}`}>
+                            {React.cloneElement(m.icon as React.ReactElement<{ size?: number }>, { size: 14 })}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-wide truncate">{m.label}</p>
-                            <p className={`text-[7px] sm:text-[8px] font-bold opacity-40 uppercase tracking-tight truncate ${mentionIndex === i ? 'text-indigo-100' : ''}`}>@{m.value.split('/').pop()}</p>
+                            <p className="text-[10px] font-black uppercase tracking-wide truncate">{m.label}</p>
                           </div>
                         </button>
                       ))}
@@ -753,23 +1086,32 @@ const AIChat: React.FC<AIChatProps> = ({
                   </motion.div>
                 )}
               </AnimatePresence>
-              
-              <input 
-                type="text" 
-                value={input} 
-                onChange={handleInputChange} 
+
+              <input
+                id="ai-chat-input"
+                name="chat-message"
+                aria-label="Ask your AI assistant a question"
+                type="text"
+                value={input}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask assistant..." 
-                className={`w-full bg-transparent border-none focus:ring-0 text-[12.5px] sm:text-[13.5px] py-3.5 sm:py-4 placeholder:opacity-40 ${isDarkMode ? 'text-white' : 'text-slate-900'}`} 
+                placeholder="Ask your assistant anything..."
+                className={`w-full bg-transparent border-none focus:ring-0 text-[13px] sm:text-[14px] font-medium py-1.5 placeholder:opacity-30 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
               />
             </div>
 
-            <button onClick={handleSend} disabled={!input.trim() || isTyping} className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl transition-all shadow-lg ${input.trim() ? 'bg-indigo-600 text-white hover:bg-indigo-600 shadow-indigo-500/30 active:scale-95' : (isDarkMode ? 'bg-white/5 text-zinc-600 cursor-not-allowed' : 'bg-slate-100 text-slate-300 cursor-not-allowed')}`}>
-              <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isTyping}
+              className={`p-2 rounded-[10px] transition-all shadow-xl group ${input.trim()
+                ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-indigo-500/30 active:scale-95'
+                : (isDarkMode ? 'bg-white/5 text-zinc-700 cursor-not-allowed' : 'bg-slate-100 text-slate-300 cursor-not-allowed')
+                }`}
+            >
+              <Send className={`w-3.5 h-3.5 transition-transform ${input.trim() ? 'group-hover:translate-x-0.5 group-hover:-translate-y-0.5' : ''}`} />
             </button>
           </div>
         </div>
-        <p className="text-center mt-3 sm:mt-4 text-[8px] font-black uppercase tracking-[0.2em] opacity-20 transition-opacity">JournalFX AI Beta</p>
       </div>
 
       {/* Analysis History Modal */}
@@ -789,15 +1131,24 @@ const AIChat: React.FC<AIChatProps> = ({
 
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
                   {analysisHistory.length === 0 ? (
-                    <div className="py-12 text-center opacity-30"><History size={40} className="mx-auto mb-4" /><p className="text-sm font-bold">No widgets generated yet</p></div>
+                    <div className="py-12 text-center opacity-30 flex flex-col items-center gap-4">
+                      <div className="w-16 h-16 rounded-3xl bg-zinc-500/5 flex items-center justify-center">
+                        <History size={40} strokeWidth={1} />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-black uppercase tracking-widest">No History</p>
+                        <p className="text-[10px] font-medium leading-relaxed max-w-[200px]">
+                          Your AI-generated charts and widgets will appear here for quick access.
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     analysisHistory.map((msg) => (
                       <div key={msg.id} className="relative group/item">
                         <button
                           onClick={() => scrollToMessage(msg.id)}
-                          className={`w-full p-4 pr-12 rounded-2xl border text-left transition-all flex flex-col gap-2 group ${
-                            isDarkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-indigo-500/30' : 'bg-slate-50 border-slate-100 hover:bg-white hover:border-indigo-300 shadow-sm'
-                          }`}
+                          className={`w-full p-4 pr-12 rounded-2xl border text-left transition-all flex flex-col gap-2 group ${isDarkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-indigo-500/30' : 'bg-slate-50 border-slate-100 hover:bg-white hover:border-indigo-300 shadow-sm'
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex gap-1">
@@ -809,11 +1160,10 @@ const AIChat: React.FC<AIChatProps> = ({
                           </div>
                           <p className="text-xs font-medium line-clamp-2 opacity-60 group-hover:opacity-100 transition-opacity">"{msg.content}"</p>
                         </button>
-                        <button 
+                        <button
                           onClick={(e) => deleteMessage(msg.id, e)}
-                          className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl opacity-0 group-hover/item:opacity-100 transition-all ${
-                            isDarkMode ? 'hover:bg-rose-500/10 text-zinc-500 hover:text-rose-500' : 'hover:bg-rose-50 text-slate-400 hover:text-rose-500'
-                          }`}
+                          className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl opacity-0 group-hover/item:opacity-100 transition-all ${isDarkMode ? 'hover:bg-rose-500/10 text-zinc-500 hover:text-rose-500' : 'hover:bg-rose-50 text-slate-400 hover:text-rose-500'
+                            }`}
                           title="Delete Analysis"
                         >
                           <Trash2 size={14} />
@@ -830,146 +1180,19 @@ const AIChat: React.FC<AIChatProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Settings Drawer */}
-      <AnimatePresence>
-        {isSettingsOpen && (
-          <div className="fixed inset-0 z-[300] flex justify-end">
-            <div 
-              onClick={() => setIsSettingsOpen(false)} 
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
-            />
-            <div 
-              className={`relative w-full max-w-sm h-full shadow-2xl flex flex-col transition-colors duration-500 ${
-                isDarkMode ? 'bg-[#0a0a0c] border-l border-white/5' : 'bg-white border-l border-slate-200'
-              }`}
-            >
-              <div className="flex flex-col h-full">
-                {/* Drawer Header */}
-                <div className={`p-8 border-b ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
-                        <SettingsIcon size={20} />
-                      </div>
-                      <h3 className="text-lg font-black uppercase tracking-tight">AI Settings</h3>
-                    </div>
-                    <button 
-                      onClick={() => setIsSettingsOpen(false)} 
-                      className={`p-2 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/5 text-zinc-500' : 'hover:bg-black/5 text-slate-400'}`}
-                    >
-                      <X size={20} />
-                    </button>
-                  </div>
-                  <p className="text-[10px] font-bold opacity-40 uppercase tracking-[0.2em]">Personalize your experience</p>
-                </div>
-
-                {/* Drawer Content */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-10">
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-1 h-4 bg-indigo-500 rounded-full" />
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Model Engine</label>
-                    </div>
-                    <div className="space-y-3">
-                      {[
-                        { id: 'gemini-3-pro-preview', name: 'Pro 3.0 (Preview)', desc: 'Next-generation reasoning & multimodal excellence' },
-                        { id: 'gemini-3-flash-preview', name: 'Flash 3.0 (Preview)', desc: 'Ultra-low latency with Gemini 3 intelligence' },
-                        { id: 'gemini-2.5-pro', name: 'Pro 2.5', desc: 'Expert-level data synthesis and pattern recognition' },
-                        { id: 'gemini-2.5-flash', name: 'Flash 2.5', desc: 'High-speed professional trading analysis' },
-                        { id: 'gemini-2.5-flash-lite', name: 'Flash 2.5 Lite', desc: 'Lightweight & efficient for instant insights' },
-                      ].map((model) => (
-                        <button 
-                          key={model.id} 
-                          onClick={() => setSelectedModel(model.id)}
-                          className={`w-full p-5 rounded-3xl border text-left transition-all relative overflow-hidden group ${
-                            selectedModel === model.id 
-                              ? 'bg-indigo-600 border-indigo-500 text-white shadow-xl shadow-indigo-600/30' 
-                              : (isDarkMode ? 'bg-white/[0.03] border-white/5 text-zinc-400 hover:bg-white/[0.06]' : 'bg-slate-50 border-slate-100 text-slate-600 hover:bg-slate-100')
-                          }`}
-                        >
-                          <div className="flex items-center justify-between relative z-10">
-                            <span className="text-[11px] font-black uppercase tracking-widest">{model.name}</span>
-                            {selectedModel === model.id && (
-                              <motion.div layoutId="activeModel" className="w-2 h-2 rounded-full bg-white shadow-[0_0_8px_white]" />
-                            )}
-                          </div>
-                          <p className={`text-[9.5px] font-bold mt-1 opacity-60 leading-tight relative z-10 ${selectedModel === model.id ? 'text-indigo-100' : ''}`}>
-                            {model.desc}
-                          </p>
-                          {selectedModel === model.id && (
-                            <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-1 h-4 bg-indigo-500 rounded-full" />
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Communication Style</label>
-                    </div>
-                    <div className={`p-2 rounded-3xl border flex gap-1 transition-all ${isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-slate-50 border-slate-100'}`}>
-                      {['Professional', 'Casual', 'Strict'].map((tone) => (
-                        <button 
-                          key={tone} 
-                          className={`flex-1 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                            tone === 'Professional' 
-                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                              : (isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-slate-500 hover:text-slate-700')
-                          }`}
-                        >
-                          {tone}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-1 h-4 bg-indigo-500 rounded-full" />
-                      <label className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50">Preferences</label>
-                    </div>
-                    {[
-                      { title: 'Auto-Reveal Charts', desc: 'Bypass accordion triggers', active: false },
-                      { title: 'Recall Memory', desc: 'Cross-session storage', active: true },
-                    ].map((pref, i) => (
-                      <div 
-                        key={i} 
-                        className={`flex items-center justify-between p-5 rounded-3xl border transition-all ${
-                          isDarkMode ? 'bg-white/[0.02] border-white/5' : 'bg-slate-50 border-slate-100'
-                        }`}
-                      >
-                        <div>
-                          <h4 className="text-[11px] font-black uppercase tracking-wide">{pref.title}</h4>
-                          <p className="text-[9px] opacity-40 font-bold uppercase mt-1">{pref.desc}</p>
-                        </div>
-                        <div className={`w-10 h-5 rounded-full flex items-center px-1 cursor-pointer transition-colors ${
-                          pref.active ? 'bg-indigo-600' : 'bg-zinc-800'
-                        }`}>
-                          <div className={`w-3 h-3 bg-white rounded-full shadow-md transition-transform ${
-                            pref.active ? 'translate-x-5' : 'translate-x-0'
-                          }`} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Drawer Footer */}
-                <div className={`p-8 border-t ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}>
-                  <button 
-                    onClick={() => setIsSettingsOpen(false)} 
-                    className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-indigo-600/30 active:scale-95"
-                  >
-                    Apply Config
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
+      <AISettingsDrawer
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        isDarkMode={isDarkMode}
+        selectedModel={selectedModel}
+        setSelectedModel={setSelectedModel}
+        communicationStyle={communicationStyle}
+        setCommunicationStyle={setCommunicationStyle}
+        autoRevealCharts={autoRevealCharts}
+        setAutoRevealCharts={setAutoRevealCharts}
+        recallMemory={recallMemory}
+        setRecallMemory={setRecallMemory}
+      />
     </div>
   );
 };

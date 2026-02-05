@@ -4,7 +4,7 @@ import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Activity, 
   Brain, ShieldCheck, ArrowUpRight, ArrowDownRight, Edit3, 
   ChevronDown, Clock, CheckCircle2, Trash2, CheckSquare, Square, 
-  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye, Layers, Link, Unlink
+  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye, Layers, Link, Unlink, RefreshCw
 } from 'lucide-react';
 import { Trade, UserProfile } from '../types';
 import { getSASTDateTime } from '../lib/timeUtils';
@@ -17,6 +17,7 @@ interface JournalProps {
   onDeleteTrades: (tradeIds: string[]) => void;
   onEditTrade: (trade: Trade) => void;
   userProfile: UserProfile;
+  isLoading?: boolean;
 }
 
 interface GroupedTrade {
@@ -327,7 +328,7 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     );
 };
 
-const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile }) => {
+const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile, isLoading = false }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
@@ -604,7 +605,13 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                             <div className="p-2 bg-white text-black rounded-lg shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
                                                 <Upload size={16} />
                                             </div>
-                                            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUpload(trade, slot.id as any, e)} />
+                                            <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                className="hidden" 
+                                                aria-label={`Upload ${slot.label} screenshot`}
+                                                onChange={(e) => handleUpload(trade, slot.id as any, e)} 
+                                            />
                                         </label>
                                     </>
                                 )}
@@ -735,12 +742,27 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                 ) : (
                     <div className="flex gap-3">
                         <div className={`flex rounded-lg border overflow-hidden p-1 gap-1 ${isDarkMode ? 'border-[#27272a] bg-[#18181b]' : 'border-slate-200 bg-white'}`}>
-                            <button onClick={() => setViewMode('list')} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'list' ? (isDarkMode ? 'bg-zinc-800 text-white shadow' : 'bg-slate-100 text-slate-900') : 'text-zinc-500 hover:text-zinc-300'}`}><List size={16} /> List</button>
-                            <button onClick={() => setViewMode('calendar')} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'calendar' ? (isDarkMode ? 'bg-zinc-800 text-white shadow' : 'bg-slate-100 text-slate-900') : 'text-zinc-500 hover:text-zinc-300'}`}><CalendarIcon size={16} /> Calendar</button>
+                            <button 
+                                onClick={() => setViewMode('list')} 
+                                aria-label="Switch to List View"
+                                className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'list' ? (isDarkMode ? 'bg-zinc-800 text-white shadow' : 'bg-slate-100 text-slate-900') : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                <List size={16} /> List
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('calendar')} 
+                                aria-label="Switch to Calendar View"
+                                className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${viewMode === 'calendar' ? (isDarkMode ? 'bg-zinc-800 text-white shadow' : 'bg-slate-100 text-slate-900') : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                <CalendarIcon size={16} /> Calendar
+                            </button>
                         </div>
                         <div className="relative">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                             <input 
+                                id="journal-search-input"
+                                name="search"
+                                aria-label="Search pair, tag or asset"
                                 placeholder="Search pair, tag or asset..." 
                                 value={searchTerm} 
                                 onChange={(e) => setSearchTerm(e.target.value)} 
@@ -774,7 +796,12 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             <div className="col-span-1"></div>
                         </div>
                         <div className="overflow-y-auto custom-scrollbar flex-1 px-4">
-                            {groupedTrades.length === 0 ? (
+                            {isLoading ? (
+                                <div className="flex flex-col items-center justify-center h-full gap-4">
+                                    <RefreshCw size={32} className="animate-spin text-indigo-500 opacity-50" />
+                                    <p className="text-xs font-black uppercase tracking-widest opacity-40">Fetching trade history...</p>
+                                </div>
+                            ) : groupedTrades.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full opacity-30">
                                     <h3 className="text-xl font-bold">No Trades Found</h3>
                                 </div>

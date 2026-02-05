@@ -1,0 +1,9 @@
+
+-- Add columns to support Keep Notebook integration
+ALTER TABLE public.notes
+ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS is_trashed BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS is_list BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS list_items JSONB DEFAULT '[]',
+ADD COLUMN IF NOT EXISTS image TEXT,
+ADD COLUMN IF NOT EXISTS table_data JSONB DEFAULT NULL;

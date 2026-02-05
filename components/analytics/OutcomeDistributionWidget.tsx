@@ -19,7 +19,7 @@ export const OutcomeDistributionWidget: React.FC<OutcomeDistributionWidgetProps>
     const beRate = (beCount / total) * 100;
 
     return (
-        <div className={`h-full p-8 rounded-[32px] border flex flex-col items-center justify-between ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={`h-full py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col items-center justify-between ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex items-center gap-2 self-start mb-4">
                 <PieChart size={20} className="text-teal-500" />
                 <h3 className="font-bold text-lg uppercase tracking-wide opacity-80">Outcome Distribution</h3>

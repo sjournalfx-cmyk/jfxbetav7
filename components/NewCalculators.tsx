@@ -21,20 +21,25 @@ const NEW_CALCULATORS = [
 const NewCalculators: React.FC<NewCalculatorsProps> = ({ isDarkMode }) => {
     const [activeId, setActiveId] = useState<NewCalcType | null>(null);
     const [key, setKey] = useState(0); // For refreshing the iframe
+    const [isLoading, setIsLoading] = useState(false);
 
     const getIframeUrl = (type: NewCalcType) => {
         const baseUrl = 'https://calcs.forexcalcs.com/';
         const primaryColor = '#FF4F01'; // Matching JFX branding
-        const mode = isDarkMode ? '2' : '1'; // 2 is likely dark mode based on common patterns, but let's stick to 1 for now if unsure. Actually, let's use 1 and see.
+        const mode = isDarkMode ? '2' : '1'; 
 
-        // Construct query string similar to the PHP functions.php
-        // ?pc=#FF4F01&mode=1&lang=en&align=left
         const pc = encodeURIComponent(primaryColor);
         return `${baseUrl}${type}/?pc=${pc}&mode=${mode}&lang=en&align=left`;
     };
 
     const handleRefresh = () => {
+        setIsLoading(true);
         setKey(prev => prev + 1);
+    };
+
+    const handleSelectCalc = (id: NewCalcType) => {
+        setIsLoading(true);
+        setActiveId(id);
     };
 
     return (
@@ -87,7 +92,7 @@ const NewCalculators: React.FC<NewCalculatorsProps> = ({ isDarkMode }) => {
                         {NEW_CALCULATORS.map(calc => (
                             <button
                                 key={calc.id}
-                                onClick={() => setActiveId(calc.id as NewCalcType)}
+                                onClick={() => handleSelectCalc(calc.id as NewCalcType)}
                                 className={`group p-6 rounded-2xl border text-left transition-all hover:-translate-y-1 hover:shadow-xl ${isDarkMode
                                         ? 'bg-[#18181b] border-[#27272a] hover:border-[#FF4F01]/50'
                                         : 'bg-white border-slate-200 hover:border-[#FF4F01]/30 shadow-md'
@@ -119,6 +124,12 @@ const NewCalculators: React.FC<NewCalculatorsProps> = ({ isDarkMode }) => {
                             </div>
 
                             <div className="relative bg-white flex justify-center items-center min-h-[500px]">
+                                {isLoading && (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white z-10">
+                                        <RefreshCw size={32} className="text-[#FF4F01] animate-spin mb-4" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-zinc-400">Loading Engine...</span>
+                                    </div>
+                                )}
                                 <iframe
                                     key={key}
                                     src={getIframeUrl(activeId)}
@@ -126,10 +137,12 @@ const NewCalculators: React.FC<NewCalculatorsProps> = ({ isDarkMode }) => {
                                     height="500"
                                     frameBorder="0"
                                     scrolling="no"
+                                    onLoad={() => setIsLoading(false)}
                                     className="mx-auto"
                                     style={{
                                         maxWidth: '100%',
-                                        filter: isDarkMode ? 'contrast(1.1)' : 'none'
+                                        filter: isDarkMode ? 'contrast(1.1)' : 'none',
+                                        opacity: isLoading ? 0 : 1
                                     }}
                                 />
                             </div>

@@ -7,15 +7,36 @@ interface PerformanceBySessionProps {
     trades: Trade[];
     isDarkMode: boolean;
     currencySymbol: string;
+    isLoading?: boolean;
 }
 
 type ViewMode = 'market' | 'hourly' | 'daily';
 
-export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trades, isDarkMode, currencySymbol }) => {
+export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trades, isDarkMode, currencySymbol, isLoading = false }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('market');
     const [hoveredBar, setHoveredBar] = useState<string | null>(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
+
+    if (isLoading) {
+        return (
+            <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border transition-colors duration-500 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+                <div className="flex justify-between items-center mb-8">
+                    <div className="space-y-2">
+                        <div className="w-32 h-6 bg-zinc-500/10 rounded animate-pulse" />
+                        <div className="w-48 h-3 bg-zinc-500/10 rounded animate-pulse" />
+                    </div>
+                    <div className="w-40 h-10 bg-zinc-500/10 rounded-xl animate-pulse" />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="h-[250px] bg-zinc-500/5 rounded-2xl animate-pulse" />
+                    <div className="space-y-3">
+                        {[1, 2, 3].map(i => <div key={i} className="h-20 bg-zinc-500/5 rounded-2xl animate-pulse" />)}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // --- Helpers ---
     const getSessionFromTime = (timeStr: string) => {
@@ -142,7 +163,12 @@ export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trad
 
     // --- Chart Helpers ---
     const renderBarChart = (data: { label?: string, name?: string, pnl: number, cumulativePnl: number }[], isHourly = false) => {
-        if (data.length === 0) return <div className="h-full flex items-center justify-center opacity-40 text-sm">No Data</div>;
+        if (data.length === 0) return (
+            <div className="h-full flex flex-col items-center justify-center opacity-30 text-center gap-2">
+                <BarChart2 size={32} strokeWidth={1} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Waiting for Data</span>
+            </div>
+        );
 
         const maxPnl = Math.max(...data.map(d => Math.abs(d.pnl)), 100);
         const maxCumulative = Math.max(...data.map(d => Math.abs(d.cumulativePnl)), 100);
@@ -257,7 +283,7 @@ export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trad
     };
 
     return (
-        <div className={`p-6 md:p-8 rounded-[32px] border transition-colors duration-500 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+        <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border transition-colors duration-500 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
             {/* Header & Controls */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-8">
                 <div>
@@ -326,7 +352,17 @@ export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trad
                                 </div>
                             ))}
                             {marketSessionData.length === 0 && (
-                                <div className="text-center opacity-40 py-10 text-sm">No session data available.</div>
+                                <div className="h-full flex flex-col items-center justify-center py-12 text-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-zinc-500/5 flex items-center justify-center text-zinc-500/20">
+                                        <Clock size={24} strokeWidth={1.5} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] font-black uppercase tracking-widest opacity-40">No Session Data</p>
+                                        <p className="text-[9px] font-medium opacity-30 max-w-[160px] mx-auto leading-relaxed">
+                                            Execute trades during market sessions to see your performance breakdown.
+                                        </p>
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </div>

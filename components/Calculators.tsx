@@ -38,22 +38,27 @@ const RATES: Record<string, number> = {
 
 import { Select } from './Select';
 
-const InputGroup = ({ label, value, onChange, prefix, suffix, type = "number", isDarkMode, step }: any) => (
-    <div className="flex-1 min-w-[140px]">
-        <label className="text-[10px] font-bold uppercase opacity-50 mb-1.5 block">{label}</label>
-        <div className={`flex items-center px-4 py-3 rounded-xl border focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all ${isDarkMode ? 'bg-[#0c0c0e] border-[#27272a]' : 'bg-slate-50 border-slate-200'}`}>
-            {prefix && <span className="opacity-50 mr-2 font-medium font-mono">{prefix}</span>}
-            <input
-                type={type}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                step={step}
-                className={`bg-transparent outline-none w-full font-mono font-medium text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            />
-            {suffix && <span className="opacity-50 ml-2 font-medium text-xs">{suffix}</span>}
+const InputGroup = ({ label, value, onChange, prefix, suffix, type = "number", isDarkMode, step }: any) => {
+    const id = label.toLowerCase().replace(/\s+/g, '-');
+    return (
+        <div className="flex-1 min-w-[140px]">
+            <label htmlFor={id} className="text-[10px] font-bold uppercase opacity-50 mb-1.5 block">{label}</label>
+            <div className={`flex items-center px-4 py-3 rounded-xl border focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all ${isDarkMode ? 'bg-[#0c0c0e] border-[#27272a]' : 'bg-slate-50 border-slate-200'}`}>
+                {prefix && <span className="opacity-50 mr-2 font-medium font-mono">{prefix}</span>}
+                <input
+                    id={id}
+                    name={id}
+                    type={type}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    step={step}
+                    className={`bg-transparent outline-none w-full font-mono font-medium text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                />
+                {suffix && <span className="opacity-50 ml-2 font-medium text-xs">{suffix}</span>}
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const ResultCard = ({ label, value, isDarkMode, subValue, colorClass = "text-indigo-500" }: any) => (
     <div className={`p-4 rounded-xl border flex flex-col items-center justify-center text-center h-full ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
@@ -193,8 +198,22 @@ const DrawdownCalc = ({ isDarkMode }: { isDarkMode: boolean }) => {
     return (
         <div className="space-y-8 animate-in slide-in-from-right-4 max-w-xl mx-auto text-center">
             <div className="space-y-4">
-                <label className="text-xs font-bold uppercase opacity-50">Current Drawdown</label>
-                <div className="flex items-center justify-center gap-4"><span className="text-xl font-bold">0%</span><input type="range" min="1" max="95" step="1" value={drawdown} onChange={(e) => setDrawdown(Number(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500" /><span className="text-xl font-bold">95%</span></div>
+                <label htmlFor="drawdown-range" className="text-xs font-bold uppercase opacity-50">Current Drawdown</label>
+                <div className="flex items-center justify-center gap-4">
+                    <span className="text-xl font-bold">0%</span>
+                    <input 
+                        id="drawdown-range"
+                        name="drawdown"
+                        type="range" 
+                        min="1" 
+                        max="95" 
+                        step="1" 
+                        value={drawdown} 
+                        onChange={(e) => setDrawdown(Number(e.target.value))} 
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500" 
+                    />
+                    <span className="text-xl font-bold">95%</span>
+                </div>
                 <div className={`text-3xl font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{drawdown}%</div>
             </div>
             <div className={`p-8 rounded-3xl border flex flex-col items-center gap-4 ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-slate-50 border-slate-200'}`}><div className="p-4 rounded-full bg-orange-500/10 text-orange-500"><RefreshCw size={32} /></div><div><h3 className="text-lg font-bold">Recovery Required</h3><p className="text-xs opacity-50">Gain needed to get back to breakeven</p></div><div className="text-5xl font-black text-orange-500 tracking-tighter">{recovery.toFixed(1)}%</div></div>

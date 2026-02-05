@@ -43,7 +43,7 @@ export const SymbolPerformanceWidget: React.FC<SymbolPerformanceWidgetProps> = (
     ];
 
     return (
-        <div className={`p-6 rounded-[24px] border h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+        <div className={`py-4 px-0 sm:p-6 rounded-none sm:rounded-[24px] border h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
             <div className="flex items-center gap-2 mb-6">
                 <h3 className="text-lg font-bold tracking-tight">Symbol Performance</h3>
                 <Tooltip content="Aggregated performance metrics for your most and least profitable symbols." isDarkMode={isDarkMode}>

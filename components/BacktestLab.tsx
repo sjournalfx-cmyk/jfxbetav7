@@ -746,6 +746,9 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                             </div>
                             <Search size={14} className="text-zinc-500 ml-1" />
                             <input
+                                id="backtest-symbol-input"
+                                name="symbol"
+                                aria-label="Enter trading symbol for backtesting"
                                 value={symbol}
                                 onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setIsSymbolMenuOpen(true); }}
                                 onFocus={() => setIsSymbolMenuOpen(true)}
@@ -886,8 +889,15 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                                 </div>
 
                                 {/* Option 2: Manual Upload */}
-                                <label className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-[#FF4F01]/50 hover:bg-[#FF4F01]/5' : 'bg-white border-slate-200 hover:border-[#FF4F01]/50'}`}>
-                                    <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
+                                <label htmlFor="backtest-file-upload" className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-[#FF4F01]/50 hover:bg-[#FF4F01]/5' : 'bg-white border-slate-200 hover:border-[#FF4F01]/50'}`}>
+                                    <input 
+                                        id="backtest-file-upload"
+                                        name="backtest-data-file"
+                                        type="file" 
+                                        accept=".json" 
+                                        onChange={handleFileUpload} 
+                                        className="hidden" 
+                                    />
                                     <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:-rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-slate-400'}`}>
                                         <FileUp size={48} />
                                     </div>
@@ -985,10 +995,12 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                                 </div>
                                 <div className="space-y-4">
                                     <div className="group">
-                                        <label className="text-[9px] font-black uppercase tracking-[0.2em] opacity-50 block mb-2">Default Risk:Reward (1:X)</label>
+                                        <label htmlFor="default-rr-input" className="text-[9px] font-black uppercase tracking-[0.2em] opacity-50 block mb-2">Default Risk:Reward (1:X)</label>
                                         <div className="relative">
                                             <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-lg">1:</span>
                                             <input
+                                                id="default-rr-input"
+                                                name="default-rr"
                                                 type="number"
                                                 step="0.1"
                                                 min="0.1"
@@ -1089,7 +1101,19 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                         <div className="flex items-center justify-between mb-6"><h3 className="text-sm font-black uppercase tracking-widest">Drawing Settings</h3><button onClick={() => setEditingDrawingSettings(null)} className="p-1 hover:bg-black/5 rounded-lg"><X size={16} /></button></div>
                         <div className="space-y-6">
                             <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Stroke Color</label><div className="grid grid-cols-5 gap-2">{['#2962ff', '#FF4F01', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#787b86', (isDarkMode ? '#ffffff' : '#000000'), (isDarkMode ? '#000000' : '#e2e8f0')].map(c => <button key={c} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { color: c })} className={`w-8 h-8 rounded-full border-2 ${editingDrawingSettings.color === c ? 'border-[#FF4F01]' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div></div>
-                            <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Thickness: {editingDrawingSettings.strokeWidth || 2}px</label><input type="range" min="1" max="8" value={editingDrawingSettings.strokeWidth || 2} onChange={(e) => updateDrawingProperty(editingDrawingSettings.id, { strokeWidth: parseInt(e.target.value) })} className="w-full accent-[#FF4F01]" /></div>
+                            <div>
+                                <label htmlFor="drawing-thickness-input" className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Thickness: {editingDrawingSettings.strokeWidth || 2}px</label>
+                                <input 
+                                    id="drawing-thickness-input"
+                                    name="thickness"
+                                    type="range" 
+                                    min="1" 
+                                    max="8" 
+                                    value={editingDrawingSettings.strokeWidth || 2} 
+                                    onChange={(e) => updateDrawingProperty(editingDrawingSettings.id, { strokeWidth: parseInt(e.target.value) })} 
+                                    className="w-full accent-[#FF4F01]" 
+                                />
+                            </div>
                             <div><label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3 block">Line Style</label><div className="flex gap-2">{['solid', 'dashed', 'dotted'].map(s => <button key={s} onClick={() => updateDrawingProperty(editingDrawingSettings.id, { strokeStyle: s as any })} className={`flex-1 py-2 rounded-lg border text-[10px] font-bold uppercase ${editingDrawingSettings.strokeStyle === s || (!editingDrawingSettings.strokeStyle && s === 'solid') ? 'bg-[#FF4F01] text-white' : 'bg-zinc-800 text-zinc-400'}`}>{s}</button>)}</div></div>
                             <div className="pt-4 border-t border-zinc-800/50"><button onClick={() => { setDrawings(drawings.filter(d => d.id !== editingDrawingSettings.id)); pushToHistory(drawings.filter(d => d.id !== editingDrawingSettings.id)); setEditingDrawingSettings(null); setSelectedDrawingId(null); }} className="w-full py-2.5 bg-rose-500 text-white rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2"><Trash2 size={14} /> Remove</button></div>
                         </div>

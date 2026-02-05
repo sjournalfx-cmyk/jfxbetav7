@@ -61,7 +61,7 @@ export const DrawdownOverTimeWidget: React.FC<DrawdownOverTimeWidgetProps> = ({ 
     const hoverY = hoverIndex !== null ? (drawdownData[hoverIndex].drawdown / maxY) * 200 : 0;
 
     return (
-        <div className={`p-6 rounded-[24px] border flex flex-col min-h-[350px] relative h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+        <div className={`py-4 px-0 sm:p-6 rounded-none sm:rounded-[24px] border flex flex-col min-h-[350px] relative h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
             <div className="flex justify-between items-start mb-6">
                 <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold tracking-tight">Drawdown Over Time</h3>

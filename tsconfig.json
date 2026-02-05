@@ -29,6 +29,9 @@
   },
   "exclude": [
     "supabase",
-    "supabase_function_template.ts"
+    "supabase_function_template.ts",
+    "dist",
+    "build",
+    "node_modules"
   ]
 }

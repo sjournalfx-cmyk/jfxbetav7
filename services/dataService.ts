@@ -485,7 +485,12 @@ export const dataService = {
     if (error) throw error;
     return data.map((note: any) => ({
       ...note,
-      isPinned: note.is_pinned
+      isPinned: note.is_pinned,
+      isArchived: note.is_archived,
+      isTrashed: note.is_trashed,
+      isList: note.is_list,
+      listItems: note.list_items,
+      tableData: note.table_data
     }));
   },
 
@@ -502,7 +507,13 @@ export const dataService = {
         date: note.date,
         tags: note.tags,
         color: note.color,
-        is_pinned: note.isPinned
+        is_pinned: note.isPinned,
+        is_archived: note.isArchived,
+        is_trashed: note.isTrashed,
+        is_list: note.isList,
+        list_items: note.listItems,
+        image: note.image,
+        table_data: note.tableData
       })
       .select()
       .single();
@@ -519,7 +530,13 @@ export const dataService = {
         content: note.content,
         tags: note.tags,
         color: note.color,
-        is_pinned: note.isPinned
+        is_pinned: note.isPinned,
+        is_archived: note.isArchived,
+        is_trashed: note.isTrashed,
+        is_list: note.isList,
+        list_items: note.listItems,
+        image: note.image,
+        table_data: note.tableData
       })
       .eq('id', note.id);
 

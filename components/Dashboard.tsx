@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Activity, TrendingUp, DollarSign, BarChart2, Zap, Coins, GripVertical, UserCircle, Wallet, Layout, Cpu, ArrowRight, Lock, Info, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowUpRight, ArrowDownRight, Activity, TrendingUp, DollarSign, BarChart2, Zap, Coins, GripVertical, UserCircle, Wallet, Layout, Cpu, ArrowRight, Lock, Info, X, ChevronDown, CheckCircle2 } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -24,22 +25,7 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { dataService } from '../services/dataService';
 import { supabase } from '../lib/supabase';
 import OpenPositions from './OpenPositions';
-import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
 import { EquityCurveWidget } from './analytics/EquityCurveWidget';
-import { MomentumStreakWidget } from './analytics/MomentumStreakWidget';
-import { DrawdownOverTimeWidget } from './analytics/DrawdownOverTimeWidget';
-import { LargestWinLossWidget } from './analytics/LargestWinLossWidget';
-import { SymbolPerformanceWidget } from './analytics/SymbolPerformanceWidget';
-import { MonthlyPerformanceWidget } from './analytics/MonthlyPerformanceWidget';
-import { CurrencyStrengthMeter } from './analytics/CurrencyStrengthMeter';
-import { TradeExitAnalysisWidget } from './analytics/TradeExitAnalysisWidget';
-import { TiltScoreWidget } from './analytics/TiltScoreWidget';
-import { PerformanceRadarWidget } from './analytics/PerformanceRadarWidget';
-import { PLByMindsetWidget } from './analytics/PLByMindsetWidget';
-import { PLByPlanAdherenceWidget } from './analytics/PLByPlanAdherenceWidget';
-import { StrategyPerformanceBubbleChart } from './analytics/StrategyPerformanceBubbleChart';
-import { OutcomeDistributionWidget } from './analytics/OutcomeDistributionWidget';
-import { ExecutionPerformanceTable } from './analytics/ExecutionPerformanceTable';
 import { PerformanceBySession } from './analytics/PerformanceBySession';
 import { Skeleton } from './ui/Skeleton';
 import { Tooltip } from './ui/Tooltip';
@@ -232,43 +218,37 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
 
 
 
+const DASHBOARD_PRESETS = {
+    STANDARD: ['dailyBias', 'recentTrades', 'equityCurve', 'openPositions'],
+    EXECUTION: ['openPositions', 'recentTrades', 'dailyBias', 'equityCurve'],
+    ANALYTICS: ['equityCurve', 'recentTrades', 'dailyBias', 'openPositions']
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading }) => {
     // Robust free tier check
     const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
+    const [showPresetMenu, setShowPresetMenu] = useState(false);
 
     // Widgets State for Reordering
-    const [widgetOrder, setWidgetOrder] = useLocalStorage('dashboard_widget_order', [
-        'dailyBias',
-        'recentTrades',
-        'perfByPair',
-        'equityCurve',
-        'momentumStreak',
-        'drawdown',
-        'largestWinLoss',
-        'symbolPerformance',
-        'monthlyPerformance',
-        'currencyStrength',
-        'tradeExit',
-        'tiltScore',
-        'outcomeDist',
-        'performanceRadar',
-        'plByMindset',
-        'plByPlan',
-        'strategyPerf',
-        'executionTable',
-        'perfBySession',
-        'openPositions',
-    ]);
+    const [widgetOrder, setWidgetOrder] = useLocalStorage('dashboard_widget_order', DASHBOARD_PRESETS.STANDARD);
+
+    const handleApplyPreset = (preset: keyof typeof DASHBOARD_PRESETS) => {
+        setWidgetOrder(DASHBOARD_PRESETS[preset]);
+        setShowPresetMenu(false);
+    };
+
+    const activePreset = useMemo(() => {
+        if (JSON.stringify(widgetOrder) === JSON.stringify(DASHBOARD_PRESETS.STANDARD)) return 'Standard';
+        if (JSON.stringify(widgetOrder) === JSON.stringify(DASHBOARD_PRESETS.EXECUTION)) return 'Execution';
+        if (JSON.stringify(widgetOrder) === JSON.stringify(DASHBOARD_PRESETS.ANALYTICS)) return 'Analytics';
+        return 'Custom';
+    }, [widgetOrder]);
 
     // Ensure new widgets are added to existing layouts
     useEffect(() => {
         const allWidgets = [
-            'dailyBias', 'recentTrades', 'perfByPair', 'equityCurve', 
-            'momentumStreak', 'drawdown', 'largestWinLoss', 'symbolPerformance',
-            'monthlyPerformance', 'currencyStrength', 'tradeExit', 'tiltScore',
-            'outcomeDist', 'performanceRadar', 'plByMindset', 'plByPlan', 'strategyPerf',
-            'executionTable', 'perfBySession', 'openPositions'
+            'dailyBias', 'recentTrades', 'equityCurve', 'openPositions'
         ];
         const missing = allWidgets.filter(id => !widgetOrder.includes(id));
         if (missing.length > 0) {
@@ -429,136 +409,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                 />;
             case 'recentTrades':
                 return <RecentTrades isDarkMode={isDarkMode} trades={trades} symbol={userProfile.currencySymbol} />;
-            case 'perfByPair':
-                return <PerformanceByPairWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Performance by Pair",
-                        content: "Detailed profit and loss breakdown for each individual trading pair. Use this to identify which assets are driving your profitability and which ones might be dragging your performance down."
-                    })}
-                />;
             case 'equityCurve':
-                return <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />;
-            case 'momentumStreak':
-                return <MomentumStreakWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Trade Momentum",
-                        content: "Momentum tracks your recent outcome streaks (Wins/Losses). It helps you visualize 'hot' and 'cold' cycles in your trading."
-                    })}
-                />;
-            case 'drawdown':
-                return <DrawdownOverTimeWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    userProfile={userProfile} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Drawdown Over Time",
-                        content: "This chart tracks your 'Peak-to-Valley' equity drops. It shows the percentage decline from your highest ever balance point."
-                    })}
-                />;
-            case 'largestWinLoss':
-                return <LargestWinLossWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Largest Win vs Loss",
-                        content: "Compares your single most profitable trade against your single largest losing trade. Ideally, wins should be larger than losses."
-                    })}
-                />;
-            case 'symbolPerformance':
-                return <SymbolPerformanceWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Symbol Performance",
-                        content: "Highlights your best and worst performing assets by total P&L and average P&L per trade."
-                    })}
-                />;
-            case 'monthlyPerformance':
-                return <MonthlyPerformanceWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Monthly Performance",
-                        content: "A high-level view of your P&L and maximum drawdown for every month of the current year."
-                    })}
-                />;
-            case 'currencyStrength':
-                return <CurrencyStrengthMeter 
-                    isDarkMode={isDarkMode} 
-                    trades={trades} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Currency Strength",
-                        content: "Measures the relative strength of currencies based on your trading P&L for each base and quote currency."
-                    })}
-                />;
-            case 'tradeExit':
-                return <TradeExitAnalysisWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Trade Exit Analysis",
-                        content: "Breaks down your trade outcomes by exit type: Take Profit, Stop Loss, or Breakeven."
-                    })}
-                />;
-            case 'tiltScore':
-                return <TiltScoreWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Discipline Score",
-                        content: "A mathematical reflection of how well you follow your trading rules, weighted by your plan adherence logs."
-                    })}
-                />;
-            case 'outcomeDist':
-                return <OutcomeDistributionWidget trades={trades} isDarkMode={isDarkMode} />;
-            case 'performanceRadar':
-                return <PerformanceRadarWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "Performance Radar",
-                        content: "Maps your financial performance against your psychological mindset to find your optimal trading state."
-                    })}
-                />;
-            case 'plByMindset':
-                return <PLByMindsetWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "P/L by Mindset",
-                        content: "Breaks down your net profit and loss based on the mindset you logged for each trade."
-                    })}
-                />;
-            case 'plByPlan':
-                return <PLByPlanAdherenceWidget 
-                    trades={trades} 
-                    isDarkMode={isDarkMode} 
-                    currencySymbol={userProfile.currencySymbol} 
-                    onInfoClick={() => setActiveInfo({
-                        title: "P/L by Plan Adherence",
-                        content: "Shows the direct financial impact of following your trading plan vs. deviating from it."
-                    })}
-                />;
-            case 'strategyPerf':
-                return <StrategyPerformanceBubbleChart trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />;
-            case 'executionTable':
-                return <ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} initialBalance={userProfile.initialBalance} />;
-            case 'perfBySession':
-                return (
-                    <div className="space-y-4">
-                        <h3 className="font-bold px-4">Performance by Session</h3>
-                        <PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} />
-                    </div>
-                );
+                return <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} isLoading={isLoading} />;
             case 'openPositions':
                 return (
                     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-100 shadow-md'}`}>
@@ -592,8 +444,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
 
     // Helper to determine col-span based on ID
     const getColSpan = (id: string) => {
-        if (id === 'dailyBias' || id === 'openPositions' || id === 'perfByPair' || id === 'equityCurve' || id === 'momentumStreak' || id === 'drawdown' || id === 'largestWinLoss' || id === 'symbolPerformance' || id === 'strategyPerf' || id === 'executionTable' || id === 'perfBySession' || id === 'outcomeDist') return 'col-span-1 lg:col-span-2 min-h-[250px]';
-        if (id === 'monthlyPerformance' || id === 'currencyStrength' || id === 'tradeExit' || id === 'performanceRadar' || id === 'plByMindset' || id === 'plByPlan') return 'col-span-1 lg:col-span-3 min-h-[400px]';
+        if (id === 'dailyBias' || id === 'openPositions' || id === 'equityCurve') return 'col-span-1 lg:col-span-2 min-h-[250px]';
         return 'col-span-1 min-h-[250px]';
     };
 
@@ -610,7 +461,54 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Welcome back, {userProfile.name}. Analyzing markets from {userProfile.country}.</p>
                 </div>
 
-                <div className={`flex items-center gap-6 p-4 rounded-3xl border ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
+                <div className="flex items-center gap-4">
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowPresetMenu(!showPresetMenu)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all ${isDarkMode ? 'bg-[#18181b] border-zinc-800 text-zinc-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm'}`}
+                        >
+                            <Layout size={16} />
+                            <span className="hidden sm:inline">Layout: {activePreset}</span>
+                            <ChevronDown size={14} className={`transition-transform duration-300 ${showPresetMenu ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        <AnimatePresence>
+                            {showPresetMenu && (
+                                <motion.div 
+                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                    className={`absolute top-full right-0 mt-2 w-56 rounded-2xl border shadow-2xl z-[100] overflow-hidden ${isDarkMode ? 'bg-[#121215] border-zinc-800' : 'bg-white border-slate-200'}`}
+                                >
+                                    <div className="p-2 space-y-1">
+                                        <button 
+                                            onClick={() => handleApplyPreset('STANDARD')}
+                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-left text-xs font-bold transition-all ${activePreset === 'Standard' ? 'bg-[#FF4F01] text-white' : isDarkMode ? 'text-zinc-400 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            Standard View {activePreset === 'Standard' && <CheckCircle2 size={14} />}
+                                        </button>
+                                        <button 
+                                            onClick={() => handleApplyPreset('EXECUTION')}
+                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-left text-xs font-bold transition-all ${activePreset === 'Execution' ? 'bg-[#FF4F01] text-white' : isDarkMode ? 'text-zinc-400 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            Execution Focused {activePreset === 'Execution' && <CheckCircle2 size={14} />}
+                                        </button>
+                                        <button 
+                                            onClick={() => handleApplyPreset('ANALYTICS')}
+                                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-left text-xs font-bold transition-all ${activePreset === 'Analytics' ? 'bg-[#FF4F01] text-white' : isDarkMode ? 'text-zinc-400 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            Analytics Focused {activePreset === 'Analytics' && <CheckCircle2 size={14} />}
+                                        </button>
+                                    </div>
+                                    <div className={`p-3 border-t text-[9px] font-bold uppercase tracking-widest opacity-40 text-center ${isDarkMode ? 'border-zinc-800' : 'border-slate-100'}`}>
+                                        Presets overwrite custom order
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
+                    <div className={`flex items-center gap-6 p-4 rounded-3xl border ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
                     <div className="flex items-center gap-3 border-r pr-6 border-zinc-800/50">
                         <div className="w-10 h-10 rounded-2xl bg-[#FF4F01]/10 flex items-center justify-center text-[#FF4F01] shadow-lg">
                             <Wallet size={20} />
@@ -648,7 +546,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                         </div>
                     </div>
                 </div>
-            </header>
+            </div>
+        </header>
 
             {/* EA Setup Prompt (For new EA users) */}
             {trades.length === 0 && userProfile.syncMethod === 'EA_CONNECT' && !eaSession && (

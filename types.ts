@@ -94,8 +94,21 @@ export interface Note {
   content: string;
   date: string;
   tags: string[];
-  color: 'yellow' | 'blue' | 'green' | 'purple' | 'rose' | 'gray';
+  color: string;
   isPinned?: boolean;
+  isArchived?: boolean;
+  isTrashed?: boolean;
+  isList?: boolean;
+  listItems?: {
+    id: string;
+    text: string;
+    checked: boolean;
+    indentLevel?: number;
+  }[];
+  image?: string;
+  tableData?: {
+    rows: string[][];
+  };
 }
 
 export interface DailyBias {

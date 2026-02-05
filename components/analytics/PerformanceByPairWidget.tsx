@@ -65,7 +65,7 @@ export const PerformanceByPairWidget: React.FC<PerformanceByPairWidgetProps> = (
     return (
         <div 
             onMouseMove={handleMouseMove}
-            className={`p-6 rounded-[24px] border flex flex-col min-h-[450px] relative h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}
+            className={`py-4 px-0 sm:p-6 rounded-none sm:rounded-[24px] border flex flex-col min-h-[450px] relative h-full ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}
         >
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">

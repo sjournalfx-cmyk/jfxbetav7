@@ -47,4 +47,3 @@
 - **API Key Errors**: Check .env.local keys and Supabase project settings.
 - **Sync Failures**: Verify Supabase real-time enabled; check browser console for errors.
 - **Build Issues**: Run `npm run build` and check output for TypeScript errors.
-- **Mobile Access Blocked**: App restricts mobile; use desktop browser.

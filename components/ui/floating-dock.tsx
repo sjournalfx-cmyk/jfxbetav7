@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 import { IconLayoutNavbarCollapse, IconTrash } from "@tabler/icons-react";
 import {
   AnimatePresence,
@@ -28,87 +28,14 @@ export interface FloatingDockItem {
 export const FloatingDock = ({
   items,
   desktopClassName,
-  mobileClassName,
   showLabels = false,
 }: {
   items: FloatingDockItem[];
   desktopClassName?: string;
-  mobileClassName?: string;
   showLabels?: boolean;
 }) => {
   return (
-    <>
-      <FloatingDockDesktop items={items} className={desktopClassName} showLabels={showLabels} />
-      <FloatingDockMobile items={items} className={mobileClassName} />
-    </>
-  );
-};
-
-const FloatingDockMobile = ({
-  items,
-  className,
-}: {
-  items: FloatingDockItem[];
-  className?: string;
-}) => {
-  const [open, setOpen] = useState(false);
-  const visibleItems = items.filter(i => i.type !== 'divider');
-
-  return (
-    <div className={cn("relative block md:hidden", className)}>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            layoutId="nav"
-            className="absolute inset-x-0 bottom-full mb-2 flex flex-col gap-2"
-          >
-            {visibleItems.map((item, idx) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                exit={{
-                  opacity: 0,
-                  y: 10,
-                  transition: {
-                    delay: idx * 0.05,
-                  },
-                }}
-                transition={{ delay: (visibleItems.length - 1 - idx) * 0.05 }}
-              >
-                <button
-                  onClick={item.onClick}
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900 relative",
-                    item.isActive && "bg-[#FF4F01] text-white",
-                    item.isLocked && "opacity-50 cursor-not-allowed"
-                  )}
-                >
-                  <div className="h-4 w-4">{item.icon}</div>
-                  {item.badge && (
-                    <div className={cn(
-                        "absolute -top-1 -right-1 bg-indigo-500 rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-950",
-                        typeof item.badge === 'number' ? "w-4 h-4 text-white text-[7px] font-bold" : "w-2.5 h-2.5 animate-pulse"
-                    )}>
-                        {typeof item.badge === 'number' ? item.badge : null}
-                    </div>
-                  )}
-                </button>
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-800"
-      >
-        <IconLayoutNavbarCollapse className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />
-      </button>
-    </div>
+    <FloatingDockDesktop items={items} className={desktopClassName} showLabels={showLabels} />
   );
 };
 
@@ -127,7 +54,7 @@ const FloatingDockDesktop = ({
       onMouseMove={(e) => mouseY.set(e.clientY)}
       onMouseLeave={() => mouseY.set(Infinity)}
       className={cn(
-        "mx-auto hidden flex-col h-fit items-center gap-2 rounded-2xl md:flex w-full",
+        "mx-auto flex flex-col h-fit items-center gap-2 rounded-2xl w-full",
         className,
       )}
     >

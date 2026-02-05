@@ -215,8 +215,10 @@ const Settings: React.FC<SettingsProps> = ({
 
                     <div className="space-y-8">
                       <div className="group">
-                        <label className={labelClasses}>Full Name</label>
+                        <label htmlFor="settings-full-name" className={labelClasses}>Full Name</label>
                         <input
+                          id="settings-full-name"
+                          name="fullName"
                           value={formData.name}
                           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                           className={inputClasses}
@@ -234,10 +236,12 @@ const Settings: React.FC<SettingsProps> = ({
                         </div>
                       </div>
                       <div className="group">
-                        <label className={labelClasses}>Country</label>
+                        <label htmlFor="settings-country" className={labelClasses}>Country</label>
                         <div className="relative">
                           <Globe className="absolute left-0 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                           <input
+                            id="settings-country"
+                            name="country"
                             value={formData.country}
                             onChange={(e) => setFormData({ ...formData, country: e.target.value })}
                             className={inputClasses + " pl-8"}
@@ -336,8 +340,10 @@ const Settings: React.FC<SettingsProps> = ({
               <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="grid grid-cols-1 gap-10">
                   <div className="group">
-                    <label className={labelClasses}>Primary Account Name</label>
+                    <label htmlFor="settings-account-name" className={labelClasses}>Primary Account Name</label>
                     <input
+                      id="settings-account-name"
+                      name="accountName"
                       value={formData.accountName}
                       onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
                       className={inputClasses}
@@ -359,10 +365,12 @@ const Settings: React.FC<SettingsProps> = ({
                       />
                     </div>
                     <div className="group">
-                      <label className={labelClasses}>Initial Balance</label>
+                      <label htmlFor="settings-initial-balance" className={labelClasses}>Initial Balance</label>
                       <div className="relative">
                         <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-xl">{formData.currencySymbol}</span>
                         <input
+                          id="settings-initial-balance"
+                          name="initialBalance"
                           type="number"
                           value={formData.initialBalance}
                           onChange={(e) => setFormData({ ...formData, initialBalance: parseFloat(e.target.value) })}
@@ -428,10 +436,12 @@ const Settings: React.FC<SettingsProps> = ({
                     </div>
                     
                     <div className="group">
-                      <label className={labelClasses}>Default Risk:Reward Ratio (1:X)</label>
+                      <label htmlFor="settings-default-rr" className={labelClasses}>Default Risk:Reward Ratio (1:X)</label>
                       <div className="relative">
                         <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-xl">1:</span>
                         <input
+                          id="settings-default-rr"
+                          name="defaultRR"
                           type="number"
                           step="0.1"
                           min="0.1"
@@ -735,15 +745,19 @@ const Settings: React.FC<SettingsProps> = ({
                   ) : (
                     <div className="space-y-6">
                       <div className="group">
-                        <label className={labelClasses}>Subject</label>
+                        <label htmlFor="feedback-subject" className={labelClasses}>Subject</label>
                         <input
+                          id="feedback-subject"
+                          name="subject"
                           placeholder="Feature request, bug report, etc."
                           className={inputClasses}
                         />
                       </div>
                       <div className="group">
-                        <label className={labelClasses}>Message</label>
+                        <label htmlFor="feedback-message" className={labelClasses}>Message</label>
                         <textarea
+                          id="feedback-message"
+                          name="message"
                           placeholder="Tell us what's on your mind..."
                           rows={4}
                           className={`w-full bg-transparent border-b-2 py-3 text-sm font-medium outline-none transition-all resize-none ${isDarkMode
