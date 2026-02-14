@@ -121,10 +121,10 @@ function IconContainer({
           onMouseLeave={() => setHovered(false)}
           onClick={isLocked ? undefined : onClick}
           className={cn(
-            "relative flex aspect-square items-center justify-center rounded-full transition-colors shrink-0 cursor-pointer",
+            "relative flex aspect-square items-center justify-center rounded-full transition-all duration-300 shrink-0 cursor-pointer",
             isActive 
               ? "bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/30" 
-              : "bg-gray-100 dark:bg-neutral-900 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
+              : "bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100 shadow-sm hover:shadow-md",
             isLocked && "opacity-40 cursor-not-allowed"
           )}
         >
@@ -134,7 +134,7 @@ function IconContainer({
                 initial={{ opacity: 0, x: 10, y: "-50%" }}
                 animate={{ opacity: 1, x: 50, y: "-50%" }}
                 exit={{ opacity: 0, x: 10, y: "-50%" }}
-                className="absolute left-0 top-1/2 w-fit rounded-md border border-gray-200 bg-gray-100 px-2 py-0.5 text-[11px] font-bold whitespace-pre text-neutral-700 dark:border-neutral-900 dark:bg-neutral-800 dark:text-white z-[100] shadow-xl flex flex-col gap-1 min-w-[80px]"
+                className="absolute left-0 top-1/2 w-fit rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-bold whitespace-pre text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white z-[100] shadow-xl flex flex-col gap-1 min-w-[80px]"
               >
                 <span>{title}</span>
                 {secondaryAction && (

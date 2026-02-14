@@ -223,9 +223,9 @@ const AIChat: React.FC<AIChatProps> = ({
 
         // Add Checklists
         if (msg.checklistData) {
-          Object.values(msg.checklistData).forEach(checklist => {
+          Object.values(msg.checklistData).forEach((checklist: any) => {
             exportContent += `## ${checklist.title}\n`;
-            checklist.items.forEach(item => {
+            checklist.items.forEach((item: any) => {
               exportContent += `- [${item.checked ? 'x' : ' '}] ${item.text}\n`;
             });
             exportContent += `\n`;
@@ -234,7 +234,7 @@ const AIChat: React.FC<AIChatProps> = ({
 
         // Add Mermaid Diagrams
         if (msg.mermaidData) {
-          Object.values(msg.mermaidData).forEach(diagram => {
+          Object.values(msg.mermaidData).forEach((diagram: any) => {
             exportContent += `### ${diagram.type} Diagram\n`;
             exportContent += `\`\`\`mermaid\n${diagram.code}\n\`\`\`\n\n`;
           });
@@ -280,8 +280,8 @@ ${code}
     }
   };
 
-  const renderWidget = (key: string, messageId: string, message: Message) => {
-    const isExpanded = expandedWidgets[`${messageId}-${key}`];
+  const renderWidget = (key: string, messageId: string, message: Message, index?: number, children?: React.ReactNode) => {
+    const isExpanded = expandedWidgets[`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`];
     const currencySymbol = userProfile?.currencySymbol || '$';
 
     const getWidgetContent = () => {
@@ -318,20 +318,22 @@ ${code}
         case 'symbol':
           return <div className="p-0 sm:p-2 w-full h-full"><SymbolPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'chart': {
-          const symbol = message.chartSymbols?.[`${messageId}-chart`] || "FX:EURUSD";
+          const chartKey = index !== undefined ? `${messageId}-chart-${index}` : `${messageId}-chart`;
+          const symbol = message.chartSymbols?.[chartKey] || "FX:EURUSD";
           return (
             <div className="p-0 sm:p-2 w-full h-[300px] sm:h-[450px]">
               <TradingViewWidget
                 symbol={symbol}
                 theme={isDarkMode ? 'dark' : 'light'}
-                chartId={`${messageId}-chart`}
+                chartId={chartKey}
                 showToolbar={false}
               />
             </div>
           );
         }
         case 'mermaid': {
-          const mData = message.mermaidData?.[`${messageId}-mermaid`];
+          const mermaidKey = index !== undefined ? `${messageId}-mermaid-${index}` : `${messageId}-mermaid`;
+          const mData = message.mermaidData?.[mermaidKey];
           if (!mData) return null;
           return (
             <div className="p-0 sm:p-2 w-full h-full">
@@ -346,7 +348,8 @@ ${code}
           );
         }
         case 'checklist': {
-          const cData = message.checklistData?.[`${messageId}-checklist`];
+          const checklistKey = index !== undefined ? `${messageId}-checklist-${index}` : `${messageId}-checklist`;
+          const cData = message.checklistData?.[checklistKey];
           if (!cData) return null;
           return (
             <div className="p-0 sm:p-2 w-full h-full">
@@ -359,32 +362,32 @@ ${code}
     };
 
     return (
-      <div key={key} className={`rounded-2xl border transition-all duration-300 overflow-hidden w-full ${isDarkMode
-        ? 'bg-zinc-900/40 border-white/5 shadow-lg'
+      <div key={`${key}-${index ?? 0}`} className={`rounded-[32px] border transition-all duration-500 overflow-hidden w-full ${isDarkMode
+        ? 'bg-[#0d0d0f]/60 border-white/5 shadow-2xl shadow-black/40'
         : 'bg-white border-slate-200 shadow-sm'
-        } ${isExpanded ? 'ring-1 ring-indigo-500/30' : ''}`}>
+        } ${isExpanded ? 'ring-1 ring-indigo-500/20' : ''} group/widget`}>
         <button
-          onClick={() => toggleWidget(`${messageId}-${key}`)}
-          className={`w-full flex items-center justify-between p-3 px-4 transition-all ${isExpanded
-            ? (isDarkMode ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600')
-            : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-500')
+          onClick={() => toggleWidget(`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`)}
+          className={`w-full flex items-center justify-between p-4 sm:p-5 transition-all ${isExpanded
+            ? (isDarkMode ? 'bg-indigo-500/[0.03] text-indigo-400' : 'bg-indigo-50 text-indigo-600')
+            : (isDarkMode ? 'hover:bg-white/[0.02] text-zinc-400' : 'hover:bg-slate-50 text-slate-500')
             }`}
         >
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl ${isExpanded ? 'bg-indigo-500/20' : 'bg-zinc-500/5'}`}>
-              {key === 'mermaid' ? <Workflow size={14} /> :
-                key === 'checklist' ? <List size={14} /> :
-                  <TrendingUp size={14} />}
+          <div className="flex items-center gap-4">
+            <div className={`p-2.5 rounded-xl transition-all duration-500 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-500/5 group-hover/widget:bg-zinc-500/10'}`}>
+              {key === 'mermaid' ? <Workflow size={16} /> :
+                key === 'checklist' ? <List size={16} /> :
+                  <TrendingUp size={16} />}
             </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.15em]">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em]">
               {tagToLabel[key] || 'Data Widget'}
             </span>
           </div>
           <motion.div
             animate={{ rotate: isExpanded ? 180 : 0 }}
-            className={`${isExpanded ? 'text-indigo-500' : 'opacity-40'}`}
+            className={`p-1 rounded-lg ${isExpanded ? 'text-indigo-500 bg-indigo-500/10' : 'opacity-20'}`}
           >
-            <ChevronDown size={16} />
+            <ChevronDown size={18} />
           </motion.div>
         </button>
         <AnimatePresence>
@@ -395,8 +398,18 @@ ${code}
               exit={{ height: 0, opacity: 0 }}
               className="border-t border-white/5"
             >
-              <div className="p-2 sm:p-4">
-                {getWidgetContent()}
+              <div className="p-4 sm:p-6 flex flex-col gap-6">
+                <div className="w-full">
+                  {getWidgetContent()}
+                </div>
+                {children && (
+                  <div className={`p-6 rounded-2xl border leading-relaxed text-[13px] relative overflow-hidden ${isDarkMode ? 'bg-white/[0.02] border-white/5 text-zinc-300' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500/30" />
+                    <div className="relative z-10 font-medium">
+                      {children}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -588,7 +601,6 @@ ${code}
       const tag = `[SECTION:${name}]`;
       if (cleanContent.includes(tag)) {
         const parts = cleanContent.split(tag);
-        // The content for this section is between this tag and the next tag or end of string
         let sectionContent = parts[1];
         sectionNames.forEach(otherName => {
           const otherTag = `[SECTION:${otherName}]`;
@@ -596,10 +608,19 @@ ${code}
             sectionContent = sectionContent.split(otherTag)[0];
           }
         });
-        // Also strip widgets from section content
-        sectionContent = sectionContent.replace(/\[\/?WIDGET:[\s\S]+?\]/g, '').trim();
-        sections[name] = sectionContent;
-        // Remove from main content to avoid double display if we choose
+        
+        // Track widgets found in section for history/expansion
+        const tagMap: Record<string, string> = {
+          '[WIDGET:PNL]': 'pnl', '[WIDGET:WINRATE]': 'winrate', '[WIDGET:MINDSET]': 'mindset',
+          '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', '[WIDGET:TABLE]': 'table',
+          '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
+        };
+        for (const [t, key] of Object.entries(tagMap)) {
+          if (sectionContent.includes(t)) foundKeys.push(key);
+        }
+
+        // KEEP widget tags in section content
+        sections[name] = sectionContent.trim();
         cleanContent = cleanContent.replace(tag, '').replace(sectionContent, '');
       }
     });
@@ -612,41 +633,53 @@ ${code}
 
     for (const [tag, key] of Object.entries(tagMap)) {
       if (fullResponse.includes(tag)) {
-        cleanContent = cleanContent.replace(tag, '');
+        // Keep tag in content for inline rendering, but track it for history
         foundKeys.push(key);
       }
     }
 
+    let chartIdx = 0;
     const chartRegex = /\[WIDGET:CHART:([A-Z0-9]+)\]/g;
     let match;
     while ((match = chartRegex.exec(fullResponse)) !== null) {
       const symbol = match[1];
-      cleanContent = cleanContent.replace(match[0], '');
+      const tag = match[0];
       foundKeys.push('chart');
-      chartSymbols[`${messageId}-chart`] = symbol;
+      chartSymbols[`${messageId}-chart-${chartIdx}`] = symbol;
+      // Replace only this occurrence with an indexed tag
+      cleanContent = cleanContent.replace(tag, `[WIDGET:CHART_INDEXED:${chartIdx}]`);
+      chartIdx++;
     }
 
     // Mermaid Parsing [WIDGET:MERMAID:TYPE]CODE[/WIDGET:MERMAID]
+    let mermaidIdx = 0;
     const mermaidRegex = /\[WIDGET:MERMAID:([A-Z]+)\]([\s\S]+?)\[\/WIDGET:MERMAID\]/g;
     let mermaidMatch;
     while ((mermaidMatch = mermaidRegex.exec(fullResponse)) !== null) {
       const type = mermaidMatch[1];
-      const code = mermaidMatch[2].trim().replace(/\\n/g, '\n');
-      cleanContent = cleanContent.replace(mermaidMatch[0], '');
+      const tag = mermaidMatch[0];
+      let code = mermaidMatch[2].trim().replace(/\\n/g, '\n');
+      code = code.replace(/```mermaid/g, '').replace(/```/g, '').trim();
+      
       foundKeys.push('mermaid');
-      mermaidData[`${messageId}-mermaid`] = { type, code };
+      mermaidData[`${messageId}-mermaid-${mermaidIdx}`] = { type, code };
+      cleanContent = cleanContent.replace(tag, `[WIDGET:MERMAID_INDEXED:${mermaidIdx}]`);
+      mermaidIdx++;
     }
 
     // Checklist Parsing [WIDGET:CHECKLIST:TITLE]ITEM1|ITEM2|...[/WIDGET:CHECKLIST]
+    let checklistIdx = 0;
     const checklistRegex = /\[WIDGET:CHECKLIST:([^\]]+)\]([\s\S]+?)\[\/WIDGET:CHECKLIST\]/g;
     let checklistMatch;
     const checklistData: Record<string, { title: string, items: { text: string, checked: boolean }[] }> = {};
     while ((checklistMatch = checklistRegex.exec(fullResponse)) !== null) {
       const title = checklistMatch[1];
+      const tag = checklistMatch[0];
       const items = checklistMatch[2].split('|').map(item => ({ text: item.trim(), checked: false }));
-      cleanContent = cleanContent.replace(checklistMatch[0], '');
       foundKeys.push('checklist');
-      checklistData[`${messageId}-checklist`] = { title, items };
+      checklistData[`${messageId}-checklist-${checklistIdx}`] = { title, items };
+      cleanContent = cleanContent.replace(tag, `[WIDGET:CHECKLIST_INDEXED:${checklistIdx}]`);
+      checklistIdx++;
     }
 
     const aiMessage: Message = {
@@ -672,77 +705,177 @@ ${code}
     }
   };
 
-  const renderSectionCards = (sections: Record<string, string>) => {
-    const config: Record<string, { title: string, icon: any, color: string, bg: string, border: string, dot: string }> = {
+  const renderContentBlocks = (text: string, message: Message) => {
+    const blocks: React.ReactNode[] = [];
+    
+    // 1. Identify all items
+    const parts = text.split(/(\[WIDGET:(?:PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED:\d+|MERMAID_INDEXED:\d+|CHECKLIST_INDEXED:\d+)\])/g);
+    
+    const items: { type: 'text' | 'widget', value: string, widgetData?: any }[] = [];
+    parts.forEach((part) => {
+      if (!part) return;
+      const match = part.match(/\[WIDGET:(PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED|MERMAID_INDEXED|CHECKLIST_INDEXED)(?::(\d+))?\]/);
+      if (match) {
+        const type = match[1];
+        const index = match[2] ? parseInt(match[2]) : undefined;
+        let actualKey = type.toLowerCase();
+        if (type === 'STRATEGY_EFFICIENCY') actualKey = 'strategy';
+        if (type.includes('_INDEXED')) actualKey = type.replace('_INDEXED', '').toLowerCase();
+        items.push({ type: 'widget', value: part, widgetData: { key: actualKey, index } });
+      } else {
+        items.push({ type: 'text', value: part });
+      }
+    });
+
+    // 2. Logic: Greedy text-to-widget association
+    const widgetIndices = items.reduce((acc, it, idx) => it.type === 'widget' ? [...acc, idx] : acc, [] as number[]);
+    let pendingCommentary: React.ReactNode[] = [];
+    const consumedIndices = new Set<number>();
+
+    items.forEach((item, idx) => {
+      if (consumedIndices.has(idx)) return;
+
+      if (item.type === 'text') {
+        const textNode = (
+          <div key={`text-${idx}`} className={`mb-4 last:mb-0 text-[13px] sm:text-[14px] leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'} prose prose-sm max-w-none dark:prose-invert`}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+              p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{renderWithMentions(children)}</p>,
+              ul: ({ children }) => <ul className="list-disc ml-4 mb-4 space-y-2">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal ml-4 mb-4 space-y-2">{children}</ol>,
+              li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
+              strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{renderWithMentions(children)}</strong>,
+            }}>
+              {item.value}
+            </ReactMarkdown>
+          </div>
+        );
+
+        // If there's a widget coming up LATER in the message, hold this text to put INSIDE the widget
+        const hasWidgetFollowing = items.slice(idx + 1).some(it => it.type === 'widget');
+        
+        if (hasWidgetFollowing) {
+          pendingCommentary.push(textNode);
+        } else if (widgetIndices.length > 0) {
+          // This is trailing text. It will be consumed by the last widget if one exists.
+          // If no widgets follow, but we have widgets in the message, it belongs to the last one.
+          // We don't push to blocks here; the last widget handling will pick it up.
+        } else {
+          // No widgets at all in the message, render standalone
+          blocks.push(textNode);
+        }
+      } else {
+        // Widget!
+        const isLastWidget = idx === widgetIndices[widgetIndices.length - 1];
+        let commentary = [...pendingCommentary];
+        pendingCommentary = [];
+
+        if (isLastWidget) {
+          // Consume all remaining text items in the message
+          for (let j = idx + 1; j < items.length; j++) {
+            if (items[j].type === 'text') {
+              commentary.push(
+                <div key={`trailing-${j}`} className="mt-4 border-t border-white/5 pt-4 opacity-80">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                    p: ({ children }) => <p className="mb-0 leading-relaxed italic">{renderWithMentions(children)}</p>,
+                    li: ({ children }) => <li className="marker:text-indigo-500 pl-1 italic">{renderWithMentions(children)}</li>,
+                  }}>
+                    {items[j].value}
+                  </ReactMarkdown>
+                </div>
+              );
+              consumedIndices.add(j);
+            }
+          }
+        }
+
+        blocks.push(
+          <div key={`widget-${idx}`} className="my-4 w-full">
+            {renderWidget(item.widgetData.key, message.id, message, item.widgetData.index, commentary.length > 0 ? commentary : undefined)}
+          </div>
+        );
+      }
+    });
+
+    return <div className="space-y-2 w-full">{blocks}</div>;
+  };
+
+  const renderMessageContent = (message: Message) => {
+    return renderContentBlocks(message.content, message);
+  };
+
+  const renderSectionCards = (sections: Record<string, string>, message: Message) => {
+    const config: Record<string, { title: string, icon: any, color: string, bg: string, border: string, dot: string, glow: string }> = {
       'LACKS': {
         title: 'Performance Leaks',
-        icon: <Trash2 size={16} />,
+        icon: <Trash2 size={18} />,
         color: 'text-rose-500',
-        bg: isDarkMode ? 'bg-rose-500/5' : 'bg-rose-50/50',
+        bg: isDarkMode ? 'bg-rose-500/[0.03]' : 'bg-rose-50/50',
         border: isDarkMode ? 'border-rose-500/10' : 'border-rose-200/50',
-        dot: 'bg-rose-500'
+        dot: 'bg-rose-500',
+        glow: 'group-hover:shadow-rose-500/5'
       },
       'RECOMMENDATIONS': {
         title: 'Strategic Fixes',
-        icon: <Wand2 size={16} />,
+        icon: <Wand2 size={18} />,
         color: 'text-amber-500',
-        bg: isDarkMode ? 'bg-amber-500/5' : 'bg-amber-50/50',
+        bg: isDarkMode ? 'bg-amber-500/[0.03]' : 'bg-amber-50/50',
         border: isDarkMode ? 'border-amber-500/10' : 'border-amber-200/50',
-        dot: 'bg-amber-500'
+        dot: 'bg-amber-500',
+        glow: 'group-hover:shadow-amber-500/5'
       },
       'GOALS': {
         title: '30-Day Roadmap',
-        icon: <TrendingUp size={16} />,
+        icon: <TrendingUp size={18} />,
         color: 'text-emerald-500',
-        bg: isDarkMode ? 'bg-emerald-500/5' : 'bg-emerald-50/50',
+        bg: isDarkMode ? 'bg-emerald-500/[0.03]' : 'bg-emerald-50/50',
         border: isDarkMode ? 'border-emerald-500/10' : 'border-emerald-200/50',
-        dot: 'bg-emerald-500'
+        dot: 'bg-emerald-500',
+        glow: 'group-hover:shadow-emerald-500/5'
       }
     };
 
-    const Card = ({ id }: { id: string }) => {
+    const Card = ({ id, className }: { id: string, className?: string }) => {
       const content = sections[id];
       if (!content) return null;
       return (
         <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`p-5 rounded-3xl border ${config[id].bg} ${config[id].border} flex flex-col gap-4 relative overflow-hidden group hover:shadow-xl transition-all duration-500`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`p-6 sm:p-8 rounded-[32px] border ${config[id].bg} ${config[id].border} flex flex-col gap-6 relative overflow-hidden group hover:bg-white/[0.02] dark:hover:bg-white/[0.02] transition-all duration-700 shadow-2xl ${config[id].glow} ${className}`}
         >
+          {/* Subtle Accent Background Glow */}
+          <div className={`absolute -top-24 -right-24 w-48 h-48 rounded-full blur-[80px] opacity-0 group-hover:opacity-20 transition-opacity duration-700 ${config[id].dot.replace('bg-', 'bg-')}`} />
+
           <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-xl bg-white/10 backdrop-blur-md ${config[id].color} shadow-sm border border-white/5`}>
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-2xl bg-white/5 backdrop-blur-md ${config[id].color} shadow-lg border border-white/5 group-hover:scale-110 transition-transform duration-500`}>
                 {config[id].icon}
               </div>
-              <h4 className={`text-[11px] font-black uppercase tracking-[0.2em] ${config[id].color}`}>
-                {config[id].title}
-              </h4>
+              <div className="flex flex-col">
+                <h4 className={`text-[11px] font-black uppercase tracking-[0.25em] ${config[id].color}`}>
+                  {config[id].title}
+                </h4>
+                <div className="flex items-center gap-1 mt-1">
+                  <div className={`w-1 h-1 rounded-full ${config[id].dot}`} />
+                  <span className="text-[8px] font-bold opacity-30 uppercase tracking-widest">Active Analysis</span>
+                </div>
+              </div>
             </div>
-            <div className={`w-2 h-2 rounded-full ${config[id].dot} animate-pulse shadow-[0_0_8px] ${config[id].dot.replace('bg-', 'shadow-')}`} />
+            <div className={`w-2 h-2 rounded-full ${config[id].dot} animate-pulse shadow-[0_0_12px] ${config[id].dot.replace('bg-', 'shadow-')}`} />
           </div>
 
-          <div className={`text-[12.5px] leading-relaxed relative z-10 prose prose-sm max-w-none ${isDarkMode ? 'prose-invert opacity-80' : 'text-slate-600'} 
-            prose-strong:font-black
-          `}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                strong: ({ children }) => <strong className={`font-black ${config[id].color}`}>{children}</strong>,
-                li: ({ children }) => <li className={`marker:${config[id].color} pl-1`}>{children}</li>
-              }}
-            >
-              {content}
-            </ReactMarkdown>
+          <div className="relative z-10 flex-1 flex flex-col justify-start w-full">
+            {renderContentBlocks(content, message)}
           </div>
         </motion.div>
       );
     };
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-        <Card id="LACKS" />
-        <Card id="RECOMMENDATIONS" />
-        <Card id="GOALS" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-stretch">
+        <Card id="LACKS" className="lg:col-span-12" />
+        <Card id="RECOMMENDATIONS" className="lg:col-span-6" />
+        <Card id="GOALS" className="lg:col-span-6" />
       </div>
     );
   };
@@ -867,12 +1000,12 @@ ${code}
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full relative z-10`}
             >
-              <div className={`flex gap-4 sm:gap-5 w-full sm:max-w-[85%] lg:max-w-[75%] ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+              <div className={`flex gap-4 sm:gap-5 w-full ${message.role === 'user' ? 'sm:max-w-[85%] lg:max-w-[70%] flex-row-reverse' : 'sm:max-w-[95%] lg:max-w-[90%]'} group/msg`}>
                 {/* Avatar */}
                 <div className={`shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center border transition-all duration-500 ${message.role === 'user'
                   ? (isDarkMode ? 'bg-zinc-900 border-white/5 shadow-lg shadow-black/20' : 'bg-white border-slate-200 shadow-sm')
                   : (isDarkMode ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20')
-                  }`}>
+                  } group-hover/msg:scale-105`}>
                   {message.role === 'user'
                     ? (userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="User" className="w-full h-full object-cover" /> : <User size={18} className={isDarkMode ? 'text-zinc-500' : 'text-slate-400'} />)
                     : <Bot size={20} className="sm:size-6" />
@@ -881,43 +1014,44 @@ ${code}
 
                 <div className={`flex flex-col gap-2 flex-1 min-w-0 ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
                   {/* Message Bubble */}
-                  <div className={`w-full overflow-hidden transition-all duration-500 ${message.role === 'user'
+                  <div className={`w-full overflow-hidden transition-all duration-500 relative ${message.role === 'user'
                     ? (isDarkMode ? 'bg-zinc-900/50 border border-white/5 rounded-[24px] rounded-tr-none' : 'bg-white border border-slate-200 shadow-sm rounded-[24px] rounded-tr-none')
-                    : (isDarkMode ? 'bg-[#0d0d0f]/80 border border-white/5 rounded-[28px] rounded-tl-none backdrop-blur-xl' : 'bg-white border border-slate-200 shadow-sm rounded-[28px] rounded-tl-none')
+                    : (isDarkMode ? 'bg-[#0d0d0f]/40 border border-white/5 rounded-[32px] rounded-tl-none backdrop-blur-3xl shadow-2xl' : 'bg-white border border-slate-200 shadow-sm rounded-[32px] rounded-tl-none')
                     }`}>
-                    <div className={`p-5 sm:p-6 text-[13px] sm:text-[14px] leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'} prose prose-sm max-w-none ${isDarkMode ? 'prose-invert' : ''}`}>
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{renderWithMentions(children)}</p>,
-                          ul: ({ children }) => <ul className="list-disc ml-4 mb-4 space-y-2">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal ml-4 mb-4 space-y-2">{children}</ol>,
-                          li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
-                          strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{renderWithMentions(children)}</strong>,
-                          code: ({ children }) => <code className={`px-1.5 py-0.5 rounded-md font-mono text-[12px] ${isDarkMode ? 'bg-white/10 text-indigo-300' : 'bg-slate-100 text-indigo-600'}`}>{children}</code>,
-                          blockquote: ({ children }) => <blockquote className={`border-l-4 border-indigo-500/50 pl-5 py-2 my-4 italic rounded-r-xl ${isDarkMode ? 'bg-white/5' : 'bg-indigo-50/30'}`}>{children}</blockquote>,
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto my-6 rounded-2xl border border-zinc-500/10">
-                              <table className="w-full text-left border-collapse">{children}</table>
-                            </div>
-                          ),
-                          th: ({ children }) => <th className={`p-3 text-[10px] font-black uppercase tracking-widest border-b border-zinc-500/10 ${isDarkMode ? 'bg-white/5' : 'bg-slate-50'}`}>{children}</th>,
-                          td: ({ children }) => <td className="p-3 border-b border-zinc-500/5 text-[12px] font-medium">{children}</td>,
-                        }}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
+                    
+                    {message.role === 'assistant' && (
+                      <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-transparent opacity-20" />
+                    )}
+
+                    <div className="p-6 sm:p-8">
+                      {renderMessageContent(message)}
                     </div>
 
-                    {/* Conditional Sections & Widgets Area */}
+                    {/* Bento Analysis Grid */}
                     {(message.sections || (message.widgetKeys && message.widgetKeys.length > 0)) && (
-                      <div className={`p-4 sm:p-6 pt-0 space-y-6 ${message.role === 'assistant' ? 'border-t border-white/5 mt-0' : ''}`}>
-                        {message.sections && renderSectionCards(message.sections)}
-                        {message.widgetKeys && (
-                          <div className="grid grid-cols-1 gap-4">
-                            {message.widgetKeys.map(key => renderWidget(key, message.id, message))}
+                      <div className={`p-6 sm:p-8 pt-0 space-y-8 ${message.role === 'assistant' ? 'mt-0' : ''}`}>
+                        {message.sections && (
+                          <div className="pt-8 border-t border-white/5">
+                            {renderSectionCards(message.sections, message)}
                           </div>
                         )}
+                        
+                        {/* Render footer widgets ONLY if they were not placed inline in the content or sections */}
+                        <div className="grid grid-cols-1 gap-6">
+                          {message.widgetKeys?.filter(key => {
+                            const tagPart = key === 'strategy' ? 'STRATEGY_EFFICIENCY' : key.toUpperCase();
+                            const inContent = message.content.includes(`[WIDGET:${tagPart}`) || 
+                                             message.content.includes(`[WIDGET:${tagPart}_INDEXED`);
+                            const inSections = message.sections && Object.values(message.sections).some((s: any) => 
+                                             s.includes(`[WIDGET:${tagPart}`) || 
+                                             s.includes(`[WIDGET:${tagPart}_INDEXED`));
+                            return !inContent && !inSections;
+                          }).map((key, i) => (
+                            <div key={`footer-widget-${i}`} className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
+                              {renderWidget(key, message.id, message, i)}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

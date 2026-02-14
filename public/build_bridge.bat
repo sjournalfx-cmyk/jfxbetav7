@@ -20,6 +20,12 @@ pyinstaller --noconfirm --onefile --windowed ^
     --hidden-import "tkinter" ^
     --hidden-import "requests" ^
     --hidden-import "MetaTrader5" ^
+    --hidden-import "numpy" ^
+    --hidden-import "numpy._core" ^
+    --hidden-import "numpy._core.multiarray" ^
+    --hidden-import "numpy._core._multiarray_umath" ^
+    --collect-all "numpy" ^
+    --collect-all "MetaTrader5" ^
     jfx_bridge_gui.py
 
 echo.

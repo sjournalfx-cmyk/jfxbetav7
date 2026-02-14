@@ -160,22 +160,43 @@ const RecentTrades = ({ isDarkMode, trades, symbol }: { isDarkMode: boolean, tra
     </div>
 );
 
-const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: { isDarkMode: boolean, dailyBias: DailyBias[], onUpdateBias: (b: DailyBias) => void, onInfoClick?: () => void }) => {
-    const days = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - (6 - i));
-        return getSASTDateTime(d).date;
-    });
+const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: { isDarkMode: boolean, dailyBias: DailyBias[], onUpdateBias: (b: DailyBias) => void, onInfoClick?: () => void }) => {
+    const days = useMemo(() => {
+        const now = new Date();
+        const day = now.getDay(); // 0 (Sun) to 6 (Sat)
+        // Adjust to make Monday the first day (1). If today is Sunday (0), we go back 6 days.
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(now.setDate(diff));
+        
+        return Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            return getSASTDateTime(d).date;
+        });
+    }, []);
 
-    const getBiasForDate = (date: string) => dailyBias.find(b => b.date === date)?.bias || 'Neutral';
+    const today = useMemo(() => getSASTDateTime().date, []);
+
+    const biasMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        dailyBias.forEach(b => {
+            map[b.date] = b.bias;
+        });
+        return map;
+    }, [dailyBias]);
 
     const handleCycleBias = (date: string) => {
-        const current = getBiasForDate(date);
+        const currentBiasObj = dailyBias.find(b => b.date === date);
+        const current = currentBiasObj?.bias || 'Neutral';
         let next: 'Bullish' | 'Bearish' | 'Neutral' = 'Bullish';
         if (current === 'Bullish') next = 'Bearish';
         else if (current === 'Bearish') next = 'Neutral';
         else next = 'Bullish';
-        onUpdateBias({ date, bias: next });
+        
+        onUpdateBias({ 
+            ...(currentBiasObj || { date, notes: '', actualOutcome: 'Neutral' }), 
+            bias: next 
+        });
     };
 
     return (
@@ -192,16 +213,23 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
             </div>
             <div className="grid grid-cols-7 gap-2 flex-1 items-center">
                 {days.map(date => {
-                    const bias = getBiasForDate(date);
-                    const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
-                    const isToday = date === getSASTDateTime().date;
+                    const bias = biasMap[date] || 'Neutral';
+                    const dateObj = new Date(date);
+                    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+                    const dayIdx = dateObj.getDay(); // 0 is Sun, 6 is Sat
+                    const isWeekend = dayIdx === 0 || dayIdx === 6;
+                    const isToday = date === today;
+
                     return (
                         <button
                             key={date}
                             onClick={() => handleCycleBias(date)}
-                            className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all h-full ${bias === 'Bullish' ? 'bg-teal-500/10 text-teal-500 border border-teal-500/20' :
+                            className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all h-full ${
+                                bias === 'Bullish' ? 'bg-teal-500/10 text-teal-500 border border-teal-500/20' :
                                 bias === 'Bearish' ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' :
-                                    isDarkMode ? 'bg-zinc-800 text-zinc-500 border border-zinc-700' : 'bg-slate-100 text-slate-400 border border-slate-200'
+                                isWeekend 
+                                    ? (isDarkMode ? 'bg-zinc-500/5 text-zinc-600 border border-zinc-800/50' : 'bg-slate-50 text-slate-300 border border-slate-100')
+                                    : (isDarkMode ? 'bg-zinc-800 text-zinc-500 border border-zinc-700' : 'bg-slate-100 text-slate-400 border border-slate-200')
                                 } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
                         >
                             <span className="text-[10px] font-bold mb-1">{dayName}</span>
@@ -214,13 +242,13 @@ const DailyBiasWidget = ({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: {
             </div>
         </div>
     );
-};
+});
 
 
 
 const DASHBOARD_PRESETS = {
-    STANDARD: ['dailyBias', 'recentTrades', 'equityCurve', 'openPositions'],
-    EXECUTION: ['openPositions', 'recentTrades', 'dailyBias', 'equityCurve'],
+    STANDARD: ['dailyBias', 'equityCurve', 'recentTrades', 'openPositions'],
+    EXECUTION: ['openPositions', 'equityCurve', 'recentTrades', 'dailyBias'],
     ANALYTICS: ['equityCurve', 'recentTrades', 'dailyBias', 'openPositions']
 };
 
@@ -444,8 +472,10 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
 
     // Helper to determine col-span based on ID
     const getColSpan = (id: string) => {
-        if (id === 'dailyBias' || id === 'openPositions' || id === 'equityCurve') return 'col-span-1 lg:col-span-2 min-h-[250px]';
-        return 'col-span-1 min-h-[250px]';
+        if (id === 'recentTrades') return 'col-span-1 min-h-[250px]';
+        if (id === 'equityCurve') return 'col-span-1 lg:col-span-2 min-h-[250px]';
+        // Daily Bias and Open Positions should take full width to avoid the large gap on the right
+        return 'col-span-1 lg:col-span-3 min-h-[250px]';
     };
 
     return (

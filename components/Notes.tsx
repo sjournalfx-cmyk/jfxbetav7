@@ -2,10 +2,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import CreateArea from './notes/CreateArea';
 import NoteCard from './notes/NoteCard';
 import NoteEditor from './notes/NoteEditor';
-import Sidebar from './notes/Sidebar';
 import { Note as KeepNote, NoteColor, SidebarSection } from './notes/types';
 import { Note as AppNote, Goal, UserProfile } from '../types';
-import { Search, Menu, RefreshCw, Grid, Settings, Trash2, Archive, Lightbulb, ChevronLeft } from 'lucide-react';
+import { Search, Menu, RefreshCw, Grid, Settings, Trash2, Archive, Lightbulb, ChevronLeft, Bell, Pencil } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  DndContext, 
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface NotesProps {
   isDarkMode: boolean;
@@ -34,7 +51,6 @@ const Notes: React.FC<NotesProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [draggedNote, setDraggedNote] = useState<KeepNote | null>(null);
   const [currentSection, setCurrentSection] = useState<SidebarSection>('NOTES');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   // Canvas Size State
   const [canvasWidth, setCanvasWidth] = useState(700);
@@ -197,34 +213,86 @@ const Notes: React.FC<NotesProps> = ({
     return !note.isArchived && !note.isTrashed && matchesSearch;
   });
 
-  const pinnedNotes = filteredNotes.filter(n => n.isPinned);
-  const otherNotes = filteredNotes.filter(n => !n.isPinned);
+  const pinnedNotes = filteredNotes.filter(n => n.isPinned).sort((a, b) => (a.position || 0) - (b.position || 0));
+  const otherNotes = filteredNotes.filter(n => !n.isPinned).sort((a, b) => (a.position || 0) - (b.position || 0));
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+        activationConstraint: {
+            distance: 8,
+        },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEndNotes = async (event: DragEndEvent, list: KeepNote[]) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = list.findIndex(n => n.id === active.id);
+      const newIndex = list.findIndex(n => n.id === over.id);
+      
+      const newList = arrayMove(list, oldIndex, newIndex);
+      
+      // Update local state immediately
+      const updatedNotes = newList.map((n, i) => ({ ...n, position: i }));
+      
+      // Update the main notes list by merging
+      onUpdateNote({ id: active.id as string, position: newIndex } as any);
+      // In a real scenario, we'd batch update all positions
+      updatedNotes.forEach(n => onUpdateNote({ id: n.id, position: n.position } as any));
+    }
+  };
 
   return (
     <div className={`flex flex-col h-full w-full font-sans overflow-hidden ${isResizing ? 'cursor-nwse-resize select-none' : ''}`} style={{ backgroundColor: 'var(--note-default-bg)', color: 'var(--notebook-text)' }}>
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-2 border-b h-16 shrink-0 z-20" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            aria-expanded={isSidebarOpen}
-            className={`p-2 rounded-lg transition-colors hover:bg-[var(--notebook-hover)] text-[var(--notebook-muted)]`}
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setSelectedNoteId(null)}>
-            <div className="p-1.5 rounded-lg bg-indigo-600 text-white shadow-lg shadow-indigo-500/20">
-              <Lightbulb className="w-6 h-6" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">Keep Notebook</span>
-          </div>
+      <header 
+        className="sticky top-0 grid grid-cols-[300px_1fr_300px] items-center px-8 py-1.5 border-b shrink-0 z-30 backdrop-blur-md" 
+        style={{ 
+          backgroundColor: isDarkMode ? 'rgba(10, 10, 10, 0.8)' : 'rgba(255, 255, 255, 0.8)', 
+          borderColor: 'var(--notebook-divider)' 
+        }}
+      >
+        <div className="flex items-center gap-5 overflow-hidden">
+          {[
+            { id: 'NOTES', icon: Lightbulb, title: 'Notes' },
+            { id: 'REMINDERS', icon: Bell, title: 'Reminders' },
+            { id: 'EDIT_LABELS', icon: Pencil, title: 'Edit labels' },
+            { id: 'ARCHIVE', icon: Archive, title: 'Archive' },
+            { id: 'TRASH', icon: Trash2, title: 'Trash' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setCurrentSection(item.id as SidebarSection)}
+              className={`flex items-center gap-2 py-2.5 transition-all relative group shrink-0`}
+              title={item.title}
+            >
+              <item.icon className={`w-[17px] h-[17px] transition-colors ${
+                currentSection === item.id 
+                  ? 'text-indigo-500' 
+                  : 'text-[var(--notebook-muted)] group-hover:text-[var(--notebook-text)]'
+              }`} />
+              <span className={`text-[9px] font-bold uppercase tracking-widest transition-colors ${
+                currentSection === item.id 
+                  ? 'text-indigo-500' 
+                  : 'text-[var(--notebook-muted)] group-hover:text-[var(--notebook-text)]'
+              }`}>
+                {item.title}
+              </span>
+              {currentSection === item.id && (
+                <div className="absolute -bottom-[7.5px] left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+              )}
+            </button>
+          ))}
         </div>
 
-        <div className="flex-1 max-w-[720px] mx-8">
-          <div className={`relative flex items-center rounded-xl transition-all group bg-[var(--notebook-hover)] focus-within:bg-[var(--note-default-bg)] focus-within:ring-1 focus-within:ring-[var(--notebook-divider)]`}>
-            <div className={`p-3 text-[var(--notebook-muted)] group-focus-within:text-indigo-500`}>
-              <Search className="w-5 h-5" />
+        <div className="flex justify-center">
+          <div className={`w-full max-w-[400px] relative flex items-center rounded-lg transition-all group bg-[var(--notebook-hover)] focus-within:bg-[var(--note-default-bg)] focus-within:ring-1 focus-within:ring-indigo-500/20`}>
+            <div className={`pl-2.5 pr-1.5 text-[var(--notebook-muted)] group-focus-within:text-indigo-500`}>
+              <Search className="w-4 h-4" />
             </div>
             <input 
               id="notes-search-input"
@@ -234,84 +302,114 @@ const Notes: React.FC<NotesProps> = ({
               placeholder="Search your notes..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-transparent outline-none py-3 text-base placeholder:opacity-50"
+              className="w-full bg-transparent outline-none py-1.5 text-xs placeholder:opacity-50"
               style={{ color: 'var(--notebook-text)' }}
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <HeaderIcon icon={<RefreshCw className="w-5 h-5" />} title="Refresh" isDarkMode={isDarkMode} />
-          <HeaderIcon icon={<Settings className="w-5 h-5" />} title="Settings" isDarkMode={isDarkMode} onClick={() => onViewChange('settings')} />
+        <div className="flex items-center gap-2 justify-self-end">
+          <HeaderIcon icon={<RefreshCw className="w-[17px] h-[17px]" />} title="Refresh" isDarkMode={isDarkMode} />
+          <HeaderIcon icon={<Settings className="w-[17px] h-[17px]" />} title="Settings" isDarkMode={isDarkMode} onClick={() => onViewChange('settings')} />
         </div>
       </header>
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden relative">
-        <Sidebar 
-            activeSection={currentSection} 
-            onSectionChange={setCurrentSection} 
-            isOpen={isSidebarOpen} 
-        />
-        
         <div className={`flex flex-1 overflow-hidden transition-all duration-300`}>
             {/* Left Side: Scrollable Notes List */}
-            <aside className="w-[380px] flex flex-col border-r shrink-0 overflow-y-auto custom-scrollbar transition-all duration-300" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
+            <aside className="w-[340px] xl:w-[380px] flex flex-col border-r shrink-0 overflow-y-auto custom-scrollbar transition-all duration-300" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
                 <div className="p-4 space-y-4">
-                    {pinnedNotes.length > 0 && (
-                        <div className="mb-8">
-                            <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Pinned</h2>
-                            <div className="flex flex-col gap-3">
-                                {pinnedNotes.map(note => (
-                                    <NoteCard 
-                                        key={note.id} 
-                                        note={note} 
-                                        isDragging={draggedNote?.id === note.id}
-                                        onClick={(n) => setSelectedNoteId(n.id)}
-                                        onPin={handlePinNote}
-                                        onArchive={handleArchiveNote}
-                                        onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
-                                        onRestore={handleRestoreNote}
-                                        onUpdate={handleUpdateKeepNote}
-                                        onDragStart={setDraggedNote}
-                                        onDragEnd={() => setDraggedNote(null)}
-                                        onDrop={handleDropNote}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    <AnimatePresence initial={false} mode="popLayout">
+                        {pinnedNotes.length > 0 && (
+                            <motion.div 
+                                key="pinned-section"
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                className="mb-8"
+                            >
+                                <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Pinned</h2>
+                                <div className="flex flex-col gap-3">
+                                    <DndContext 
+                                        sensors={sensors}
+                                        collisionDetection={closestCenter}
+                                        onDragEnd={(e) => handleDragEndNotes(e, pinnedNotes)}
+                                    >
+                                        <SortableContext items={pinnedNotes.map(n => n.id)} strategy={verticalListSortingStrategy}>
+                                            <AnimatePresence mode="popLayout">
+                                                {pinnedNotes.map(note => (
+                                                    <SortableWrapper key={note.id} id={note.id}>
+                                                        <NoteCard 
+                                                            note={note} 
+                                                            isDragging={draggedNote?.id === note.id}
+                                                            onClick={(n) => setSelectedNoteId(n.id)}
+                                                            onPin={handlePinNote}
+                                                            onArchive={handleArchiveNote}
+                                                            onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
+                                                            onRestore={handleRestoreNote}
+                                                            onUpdate={handleUpdateKeepNote}
+                                                            onDragStart={setDraggedNote}
+                                                            onDragEnd={() => setDraggedNote(null)}
+                                                            onDrop={handleDropNote}
+                                                        />
+                                                    </SortableWrapper>
+                                                ))}
+                                            </AnimatePresence>
+                                        </SortableContext>
+                                    </DndContext>
+                                </div>
+                            </motion.div>
+                        )}
 
-                    {(pinnedNotes.length > 0 || otherNotes.length > 0) ? (
-                        <div>
-                            {pinnedNotes.length > 0 && otherNotes.length > 0 && (
-                                <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Others</h2>
-                            )}
-                            <div className="flex flex-col gap-3">
-                                {otherNotes.map(note => (
-                                    <NoteCard 
-                                        key={note.id} 
-                                        note={note} 
-                                        isDragging={draggedNote?.id === note.id}
-                                        onClick={(n) => setSelectedNoteId(n.id)}
-                                        onPin={handlePinNote}
-                                        onArchive={handleArchiveNote}
-                                        onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
-                                        onRestore={handleRestoreNote}
-                                        onUpdate={handleUpdateKeepNote}
-                                        onDragStart={setDraggedNote}
-                                        onDragEnd={() => setDraggedNote(null)}
-                                        onDrop={handleDropNote}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-20 opacity-20">
-                            <Lightbulb className="w-16 h-16 mb-4" />
-                            <p className="text-sm font-bold uppercase tracking-wider">No notes found</p>
-                        </div>
-                    )}
+                        {(pinnedNotes.length > 0 || otherNotes.length > 0) ? (
+                            <motion.div key="others-section" layout>
+                                {pinnedNotes.length > 0 && otherNotes.length > 0 && (
+                                    <h2 className="text-[0.65rem] font-black tracking-widest mb-4 uppercase pl-2 opacity-50">Others</h2>
+                                )}
+                                <div className="flex flex-col gap-3">
+                                    <DndContext 
+                                        sensors={sensors}
+                                        collisionDetection={closestCenter}
+                                        onDragEnd={(e) => handleDragEndNotes(e, otherNotes)}
+                                    >
+                                        <SortableContext items={otherNotes.map(n => n.id)} strategy={verticalListSortingStrategy}>
+                                            <AnimatePresence mode="popLayout">
+                                                {otherNotes.map(note => (
+                                                    <SortableWrapper key={note.id} id={note.id}>
+                                                        <NoteCard 
+                                                            key={note.id} 
+                                                            note={note} 
+                                                            isDragging={draggedNote?.id === note.id}
+                                                            onClick={(n) => setSelectedNoteId(n.id)}
+                                                            onPin={handlePinNote}
+                                                            onArchive={handleArchiveNote}
+                                                            onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
+                                                            onRestore={handleRestoreNote}
+                                                            onUpdate={handleUpdateKeepNote}
+                                                            onDragStart={setDraggedNote}
+                                                            onDragEnd={() => setDraggedNote(null)}
+                                                            onDrop={handleDropNote}
+                                                        />
+                                                    </SortableWrapper>
+                                                ))}
+                                            </AnimatePresence>
+                                        </SortableContext>
+                                    </DndContext>
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <motion.div 
+                                key="empty-state"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="flex flex-col items-center justify-center py-20 opacity-20"
+                            >
+                                <Lightbulb className="w-16 h-16 mb-4" />
+                                <p className="text-sm font-bold uppercase tracking-wider">No notes found</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </aside>
 
@@ -384,6 +482,40 @@ const Notes: React.FC<NotesProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+const SortableWrapper = ({ id, children }: { id: string, children: React.ReactNode }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative' as const
+  };
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      style={style}
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </motion.div>
   );
 };
 

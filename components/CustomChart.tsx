@@ -151,6 +151,21 @@ const CustomChart: React.FC<CustomChartProps> = ({
              viewState.current.scaleX = (viewState.current.width - PADDING_RIGHT) / Math.max(data.length, 1);
              viewState.current.isManualPriceRange = false;
              setChartRevision(r => r + 1);
+          },
+          scrollToRealtime: () => {
+             viewState.current.offsetX = 0;
+             setChartRevision(r => r + 1);
+          },
+          updateOffsetForNewBar: (isFollowing: boolean) => {
+             // If following is true, we do nothing to offsetX. 
+             // getX is relative to (data.length - 1), so offsetX=constant means latest bar stays at fixed X.
+             
+             // If following is false, we want historical bars to stay at fixed X.
+             // As data.length increases, we must decrease offsetX by scaleX to counteract the shift.
+             if (!isFollowing) {
+                viewState.current.offsetX -= viewState.current.scaleX;
+             }
+             setChartRevision(r => r + 1);
           }
         })
       },

@@ -25,6 +25,7 @@ export interface Note {
   listItems?: ListItem[];
   image?: string; // Base64 or URL
   tableData?: TableData;
+  position?: number;
 }
 
 export enum NoteColor {

@@ -1,6 +1,6 @@
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { X, CheckCircle2, AlertCircle, Info, AlertTriangle } from 'lucide-react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
+import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, Clock } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -10,6 +10,7 @@ export interface Toast {
   title: string;
   message?: string;
   duration?: number;
+  timestamp: number;
   action?: {
     label: string;
     onClick: () => void;
@@ -17,7 +18,7 @@ export interface Toast {
 }
 
 interface ToastContextType {
-  addToast: (toast: Omit<Toast, 'id'>) => void;
+  addToast: (toast: Omit<Toast, 'id' | 'timestamp'>) => void;
   removeToast: (id: string) => void;
   notifications: Toast[]; // Expose history
   clearNotifications: () => void;
@@ -36,17 +37,80 @@ export const useToast = () => {
 export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [history, setHistory] = useState<Toast[]>([]); // Store all notifications for the bell menu
+  const lastAddedRef = useRef<{ [key: string]: number }>({});
+  const activeToastsRef = useRef<Toast[]>([]);
+
+  // Keep activeToastsRef in sync with toasts state
+  useEffect(() => {
+    activeToastsRef.current = toasts;
+  }, [toasts]);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  const addToast = useCallback(({ type, title, message, duration = 5000, action }: Omit<Toast, 'id'>) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    const newToast: Toast = { id, type, title, message, duration, action };
+  const addToast = useCallback(({ type, title, message, duration = 5000, action }: Omit<Toast, 'id' | 'timestamp'>) => {
+    const now = Date.now();
+    const cleanTitle = title.trim();
+    const cleanMessage = message?.trim() || '';
+    const contentKey = `${type}:${cleanTitle}:${cleanMessage}`.toLowerCase();
     
-    setToasts((prev) => [...prev, newToast]);
-    setHistory((prev) => [newToast, ...prev].slice(0, 20)); // Keep last 20
+    // 1. Ref-based deduplication (handles rapid fire calls within 3 seconds)
+    if (lastAddedRef.current[contentKey] && now - lastAddedRef.current[contentKey] < 3000) {
+      console.log('Skipping duplicate toast (ref):', contentKey);
+      return;
+    }
+    
+    // 2. Prevent adding if the exact same toast is already visible on screen
+    if (activeToastsRef.current.some(t => 
+      t.type === type && 
+      t.title.trim().toLowerCase() === cleanTitle.toLowerCase() && 
+      (t.message?.trim().toLowerCase() || '') === cleanMessage.toLowerCase()
+    )) {
+      console.log('Skipping duplicate toast (active):', contentKey);
+      return;
+    }
+    
+    lastAddedRef.current[contentKey] = now;
+    
+    const id = Math.random().toString(36).substring(2, 9);
+    const newToast: Toast = { 
+      id, 
+      type, 
+      title: cleanTitle, 
+      message: cleanMessage || undefined, 
+      duration, 
+      action, 
+      timestamp: now 
+    };
+    
+    setToasts((prev) => {
+      // Final state-based check to prevent duplicates in the same render cycle
+      const isDuplicate = prev.some(t => 
+        t.type === type && 
+        t.title.trim().toLowerCase() === cleanTitle.toLowerCase() && 
+        (t.message?.trim().toLowerCase() || '') === cleanMessage.toLowerCase()
+      );
+      
+      if (isDuplicate) {
+        console.warn('[Toast] Blocking duplicate state update for:', contentKey);
+        return prev;
+      }
+
+      console.log('[Toast] Adding new toast:', contentKey);
+      return [...prev, newToast];
+    });
+
+    setHistory((prev) => {
+      // Prevent duplicate in history if it's exactly the same and very recent (5s)
+      const isDuplicate = prev.length > 0 && 
+                         prev[0].title.trim().toLowerCase() === cleanTitle.toLowerCase() && 
+                         (prev[0].message?.trim().toLowerCase() || '') === cleanMessage.toLowerCase() && 
+                         now - prev[0].timestamp < 5000;
+      
+      if (isDuplicate) return prev;
+      return [newToast, ...prev].slice(0, 20);
+    });
 
     if (duration > 0) {
       setTimeout(() => {
@@ -70,7 +134,7 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
               toast.type === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400' :
               toast.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400' :
-              'bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400'
+              'bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400'
             }`}
           >
             <div className="shrink-0 mt-0.5">
@@ -80,7 +144,14 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               {toast.type === 'info' && <Info size={18} />}
             </div>
             <div className="flex-1">
-              <h4 className="font-bold text-sm">{toast.title}</h4>
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-bold text-sm">{toast.title}</h4>
+                <span className="text-[10px] font-medium opacity-50 whitespace-nowrap">
+                  {new Date(toast.timestamp).toDateString() === new Date().toDateString() 
+                    ? new Date(toast.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : new Date(toast.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                </span>
+              </div>
               {toast.message && <p className="text-xs opacity-80 mt-1">{toast.message}</p>}
               {toast.action && (
                 <button

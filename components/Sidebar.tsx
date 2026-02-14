@@ -110,7 +110,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     { id: 'dashboard', icon: IconLayoutDashboard, label: 'Dashboard' },
-    { id: 'ai-chat', icon: IconMessage, label: 'AI Assistant' },
     { id: 'log-trade', icon: IconPlus, label: 'Log Trade' },
     { id: 'history', icon: IconNotebook, label: 'Journal' },
     { id: 'analytics', icon: IconChartBar, label: 'Analytics' },
@@ -121,6 +120,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'goals', icon: IconTargetArrow, label: 'Goals', restricted: true },
     { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
     { id: 'backtest-lab', icon: IconFlask, label: 'Backtest Lab', restricted: true },
+    { id: 'ai-chat', icon: IconMessage, label: 'AI Assistant' },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {
@@ -221,7 +221,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {n.type === 'info' && <Info size={14} />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-bold leading-tight">{n.title}</h4>
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-xs font-bold leading-tight">{n.title}</h4>
+                        <span className="text-[9px] font-medium opacity-40 whitespace-nowrap">
+                          {new Date(n.timestamp).toDateString() === new Date().toDateString() 
+                            ? new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : new Date(n.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
                       {n.message && <p className="text-[10px] opacity-60 mt-1 leading-relaxed">{n.message}</p>}
                     </div>
                   </div>

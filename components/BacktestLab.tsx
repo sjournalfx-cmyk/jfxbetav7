@@ -78,6 +78,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
 
     // Replay State
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isAutoFollow, setIsAutoFollow] = useLocalStorage<boolean>('jfx_backtest_autofollow', true);
     const [history, setHistory] = useState<Trade[]>([]);
     const [playSpeed, setPlaySpeed] = useLocalStorage<number>('jfx_backtest_playSpeed', 500);
     const [isSpeedMenuOpen, setIsSpeedMenuOpen] = useState(false);
@@ -537,20 +538,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
             ...(toolDefaults[activeTool] || { color: '#2962ff', strokeWidth: 2, strokeStyle: 'solid' })
         };
 
-        // Apply Default RR for position tools
-        if (activeTool === 'long' || activeTool === 'short') {
-            const rr = userProfile.defaultRR || 2.0;
-            const stopDistance = 0.00100; // Default 10 pips/points if we can't estimate
-            
-            drawingProps.entry = snapped.price;
-            if (activeTool === 'long') {
-                drawingProps.stop = snapped.price - stopDistance;
-                drawingProps.target = snapped.price + (stopDistance * rr);
-            } else {
-                drawingProps.stop = snapped.price + stopDistance;
-                drawingProps.target = snapped.price - (stopDistance * rr);
-            }
-        }
+
 
         setCurrentDrawing(drawingProps);
     };
@@ -685,6 +673,10 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
         if (currentIndex < allData.length - 1) {
             setCurrentIdx(currentIndex + 1);
             setTick(t => t + 1);
+            if (chartRef.current) {
+                // Handle horizontal following logic intelligently
+                chartRef.current.timeScale().updateOffsetForNewBar(isAutoFollow);
+            }
         } else { setIsPlaying(false); addToast({ type: 'info', title: 'End of Data' }); }
     };
 
@@ -716,6 +708,22 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
         candlestickSeriesRef.current = s;
         setTick(t => t + 1);
     }, []);
+
+    // Global Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if user is typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            if (e.code === 'Space') {
+                e.preventDefault(); // Prevent page scroll
+                centerChart();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [centerChart]);
 
     const visibleData = useMemo(() => allData.slice(0, currentIndex + 1), [allData, currentIndex]);
 
@@ -936,6 +944,8 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                 <div className={`absolute left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl border backdrop-blur shadow-2xl ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800' : 'bg-slate-50/80 border-slate-200'}`}>
                     <button onClick={() => setIsSelectBarMode(!isSelectBarMode)} className={`flex items-center gap-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${isSelectBarMode ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30' : (isDarkMode ? 'hover:bg-zinc-800 text-zinc-400 border border-transparent' : 'hover:bg-slate-200 text-slate-500 border border-transparent')}`}><ArrowLeftToLine size={16} /> Select bar</button>
                     <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-200'}`} />
+                    <button onClick={centerChart} disabled={allData.length === 0} className={`flex items-center gap-2 px-3 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest ${allData.length === 0 ? 'opacity-30 cursor-not-allowed' : (isDarkMode ? 'hover:bg-zinc-800 text-zinc-400 border border-transparent' : 'hover:bg-slate-200 text-slate-500 border border-transparent')}`}><Search size={16} /> Find Chart</button>
+                    <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-200'}`} />
                     <button onClick={resetReplay} className={`p-2.5 rounded-xl ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'}`}><RotateCcw size={18} /></button>
                     <button onClick={() => setIsPlaying(!isPlaying)} disabled={isFetching || allData.length === 0} className={`w-10 h-10 flex items-center justify-center rounded-xl bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/30`}>{isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}</button>
                     <button onClick={stepForward} disabled={isFetching || allData.length === 0} className={`p-2.5 rounded-xl ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'}`}><StepForward size={18} /></button>
@@ -994,23 +1004,23 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                                     <h4 className={`text-[10px] font-black uppercase tracking-[0.15em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Lab Configuration</h4>
                                 </div>
                                 <div className="space-y-4">
-                                    <div className="group">
-                                        <label htmlFor="default-rr-input" className="text-[9px] font-black uppercase tracking-[0.2em] opacity-50 block mb-2">Default Risk:Reward (1:X)</label>
-                                        <div className="relative">
-                                            <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-lg">1:</span>
-                                            <input
-                                                id="default-rr-input"
-                                                name="default-rr"
-                                                type="number"
-                                                step="0.1"
-                                                min="0.1"
-                                                value={userProfile.defaultRR || 2.0}
-                                                onChange={(e) => onUpdateProfile({ ...userProfile, defaultRR: parseFloat(e.target.value) })}
-                                                className={`w-full bg-transparent border-b border-zinc-800 py-2 pl-6 text-sm font-bold outline-none transition-all focus:border-[#FF4F01] ${isDarkMode ? 'text-white' : 'text-zinc-900'}`}
-                                                placeholder="2.0"
-                                            />
+                                    <div className="flex items-center justify-between py-3">
+                                        <div>
+                                            <p className={`text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'}`}>Auto-Follow Price</p>
+                                            <p className="text-[8px] font-bold opacity-40 uppercase">Keep latest bar centered</p>
                                         </div>
-                                        <p className="mt-2 text-[9px] opacity-40 font-medium italic">Initial target distance for Long/Short tools.</p>
+                                        <button 
+                                            onClick={() => {
+                                                const next = !isAutoFollow;
+                                                setIsAutoFollow(next);
+                                                if (next && chartRef.current) {
+                                                    chartRef.current.timeScale().scrollToRealtime();
+                                                }
+                                            }}
+                                            className={`w-10 h-5 rounded-full relative transition-all ${isAutoFollow ? 'bg-[#FF4F01]' : 'bg-zinc-800'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isAutoFollow ? 'left-6' : 'left-1'}`} />
+                                        </button>
                                     </div>
                                 </div>
                             </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import Analytics from './Analytics';
 import { Trade, UserProfile } from '../types';
 
@@ -163,7 +163,7 @@ describe('Analytics Calculations', () => {
   ];
 
   it('should render analytics and calculate basic stats', () => {
-    render(
+    const { getByText } = render(
       <Analytics
         isDarkMode={false}
         trades={mockTrades}
@@ -173,7 +173,7 @@ describe('Analytics Calculations', () => {
     );
 
     // Check if component renders
-    expect(screen.getByText(/analytics/i)).toBeInTheDocument();
+    expect(getByText(/analytics/i)).toBeInTheDocument();
 
     // Note: Actual calculation assertions would require accessing internal state or props,
     // but for this test, we ensure the component renders without errors.

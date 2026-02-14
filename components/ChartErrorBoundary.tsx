@@ -10,7 +10,7 @@ interface State {
     error: Error | null;
 }
 
-export class ChartErrorBoundary extends Component<Props, State> {
+export class ChartErrorBoundary extends React.Component<Props, State> {
     public state: State = {
         hasError: false,
         error: null

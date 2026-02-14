@@ -490,7 +490,8 @@ export const dataService = {
       isTrashed: note.is_trashed,
       isList: note.is_list,
       listItems: note.list_items,
-      tableData: note.table_data
+      tableData: note.table_data,
+      position: note.position
     }));
   },
 
@@ -513,31 +514,47 @@ export const dataService = {
         is_list: note.isList,
         list_items: note.listItems,
         image: note.image,
-        table_data: note.tableData
+        table_data: note.tableData,
+        position: note.position || 0
       })
       .select()
       .single();
 
     if (error) throw error;
-    return { ...data, isPinned: data.is_pinned };
+    
+    // Fully map the returned note
+    return {
+      ...data,
+      isPinned: data.is_pinned,
+      isArchived: data.is_archived,
+      isTrashed: data.is_trashed,
+      isList: data.is_list,
+      listItems: data.list_items,
+      tableData: data.table_data,
+      date: data.date || data.created_at,
+      position: data.position
+    };
   },
 
-  async updateNote(note: Note) {
+  async updateNote(note: Partial<Note> & { id: string }) {
+    const updateData: any = {};
+    if (note.title !== undefined) updateData.title = note.title;
+    if (note.content !== undefined) updateData.content = note.content;
+    if (note.tags !== undefined) updateData.tags = note.tags;
+    if (note.color !== undefined) updateData.color = note.color;
+    if (note.isPinned !== undefined) updateData.is_pinned = note.isPinned;
+    if (note.isArchived !== undefined) updateData.is_archived = note.isArchived;
+    if (note.isTrashed !== undefined) updateData.is_trashed = note.isTrashed;
+    if (note.isList !== undefined) updateData.is_list = note.isList;
+    if (note.listItems !== undefined) updateData.list_items = note.listItems;
+    if (note.image !== undefined) updateData.image = note.image;
+    if (note.tableData !== undefined) updateData.table_data = note.tableData;
+    if (note.date !== undefined) updateData.date = note.date;
+    if (note.position !== undefined) updateData.position = note.position;
+
     const { error } = await supabase
       .from('notes')
-      .update({
-        title: note.title,
-        content: note.content,
-        tags: note.tags,
-        color: note.color,
-        is_pinned: note.isPinned,
-        is_archived: note.isArchived,
-        is_trashed: note.isTrashed,
-        is_list: note.isList,
-        list_items: note.listItems,
-        image: note.image,
-        table_data: note.tableData
-      })
+      .update(updateData)
       .eq('id', note.id);
 
     if (error) throw error;
@@ -570,35 +587,17 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    // Check if exists
-    const { data: existing } = await supabase
+    const { error } = await supabase
       .from('daily_bias')
-      .select('id')
-      .eq('date', bias.date)
-      .single();
+      .upsert({
+        user_id: user.id,
+        date: bias.date,
+        bias: bias.bias,
+        notes: bias.notes,
+        actual_outcome: bias.actualOutcome
+      }, { onConflict: 'user_id,date' });
 
-    if (existing) {
-      const { error } = await supabase
-        .from('daily_bias')
-        .update({
-          bias: bias.bias,
-          notes: bias.notes,
-          actual_outcome: bias.actualOutcome
-        })
-        .eq('id', existing.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from('daily_bias')
-        .insert({
-          user_id: user.id,
-          date: bias.date,
-          bias: bias.bias,
-          notes: bias.notes,
-          actual_outcome: bias.actualOutcome
-        });
-      if (error) throw error;
-    }
+    if (error) throw error;
   },
 
   // --- Goals ---

@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import mermaid from 'mermaid';
+import { motion } from 'motion/react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { 
   Play, Sparkles, Download, Copy, RefreshCw, ZoomIn, ZoomOut, 
   Code, LayoutTemplate, Maximize2, Minimize2, Heart, Search,
-  Grid, List, X, Star, Wand2, Palette, ArrowRight, Box, Diamond, Circle, AlertCircle, Save, FolderOpen, Plus, Trash2
+  Grid, List, X, Star, Wand2, Palette, ArrowRight, Box, Diamond, Circle, AlertCircle, Save, FolderOpen, Plus, Trash2, Move, RotateCcw
 } from 'lucide-react';
 import { Select } from './Select';
 import { StrategyDiagram } from '../types';
@@ -384,6 +385,7 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => 
   const [favorites, setFavorites] = useState<string[]>(['t1', 't2', 't9']); // Default favorites
 
   const outputRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   // Load saved diagrams on mount
@@ -478,11 +480,33 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => 
       if (!outputRef.current) return;
 
       try {
-        const { svg } = await mermaid.render(`mermaid-${Date.now()}`, code);
+        const id = `mermaid-${Date.now()}`;
+        const { svg } = await mermaid.render(id, code);
         
         // Critical: Check if ref STILL exists after async operation to prevent "Cannot set properties of null"
         if (outputRef.current) {
             outputRef.current.innerHTML = svg;
+            const svgElement = outputRef.current.querySelector('svg');
+            if (svgElement) {
+                svgElement.removeAttribute('height');
+                svgElement.style.width = '100%';
+                svgElement.style.height = 'auto';
+                svgElement.style.minWidth = '400px';
+                svgElement.style.display = 'block';
+
+                // Auto-scale logic
+                if (wrapperRef.current) {
+                    const containerWidth = wrapperRef.current.clientWidth;
+                    const containerHeight = wrapperRef.current.clientHeight;
+                    const bBox = svgElement.getBBox();
+                    
+                    const scaleX = (containerWidth * 0.8) / bBox.width;
+                    const scaleY = (containerHeight * 0.8) / bBox.height;
+                    const initialScale = Math.min(Math.min(scaleX, scaleY), 1.5); // Cap at 1.5x zoom
+                    
+                    setScale(Math.max(initialScale, 0.4)); // Don't go below 0.4x
+                }
+            }
             setError(null);
         }
       } catch (e: any) {
@@ -768,35 +792,70 @@ const DiagramEditor: React.FC<DiagramEditorProps> = ({ isDarkMode, userId }) => 
             `}
         >
             <div className={`absolute top-4 right-4 z-10 flex gap-2 ${isFullScreen ? 'bg-black/20 p-2 rounded-xl backdrop-blur-md' : ''}`}>
-                <button onClick={() => setScale(s => Math.min(s + 0.1, 2))} className={`p-2 rounded-lg backdrop-blur-sm border ${isDarkMode ? 'bg-black/20 border-white/10 hover:bg-white/10' : 'bg-white/50 border-slate-200 hover:bg-white'}`}>
-                    <ZoomIn size={16} />
-                </button>
-                <button onClick={() => setScale(s => Math.max(s - 0.1, 0.5))} className={`p-2 rounded-lg backdrop-blur-sm border ${isDarkMode ? 'bg-black/20 border-white/10 hover:bg-white/10' : 'bg-white/50 border-slate-200 hover:bg-white'}`}>
-                    <ZoomOut size={16} />
-                </button>
-                <div className={`w-px h-8 mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-300'}`} />
+                <div className={`flex items-center gap-1 rounded-lg p-1 ${isDarkMode ? 'bg-black/40 border border-white/10' : 'bg-white/80 border border-slate-200'} backdrop-blur-md shadow-lg`}>
+                    <button 
+                        onClick={() => setScale(s => Math.max(0.4, s - 0.1))} 
+                        className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'}`}
+                        title="Zoom Out"
+                    >
+                        <ZoomOut size={16} />
+                    </button>
+                    <span className="text-[10px] font-mono font-bold w-10 text-center opacity-60">
+                        {Math.round(scale * 100)}%
+                    </span>
+                    <button 
+                        onClick={() => setScale(s => Math.min(2, s + 0.1))} 
+                        className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'}`}
+                        title="Zoom In"
+                    >
+                        <ZoomIn size={16} />
+                    </button>
+                    <button 
+                        onClick={() => setScale(1)} 
+                        className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'}`}
+                        title="Reset Zoom"
+                    >
+                        <RotateCcw size={16} />
+                    </button>
+                </div>
+                
+                <div className={`w-px h-10 mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-300'}`} />
+                
                 <button 
                     onClick={() => setIsFullScreen(!isFullScreen)} 
-                    className={`p-2 rounded-lg backdrop-blur-sm border ${isDarkMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/30' : 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'}`}
+                    className={`p-2 rounded-lg backdrop-blur-md border shadow-lg transition-all ${isDarkMode ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/30' : 'bg-white/80 text-indigo-600 border-slate-200 hover:bg-indigo-50'}`}
                 >
                     {isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
             </div>
 
             {error && (
-                <div className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-bold flex items-center gap-2">
+                <div className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-bold flex items-center gap-2 shadow-lg backdrop-blur-md">
                     <AlertCircle size={12} /> 
                     <span>{error}</span>
                     <button onClick={() => handleGenerate('refine')} className="underline ml-2">Fix with AI</button>
                 </div>
             )}
 
-            <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-[radial-gradient(#88888822_1px,transparent_1px)] [background-size:20px_20px] custom-scrollbar">
-                <div 
-                    ref={outputRef}
-                    className="transition-transform duration-200 origin-center"
-                    style={{ transform: `scale(${scale})` }}
-                />
+            <div className="flex-1 overflow-hidden relative bg-[radial-gradient(#88888822_1px,transparent_1px)] [background-size:20px_20px]">
+                <div ref={wrapperRef} className="absolute inset-0 overflow-hidden flex items-center justify-center p-8">
+                    <motion.div
+                        drag
+                        dragMomentum={false}
+                        className="cursor-grab active:cursor-grabbing p-20 flex items-center justify-center min-w-full min-h-full"
+                        style={{ scale }}
+                        initial={false}
+                    >
+                        <div 
+                            ref={outputRef}
+                            className="transition-transform duration-200 origin-center"
+                        />
+                    </motion.div>
+                </div>
+                
+                <div className="absolute bottom-4 right-4 p-2 rounded-lg bg-black/40 backdrop-blur-md border border-white/10 pointer-events-none opacity-40">
+                    <Move size={14} className="text-white" />
+                </div>
             </div>
             
             {isFullScreen && (

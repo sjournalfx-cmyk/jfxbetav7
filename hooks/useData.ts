@@ -118,7 +118,10 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
 
           if (payload.eventType === 'INSERT') {
             const newNote = mapNote(payload.new);
-            setNotes(prev => [newNote, ...prev]);
+            setNotes(prev => {
+              if (prev.some(n => n.id === newNote.id)) return prev;
+              return [newNote, ...prev];
+            });
           }
           else if (payload.eventType === 'UPDATE') {
             const updatedNote = mapNote(payload.new);

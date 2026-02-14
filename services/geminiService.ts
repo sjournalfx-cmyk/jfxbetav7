@@ -133,7 +133,9 @@ export const geminiService = {
         prompt = `
           You are the JFX Personalized Goal & Improvement Engine. 
           Perform a deep analysis of the provided user data and provide:
-          1. [SECTION:LACKS]: Identify exactly where the user is leaking money (symbols, sessions, or mindset).
+          1. [SECTION:LACKS]: Identify exactly where the user is leaking money (symbols, sessions, or mindset). 
+             - IMPORTANT: For each leak identified, write your explanation as a SINGLE paragraph.
+             - IMPORTANT: Include the relevant widget tag (e.g., [WIDGET:WINRATE], [WIDGET:MINDSET], or [WIDGET:SESSIONS]) ANYWHERE within that paragraph.
           2. [SECTION:RECOMMENDATIONS]: Actionable, specific steps to fix the lacks.
           3. [SECTION:GOALS]: Suggest 3 achievable goals for the next 30 days based on their current stats.          
           DATA: ${JSON.stringify(dataSummary)}
@@ -142,7 +144,7 @@ export const geminiService = {
           - Use a supportive yet direct "Elite Coach" tone.
           - Use Markdown.
           - For the sections above, use the exactly tags [SECTION:NAME] followed by the content.
-          - End with exactly these tags: [WIDGET:WINRATE] [WIDGET:MINDSET] [WIDGET:DRAWDOWN]
+          - Integration Example: "Symbol Leak: You are losing on EURUSD. [WIDGET:PAIR] This is likely due to overtrading."
         `;
       } else {
         // Communication style instruction

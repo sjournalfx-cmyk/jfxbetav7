@@ -501,7 +501,14 @@ const ComparisonView = ({ trades = [], isDarkMode, currencySymbol = '$' }: { tra
     );
 };
 
-const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades = [], userProfile, eaSession }) => {
+const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades: rawTrades = [], userProfile, eaSession }) => {
+    const trades = useMemo(() => {
+        return [...rawTrades].sort((a, b) => {
+            const dateTimeA = new Date(`${a.date}T${a.time}`);
+            const dateTimeB = new Date(`${b.date}T${b.time}`);
+            return dateTimeA.getTime() - dateTimeB.getTime();
+        });
+    }, [rawTrades]);
     const [activeTab, setActiveTab] = useState<'overview' | 'time' | 'growth' | 'discipline' | 'comparison'>('overview');
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
     

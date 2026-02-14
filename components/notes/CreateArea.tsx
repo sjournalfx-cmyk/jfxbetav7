@@ -34,7 +34,7 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
 
   const handleOutsideClick = (e: MouseEvent) => {
     if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-      saveAndClose();
+      // Keep open until Save Note is pressed as per user request
     }
     if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
       setShowColorOptions(false);
@@ -45,6 +45,21 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [title, content, listItems, isList, color, isPinned, isExpanded, image, tableData]);
+
+  const hasContent = title.trim() || (isList ? listItems.some(item => item.text.trim().length > 0) : content.trim()) || image || (tableData && tableData.rows.some(row => row.some(cell => cell.trim().length > 0)));
+
+  const discard = () => {
+    setTitle('');
+    setContent('');
+    setIsList(false);
+    setListItems([]);
+    setImage(undefined);
+    setTableData(undefined);
+    setIsPinned(false);
+    setColor(NoteColor.DEFAULT);
+    setIsExpanded(false);
+    setShowColorOptions(false);
+  };
 
   const saveAndClose = () => {
     if (!isExpanded) return;
@@ -64,16 +79,7 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
         tableData: hasTableContent ? tableData : undefined,
       });
     }
-    setTitle('');
-    setContent('');
-    setIsList(false);
-    setListItems([]);
-    setImage(undefined);
-    setTableData(undefined);
-    setIsPinned(false);
-    setColor(NoteColor.DEFAULT);
-    setIsExpanded(false);
-    setShowColorOptions(false);
+    discard();
   };
 
   const handleExpand = (startAsList = false) => {
@@ -410,7 +416,22 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                  <ToolbarButton icon={<RotateCcw className="w-4 h-4" />} title="Undo" />
                  <ToolbarButton icon={<RotateCw className="w-4 h-4" />} title="Redo" />
               </div>
-              <button onClick={saveAndClose} className="px-6 py-2 text-[var(--notebook-text)] font-medium text-sm rounded-md hover:bg-[var(--notebook-hover)] transition-colors">Close</button>
+              <div className="flex gap-2 items-center sticky bottom-0">
+                {hasContent && (
+                  <button 
+                    onClick={discard} 
+                    className="px-4 py-2 text-red-400 font-medium text-sm rounded-md hover:bg-red-400/10 transition-colors"
+                  >
+                    Discard
+                  </button>
+                )}
+                <button 
+                  onClick={saveAndClose} 
+                  className="px-6 py-2 text-[var(--notebook-text)] font-medium text-sm rounded-md hover:bg-[var(--notebook-hover)] transition-colors"
+                >
+                  {hasContent ? 'Save note' : 'Close'}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -38,13 +38,9 @@ const DashboardTour: React.FC = () => {
   ];
 
   const handleJoyrideCallback = useCallback((data: CallBackProps) => {
-    const { status, type } = data;
+    const { status } = data;
 
-    if (
-      status === STATUS.FINISHED ||
-      status === STATUS.SKIPPED ||
-      (status === STATUS.STOPPED && type === 'interaction') // User closed the tour
-    ) {
+    if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
       setTourCompleted(true);
       setRunTour(false);
     }

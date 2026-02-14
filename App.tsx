@@ -304,6 +304,15 @@ const AppContent: React.FC = () => {
   };
 
   const handleUpdateBias = async (bias: DailyBias) => {
+    // Optimistic update
+    setDailyBias(prev => {
+      const exists = prev.some(b => b.date === bias.date);
+      if (exists) {
+        return prev.map(b => b.date === bias.date ? bias : b);
+      }
+      return [bias, ...prev];
+    });
+
     try {
       await dataService.updateBias(bias);
     } catch (error) {
@@ -312,20 +321,32 @@ const AppContent: React.FC = () => {
   };
 
   const handleAddNote = async (note: Note) => {
+    // Optimistic update with temp ID
+    const tempId = `temp-${Date.now()}`;
+    const optimisticNote = { ...note, id: tempId };
+    setNotes(prev => [optimisticNote, ...prev]);
+
     try {
       const newNote = await dataService.addNote(note);
+      // Replace temp note with real one
+      setNotes(prev => prev.map(n => n.id === tempId ? newNote : n));
       return newNote;
     } catch (error) {
       console.error("Error adding note:", error);
+      // Rollback
+      setNotes(prev => prev.filter(n => n.id !== tempId));
       throw error;
     }
   };
 
   const handleUpdateNote = async (note: Note) => {
+    // Optimistic update
+    setNotes(prev => prev.map(n => n.id === note.id ? { ...n, ...note } : n));
     try {
       await dataService.updateNote(note);
     } catch (error) {
       console.error("Error updating note:", error);
+      // Rollback would be nice but typically Realtime sync handles it
     }
   };
 
@@ -346,10 +367,10 @@ const AppContent: React.FC = () => {
       variant: 'danger',
       onConfirm: async () => {
         try {
-          // Move to trash instead of hard delete
+          // Optimistic update
+          setNotes(prev => prev.filter(n => n.id !== noteId));
           const updatedNote = { ...noteToDelete, isTrashed: true };
           await dataService.updateNote(updatedNote as any);
-          setNotes(prev => prev.filter(n => n.id !== noteId));
           setConfirmModal(prev => ({ ...prev, isOpen: false }));
           addToast({
             type: 'success',
@@ -374,9 +395,10 @@ const AppContent: React.FC = () => {
     if (!noteToRestore) return;
 
     try {
+      // Optimistic update
       const updatedNote = { ...noteToRestore, isTrashed: false };
-      await dataService.updateNote(updatedNote as any);
       setNotes(prev => prev.map(n => n.id === noteId ? (updatedNote as any) : n));
+      await dataService.updateNote(updatedNote as any);
       addToast({
         type: 'success',
         title: 'Note Restored',

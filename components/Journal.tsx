@@ -380,7 +380,11 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             }
         });
 
-        return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return result.sort((a, b) => {
+            const dateTimeA = new Date(`${a.date}T${a.trades[0].time}`);
+            const dateTimeB = new Date(`${b.date}T${b.trades[0].time}`);
+            return dateTimeB.getTime() - dateTimeA.getTime();
+        });
     }, [trades, searchTerm]);
 
     const toggleExpand = (id: string) => { setExpandedTradeId(expandedTradeId === id ? null : id); };

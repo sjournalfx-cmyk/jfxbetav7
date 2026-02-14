@@ -264,7 +264,14 @@ class JournalFXApp(tk.Tk):
 
         # Control Button
         self.btn_toggle = ModernButton(content, text="START BRIDGE", font=("Segoe UI", 14, "bold"), command=self.toggle_bridge)
-        self.btn_toggle.pack(fill="x", ipady=15, pady=(0, 20))
+        self.btn_toggle.pack(fill="x", ipady=15, pady=(0, 10))
+
+        # Reconcile Button
+        self.btn_reconcile = tk.Button(content, text="↻ RECONCILE FULL HISTORY", font=("Segoe UI", 9, "bold"), bg=THEME["bg_dark"], fg=THEME["text_dim"], bd=0, cursor="hand2", command=self.handle_reconciliation)
+        self.btn_reconcile.pack(pady=(0, 5))
+
+        self.lbl_progress = tk.Label(content, text="", font=("Segoe UI", 8), fg=THEME["success"], bg=THEME["bg_dark"])
+        self.lbl_progress.pack(pady=(0, 15))
 
         # Log Area
         tk.Label(content, text="LIVE ACTIVITY LOG", font=("Segoe UI", 9, "bold"), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(anchor="w", pady=(0, 5))
@@ -295,6 +302,69 @@ class JournalFXApp(tk.Tk):
         self.log_area.insert(tk.END, f"[{timestamp}] {message}\n")
         self.log_area.see(tk.END)
 
+    def handle_reconciliation(self, silent=False):
+        if not mt5.initialize():
+            if not silent: messagebox.showerror("MT5 Error", "Please make sure MetaTrader 5 is open.")
+            return
+
+        if not silent:
+            self.btn_reconcile.config(text="RECONCILING...", state="disabled")
+        
+        self.log("Starting full history reconciliation..." if not silent else "Starting background auto-sync...")
+        
+        def run_reconcile():
+            try:
+                # If silent (auto-sync), only get last 7 days. If manual, get everything.
+                if silent:
+                    from_date = datetime.now().timestamp() - (7 * 24 * 60 * 60)
+                    to_date = datetime.now().timestamp() + (24 * 60 * 60)
+                    trades = self._fetch_mt5_deals(from_date, to_date, limit=None)
+                else:
+                    trades = self.get_full_history()
+
+                self.log(f"Found {len(trades)} deals to verify.")
+                
+                headers = {
+                    "Content-Type": "application/json",
+                    "Sync-Key": self.sync_key,
+                    "Authorization": f"Bearer {SUPABASE_KEY}"
+                }
+                
+                chunk_size = 100
+                total_synced = 0
+                total_chunks = (len(trades) + chunk_size - 1) // chunk_size if trades else 0
+                
+                for i in range(0, len(trades), chunk_size):
+                    chunk = trades[i:i + chunk_size]
+                    payload = {
+                        "trades": chunk,
+                        "isReconciliation": True,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                    
+                    response = requests.post(SYNC_ENDPOINT, json=payload, headers=headers, timeout=30)
+                    if response.status_code == 200:
+                        total_synced += len(chunk)
+                        progress_msg = f"Synced {total_synced}/{len(trades)} trades"
+                        self.after(0, lambda m=progress_msg: self.lbl_progress.config(text=m))
+                        self.log(f"Chunk {i//chunk_size + 1}/{total_chunks} OK")
+                    else:
+                        self.log(f"Sync Error: {response.status_code}", "error")
+                        break
+
+                self.log(f"Reconciliation complete. Processed {total_synced} trades.")
+                if not silent:
+                    messagebox.showinfo("Success", f"Reconciliation complete! Processed {total_synced} trades.")
+            except Exception as e:
+                self.log(f"Reconcile Error: {str(e)}", "error")
+                if not silent: messagebox.showerror("Error", f"Reconciliation failed: {str(e)}")
+            finally:
+                self.after(2000, lambda: self.lbl_progress.config(text=""))
+                if not silent:
+                    self.after(0, lambda: self.btn_reconcile.config(text="↻ RECONCILE FULL HISTORY", state="normal"))
+
+        threading.Thread(target=run_reconcile, daemon=True).start()
+
     # --- BRIDGE LOGIC ---
     def toggle_bridge(self):
         if not self.bridge_running:
@@ -314,6 +384,9 @@ class JournalFXApp(tk.Tk):
         # Start Backtest Server Thread
         self.server_thread = threading.Thread(target=self.start_data_server, daemon=True)
         self.server_thread.start()
+
+        # Trigger Background Auto-Sync (last 7 days) on startup
+        self.after(5000, lambda: self.handle_reconciliation(silent=True))
 
     def stop_bridge(self):
         self.bridge_running = False
@@ -402,12 +475,19 @@ class JournalFXApp(tk.Tk):
         # Add 24h buffer to to_date to handle broker server timezones that are ahead of local time
         from_date = datetime.now().timestamp() - (30 * 24 * 60 * 60)
         to_date = datetime.now().timestamp() + (24 * 60 * 60)
+        return self._fetch_mt5_deals(from_date, to_date, limit=50)
+
+    def get_full_history(self):
+        # Fetch everything from year 2000 to now
+        from_date = datetime(2000, 1, 1).timestamp()
+        to_date = datetime.now().timestamp() + (24 * 60 * 60)
+        return self._fetch_mt5_deals(from_date, to_date, limit=None)
+
+    def _fetch_mt5_deals(self, from_date, to_date, limit=None):
         deals = mt5.history_deals_get(from_date, to_date)
-        
         if deals is None: return []
 
         result = []
-        
         # Pre-fetch all entry deals to map opening prices and times by position ID
         entry_deals = {}
         for deal in deals:
@@ -418,33 +498,41 @@ class JournalFXApp(tk.Tk):
                 }
 
         for deal in deals:
-            # We process 'Out' deals (Exit) as the completion of a trade
-            if deal.entry == 1 or deal.entry == 2: # Entry Out or In/Out
-                entry_data = entry_deals.get(deal.position_id, {"price": deal.price, "time": deal.time})
-                entry_price = entry_data["price"]
-                entry_time = entry_data["time"] # Exact opening time
+            try:
+                # We process 'Out' deals (Exit) as the completion of a trade
+                if deal.entry == 1 or deal.entry == 2: # Entry Out or In/Out
+                    entry_data = entry_deals.get(deal.position_id, {"price": deal.price, "time": deal.time})
+                    
+                    # Robust field checking
+                    ticket = getattr(deal, 'ticket', 0)
+                    if not ticket: continue
+
+                    result.append({
+                        "ticket": ticket,
+                        "order": getattr(deal, 'order', 0),
+                        "position_id": getattr(deal, 'position_id', 0),
+                        "time": getattr(deal, 'time', 0),
+                        "entry_time": entry_data["time"],
+                        "type": "BUY" if getattr(deal, 'type', 0) == 0 else "SELL", 
+                        "entry": deal.entry,
+                        "symbol": getattr(deal, 'symbol', "Unknown"),
+                        "volume": getattr(deal, 'volume', 0),
+                        "price": getattr(deal, 'price', 0),
+                        "entry_price": entry_data["price"],
+                        "profit": getattr(deal, 'profit', 0),
+                        "swap": getattr(deal, 'swap', 0),
+                        "commission": getattr(deal, 'commission', 0),
+                        "comment": getattr(deal, 'comment', "")
+                    })
+            except Exception as e:
+                self.log(f"Skipping malformed deal: {str(e)}", "error")
+                continue
                 
-                result.append({
-                    "ticket": deal.ticket,
-                    "order": deal.order,
-                    "position_id": deal.position_id,
-                    "time": deal.time, # Exit time
-                    "entry_time": entry_time, # Opening time
-                    "type": "BUY" if deal.type == 0 else "SELL", 
-                    "entry": deal.entry,
-                    "symbol": deal.symbol,
-                    "volume": deal.volume,
-                    "price": deal.price, # Exit Price
-                    "entry_price": entry_price, # True Entry Price
-                    "profit": deal.profit,
-                    "swap": deal.swap,
-                    "commission": deal.commission,
-                    "comment": deal.comment
-                })
-                
-        # Sort by time desc and limit to last 50
+        # Sort by time desc
         result.sort(key=lambda x: x['time'], reverse=True)
-        return result[:50]
+        if limit:
+            return result[:limit]
+        return result
 
 if __name__ == "__main__":
     app = JournalFXApp()

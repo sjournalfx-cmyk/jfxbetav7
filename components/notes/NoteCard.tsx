@@ -159,8 +159,8 @@ const NoteCard: React.FC<NoteCardProps> = ({
         )}
       </div>
 
-      <div className={`h-[36px] flex items-center justify-between px-1.5 transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-         <div className="flex items-center gap-0.5">
+      <div className={`h-[32px] flex items-center justify-between px-2 transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+         <div className="flex items-center gap-1">
              {note.isTrashed ? (
                <>
                  <ToolbarButton 
@@ -168,7 +168,7 @@ const NoteCard: React.FC<NoteCardProps> = ({
                       e.stopPropagation();
                       onDelete?.(e, note);
                     }}
-                    icon={<Trash2 className="w-3.5 h-3.5" />} 
+                    icon={<Trash2 className="w-3 h-3" />} 
                     title="Delete forever" 
                  />
                  <ToolbarButton 
@@ -176,20 +176,20 @@ const NoteCard: React.FC<NoteCardProps> = ({
                       e.stopPropagation();
                       onRestore?.(e, note);
                     }}
-                    icon={<RotateCcw className="w-3.5 h-3.5" />} 
+                    icon={<RotateCcw className="w-3 h-3" />} 
                     title="Restore" 
                  />
                </>
              ) : (
                <>
                  <ToolbarButton icon={<BellIcon />} title="Remind me" />
-                 <ToolbarButton icon={<ImageIcon className="w-3.5 h-3.5" />} title="Add image" />
+                 <ToolbarButton icon={<ImageIcon className="w-3 h-3" />} title="Add image" />
                  <ToolbarButton 
                     onClick={(e) => {
                       e.stopPropagation();
                       onArchive(e, note);
                     }}
-                    icon={<Archive className="w-3.5 h-3.5" />} 
+                    icon={<Archive className="w-3 h-3" />} 
                     title={note.isArchived ? "Unarchive" : "Archive"} 
                  />
                  <ToolbarButton 
@@ -197,10 +197,10 @@ const NoteCard: React.FC<NoteCardProps> = ({
                       e.stopPropagation();
                       onDelete?.(e, note);
                     }}
-                    icon={<Trash2 className="w-3.5 h-3.5" />} 
+                    icon={<Trash2 className="w-3 h-3" />} 
                     title="Delete" 
                  />
-                 <ToolbarButton icon={<MoreVertical className="w-3.5 h-3.5" />} title="More" />
+                 <ToolbarButton icon={<MoreVertical className="w-3 h-3" />} title="More" />
                </>
              )}
          </div>
@@ -215,13 +215,13 @@ const ToolbarButton = ({ icon, title, onClick }: { icon: React.ReactNode, title:
             e.stopPropagation();
             if(onClick) onClick(e);
         }}
-        className="w-7 h-7 flex items-center justify-center rounded-full text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] hover:bg-[var(--notebook-hover)] transition-colors" 
+        className="w-6 h-6 flex items-center justify-center rounded-full text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] hover:bg-[var(--notebook-hover)] transition-colors" 
         title={title}
     >
         {icon}
     </button>
 )
 
-const BellIcon = () => <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
+const BellIcon = () => <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
 
 export default NoteCard;

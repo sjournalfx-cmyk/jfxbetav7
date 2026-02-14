@@ -37,7 +37,7 @@ serve(async (req) => {
             })
         }
 
-        const { trades, account, openPositions, isHeartbeat } = body;
+        const { trades, account, openPositions, isHeartbeat, isReconciliation } = body;
 
         // 2. Verify sync key exists in profiles
         const { data: profile, error: profileError } = await supabaseClient
@@ -71,52 +71,43 @@ serve(async (req) => {
             })
         }
 
-        // 3. Persist session data
-        const sessionData = {
-            trades: trades || [],
-            account: account || null,
-            openPositions: openPositions || [],
-            lastHeartbeat: new Date().toISOString(),
-            isHeartbeat: !!isHeartbeat,
-            userName: profile.name
-        };
+        // 3. Persist session data (Always for heartbeats/regular sync, optional for reconciliation)
+        if (!isReconciliation) {
+            const sessionData = {
+                trades: trades || [],
+                account: account || null,
+                openPositions: openPositions || [],
+                lastHeartbeat: new Date().toISOString(),
+                isHeartbeat: !!isHeartbeat,
+                userName: profile.name
+            };
 
-        const { error: upsertError } = await supabaseClient
-            .from('ea_sessions')
-            .upsert({
-                sync_key: syncKey,
-                data: sessionData,
-                last_updated: new Date().toISOString()
-            }, { onConflict: 'sync_key' });
+            const { error: upsertError } = await supabaseClient
+                .from('ea_sessions')
+                .upsert({
+                    sync_key: syncKey,
+                    data: sessionData,
+                    last_updated: new Date().toISOString()
+                }, { onConflict: 'sync_key' });
 
-        if (upsertError) {
-            console.error('Error upserting session:', upsertError);
-            return new Response(JSON.stringify({
-                success: false,
-                error: 'Persistence error',
-                details: upsertError.message
-            }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                status: 500,
-            })
+            if (upsertError) {
+                console.error('Error upserting session:', upsertError);
+            }
         }
 
-        // 4. Sync Trades History to 'trades' table (Only if Auto-Journal is enabled)
-        if (profile.auto_journal && trades && trades.length > 0) {
-            // Get existing trade ticket IDs for this user among the ones we just received
-            // to avoid duplicates more efficiently and reliably
-            const ticketIdsToSync = trades.map((t: any) => String(t.ticket));
-
-            const { data: recentTrades } = await supabaseClient
+        // 4. Sync Trades History to 'trades' table
+        // We sync if auto_journal is ON OR if it's a manual reconciliation request
+        if ((profile.auto_journal || isReconciliation) && trades && trades.length > 0) {
+            // Get ALL existing trade ticket IDs for this user to avoid duplicates
+            // For large history, we fetch them in a single query
+            const { data: existingTradesData } = await supabaseClient
                 .from('trades')
                 .select('ticket_id')
                 .eq('user_id', profile.id)
-                .in('ticket_id', ticketIdsToSync);
+                .not('ticket_id', 'is', null);
 
-            const existingTickets = new Set(recentTrades?.map((t: any) => String(t.ticket_id)));
-
+            const existingTickets = new Set(existingTradesData?.map((t: any) => String(t.ticket_id)));
             const newTrades = [];
-
 
             for (const trade of trades) {
                 // Skip if we already processed this ticket
@@ -125,6 +116,12 @@ serve(async (req) => {
                 // Map MT5 trade to DB schema
                 // Calculate Net PnL (Profit + Swap + Commission)
                 const netPnL = Number((trade.profit + (trade.swap || 0) + (trade.commission || 0)).toFixed(2));
+                
+                // Determine Status/Tags based on whether it's reconciliation
+                const tags = ['MT5_Auto_Journal'];
+                if (isReconciliation) {
+                    tags.push('Reconciled');
+                }
 
                 const dbTrade = {
                     user_id: profile.id,
@@ -133,7 +130,9 @@ serve(async (req) => {
                     asset_type: 'Forex',
                     date: new Date(trade.time * 1000).toISOString().split('T')[0],
                     time: new Date(trade.time * 1000).toTimeString().split(' ')[0],
-                    session: 'New York', // Placeholder
+                    open_time: new Date(trade.entry_time * 1000).toISOString(),
+                    close_time: new Date(trade.time * 1000).toISOString(),
+                    session: 'New York', // Placeholder - could be calculated from open_time
                     direction: trade.type === 'BUY' ? 'Long' : 'Short',
                     entry_price: trade.entry_price || trade.price,
                     exit_price: trade.price,
@@ -144,8 +143,8 @@ serve(async (req) => {
                     pnl: netPnL,
                     rr: 0,
                     rating: 0,
-                    tags: ['MT5_Auto_Journal'],
-                    notes: `Auto-journaled from MT5. Deal #${trade.ticket} | Order #${trade.order}`,
+                    tags: tags,
+                    notes: `Auto-journaled from MT5. Deal #${trade.ticket} | Order #${trade.order}${isReconciliation ? ' | Found during reconciliation.' : ''}`,
                     plan_adherence: 'No Plan',
                 };
 
@@ -156,6 +155,7 @@ serve(async (req) => {
             }
 
             if (newTrades.length > 0) {
+                // Batch insert new trades
                 const { error: insertError } = await supabaseClient
                     .from('trades')
                     .insert(newTrades);
@@ -163,15 +163,16 @@ serve(async (req) => {
                 if (insertError) {
                     console.error('Error syncing history:', insertError);
                 } else {
-                    console.log(`Synced ${newTrades.length} new trades.`);
+                    console.log(`Synced ${newTrades.length} new trades for user ${profile.id}.`);
                 }
             }
         }
 
         return new Response(JSON.stringify({
             success: true,
-            message: isHeartbeat ? 'Heartbeat received' : 'Data synced successfully',
-            user: profile.name
+            message: isReconciliation ? 'Reconciliation complete' : (isHeartbeat ? 'Heartbeat received' : 'Data synced successfully'),
+            user: profile.name,
+            synced_count: trades?.length || 0
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200,

@@ -109,13 +109,14 @@ export interface Note {
   tableData?: {
     rows: string[][];
   };
+  position?: number;
 }
 
 export interface DailyBias {
   date: string; // YYYY-MM-DD
   bias: 'Bullish' | 'Bearish' | 'Neutral';
   notes?: string;
-  actualOutcome?: 'Aligned' | 'Against' | 'Mixed';
+  actualOutcome?: 'Aligned' | 'Against' | 'Mixed' | 'Neutral';
 }
 
 export type GoalType = 'Financial' | 'Process' | 'Skill' | 'Risk' | 'Milestone';
