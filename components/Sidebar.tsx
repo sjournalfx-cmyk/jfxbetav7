@@ -156,10 +156,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <div className={`h-full flex flex-col py-4 border-r z-[100] transition-all duration-300 relative ${isExpanded ? 'w-[240px]' : 'w-[72px] items-center'} ${isDarkMode
-      ? 'bg-[#050505] border-zinc-800 shadow-[4px_0_24px_rgba(0,0,0,0.5)]'
-      : 'bg-white border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]'
-      }`}>
+    <motion.div 
+      className={`h-full flex flex-col py-4 border-r z-[100] relative ${isDarkMode
+        ? 'bg-[#050505] border-zinc-800 shadow-[4px_0_24px_rgba(0,0,0,0.5)]'
+        : 'bg-white border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]'
+        }`}
+      animate={{ width: isExpanded ? 240 : 72 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+    >
       <style>{`
         @keyframes heartbeat {
             0% { transform: scale(1); opacity: 0.6; }
@@ -340,7 +344,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
 
       </div>
-    </div>
+    </motion.div>
   );
 };
 

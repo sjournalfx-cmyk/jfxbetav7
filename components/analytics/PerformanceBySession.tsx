@@ -39,14 +39,34 @@ export const PerformanceBySession: React.FC<PerformanceBySessionProps> = ({ trad
     }
 
     // --- Helpers ---
-    const getSessionFromTime = (timeStr: string) => {
+    // SAST (South Africa Standard Time) is UTC+2
+    // Market sessions in SAST:
+    // - Asian/Tokyo: 00:00 - 09:00 SAST (22:00 - 07:00 UTC)
+    // - London: 09:00 - 17:00 SAST (07:00 - 15:00 UTC)
+    // - Overlap (London/NY): 14:00 - 17:00 SAST (12:00 - 15:00 UTC)
+    // - New York: 14:00 - 24:00 SAST (12:00 - 22:00 UTC)
+    const getSessionFromTime = (timeStr: string): string => {
         if (!timeStr) return 'Unknown';
-        const hour = parseInt(timeStr.split(':')[0], 10);
         
-        if (hour >= 0 && hour < 9) return 'Asian';
-        if (hour >= 9 && hour < 14) return 'London';
-        if (hour >= 14 && hour < 18) return 'Overlap'; 
-        if (hour >= 18) return 'New York';
+        const [h, m] = timeStr.split(':').map(Number);
+        if (isNaN(h)) return 'Unknown';
+
+        // SAST is UTC+2, so we subtract 2 to get UTC hour for session determination
+        const utcHour = (h - 2 + 24) % 24;
+        
+        // Asian/Tokyo Session: 22:00 - 07:00 UTC (00:00 - 09:00 SAST)
+        if (utcHour >= 22 || utcHour < 7) return 'Asian';
+        // London Session: 07:00 - 16:00 UTC (09:00 - 18:00 SAST)
+        if (utcHour >= 7 && utcHour < 16) return 'London';
+        // Overlap (London/NY): 13:00 - 16:00 UTC (15:00 - 18:00 SAST)
+        if (utcHour >= 13 && utcHour < 16) return 'Overlap';
+        // New York Session: 14:00 - 22:00 UTC (16:00 - 24:00 SAST)
+        if (utcHour >= 14 && utcHour < 22) return 'New York';
+        
+        // Fallback for edge cases around the transitions
+        if (utcHour >= 16 && utcHour < 22) return 'New York';
+        if (utcHour >= 7 && utcHour < 9) return 'London';
+        
         return 'Unknown';
     };
 

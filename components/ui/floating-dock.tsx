@@ -89,8 +89,10 @@ function IconContainer({
     return val - bounds.y - bounds.height / 2;
   });
 
-  let widthTransform = useTransform(distance, [-100, 0, 100], [36, 52, 36]);
-  let heightTransform = useTransform(distance, [-100, 0, 100], [36, 52, 36]);
+  // Base width changes based on showLabels - animate smoothly between collapsed (36) and expanded (44)
+  let baseWidth = showLabels ? 44 : 36;
+  let widthTransform = useTransform(distance, [-100, 0, 100], [36, baseWidth + 16, 36]);
+  let heightTransform = useTransform(distance, [-100, 0, 100], [36, baseWidth + 16, 36]);
 
   let widthTransformIcon = useTransform(distance, [-100, 0, 100], [18, 26, 18]);
   let heightTransformIcon = useTransform(
@@ -99,6 +101,7 @@ function IconContainer({
     [18, 26, 18],
   );
 
+  // Use spring with different configs based on showLabels state
   let width = useSpring(widthTransform, { mass: 0.1, stiffness: 150, damping: 12 });
   let height = useSpring(heightTransform, { mass: 0.1, stiffness: 150, damping: 12 });
   let widthIcon = useSpring(widthTransformIcon, { mass: 0.1, stiffness: 150, damping: 12 });
@@ -108,32 +111,37 @@ function IconContainer({
 
   return (
     <div className="flex items-center w-full group/btn relative">
-      <div 
+      <motion.div 
         className={cn(
-          "flex items-center w-full outline-none transition-all duration-300",
+          "flex items-center w-full outline-none",
           showLabels ? "gap-3 justify-start" : "justify-center"
         )}
+        layout
+        transition={{ duration: 0.3, ease: "easeInOut" }}
       >
         <motion.div
           ref={ref}
+          layout
           style={{ width, height }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           onClick={isLocked ? undefined : onClick}
           className={cn(
-            "relative flex aspect-square items-center justify-center rounded-full transition-all duration-300 shrink-0 cursor-pointer",
+            "relative flex aspect-square items-center justify-center rounded-full shrink-0 cursor-pointer",
             isActive 
               ? "bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/30" 
               : "bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100 shadow-sm hover:shadow-md",
             isLocked && "opacity-40 cursor-not-allowed"
           )}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
         >
-          <AnimatePresence>
+          <AnimatePresence mode="wait">
             {hovered && !showLabels && (
               <motion.div
-                initial={{ opacity: 0, x: 10, y: "-50%" }}
-                animate={{ opacity: 1, x: 50, y: "-50%" }}
-                exit={{ opacity: 0, x: 10, y: "-50%" }}
+                initial={{ opacity: 0, x: 10, y: "-50%", scale: 0.8 }}
+                animate={{ opacity: 1, x: 50, y: "-50%", scale: 1 }}
+                exit={{ opacity: 0, x: 10, y: "-50%", scale: 0.8 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
                 className="absolute left-0 top-1/2 w-fit rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-bold whitespace-pre text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white z-[100] shadow-xl flex flex-col gap-1 min-w-[80px]"
               >
                 <span>{title}</span>
@@ -155,6 +163,7 @@ function IconContainer({
           <motion.div
             style={{ width: widthIcon, height: heightIcon }}
             className="flex items-center justify-center"
+            transition={{ duration: 0.15, ease: "easeOut" }}
           >
             {icon}
           </motion.div>
@@ -167,29 +176,40 @@ function IconContainer({
               </div>
           )}
         </motion.div>
-        {showLabels && (
-          <div className="flex-1 flex items-center justify-between min-w-0 pr-2">
-            <span className={cn(
-              "text-xs font-bold truncate transition-colors",
-              isActive ? "text-[#FF4F01]" : "text-zinc-500 group-hover/btn:text-zinc-800 dark:group-hover/btn:text-zinc-200"
-            )}>
-              {title}
-            </span>
-            {secondaryAction && hovered && (
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        secondaryAction.onClick();
-                    }}
-                    className="p-1 rounded bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-colors shrink-0"
-                    title={secondaryAction.label}
-                >
-                    <IconTrash size={12} />
-                </button>
-            )}
-          </div>
-        )}
-      </div>
+        <AnimatePresence mode="wait">
+          {showLabels && (
+            <motion.div
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: "auto" }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+              className="flex-1 flex items-center justify-between min-w-0 pr-2 overflow-hidden"
+            >
+              <span className={cn(
+                "text-xs font-bold truncate transition-colors whitespace-nowrap",
+                isActive ? "text-[#FF4F01]" : "text-zinc-500 group-hover/btn:text-zinc-800 dark:group-hover/btn:text-zinc-200"
+              )}>
+                {title}
+              </span>
+              {secondaryAction && hovered && (
+                  <motion.button
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          secondaryAction.onClick();
+                      }}
+                      className="p-1 rounded bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-colors shrink-0"
+                      title={secondaryAction.label}
+                  >
+                      <IconTrash size={12} />
+                  </motion.button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }

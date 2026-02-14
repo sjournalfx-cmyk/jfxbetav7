@@ -25,7 +25,7 @@ export const ExecutionPerformanceTable: React.FC<ExecutionPerformanceTableProps>
         return [...safeTrades].sort((a, b) => {
             const dateA = new Date(`${a.date}T${a.time || '00:00'}`).getTime();
             const dateB = new Date(`${b.date}T${b.time || '00:00'}`).getTime();
-            return dateB - dateA;
+            return dateA - dateB; // Sort ascending (oldest first) for consistency with other widgets
         }).slice(0, 15);
     }, [trades]);
 
