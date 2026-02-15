@@ -390,6 +390,26 @@ class JournalFXApp(tk.Tk):
 
     def stop_bridge(self):
         self.bridge_running = False
+        
+        # Send explicit offline signal to dashboard for instant reaction
+        def send_offline_signal():
+            try:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Sync-Key": self.sync_key,
+                    "Authorization": f"Bearer {SUPABASE_KEY}"
+                }
+                payload = {
+                    "isHeartbeat": False,
+                    "status": "offline",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                requests.post(SYNC_ENDPOINT, json=payload, headers=headers, timeout=5)
+            except:
+                pass
+        
+        threading.Thread(target=send_offline_signal, daemon=True).start()
+
         self.btn_toggle.config(text="START BRIDGE", bg=THEME["primary"])
         self.update_status(self.card_mt5, "Disconnected", "error")
         self.update_status(self.card_server, "Standby", "text_dim")

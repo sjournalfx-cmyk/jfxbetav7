@@ -20,16 +20,24 @@ interface BridgeProps {
     eaSession?: EASession | null;
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
+    onAddOffline?: (trade: Trade) => void;
     trades: Trade[];
     userId: string;
 }
 
-const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade, trades, userId }) => {
+const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfile, eaSession, onTradeAdded, onEditTrade, onAddOffline, trades, userId }) => {
     const [isInternalConnected, setIsInternalConnected] = useState(userProfile.eaConnected);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
-    const [liveData, setLiveData] = useState<any>(eaSession?.data || null);
-    const [lastHeartbeat, setLastHeartbeat] = useState<Date | null>(eaSession?.last_updated ? new Date(eaSession.last_updated) : null);
-    const [syncLog, setSyncLog] = useState<{ time: Date; message: string; type: 'success' | 'info' | 'error' }[]>([]);
+    
+    // Persistent cache for bridge data
+    const [liveData, setLiveData] = useLocalStorage<any>(`jfx_bridge_live_data_${userId}`, eaSession?.data || null);
+    const [cachedHeartbeat, setCachedHeartbeat] = useLocalStorage<string | null>(`jfx_bridge_heartbeat_${userId}`, eaSession?.last_updated || null);
+    const [lastHeartbeat, setLastHeartbeat] = useState<Date | null>(() => {
+        if (eaSession?.last_updated) return new Date(eaSession.last_updated);
+        if (cachedHeartbeat) return new Date(cachedHeartbeat);
+        return null;
+    });
+    const [syncLog, setSyncLog] = useLocalStorage<{ time: string; message: string; type: 'success' | 'info' | 'error' }[]>(`jfx_bridge_log_${userId}`, []);
 
     // Sync internal connection state with profile
     useEffect(() => {
@@ -39,18 +47,34 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
     // Update live data from prop
     useEffect(() => {
         if (eaSession?.data) {
-            setLiveData(eaSession.data);
-            setLastHeartbeat(new Date(eaSession.last_updated));
+            // Only update main trading data if it's a valid data heartbeat
+            if (eaSession.data.isHeartbeat !== false) {
+                setLiveData(eaSession.data);
+            }
+            
+            if (eaSession.last_updated) {
+                const date = new Date(eaSession.last_updated);
+                setLastHeartbeat(date);
+                setCachedHeartbeat(eaSession.last_updated);
+            }
 
-            // Add entry to log if it's a new update
-            const isHeartbeat = eaSession.data.isHeartbeat;
-            const tradeCount = eaSession.data.trades?.length || 0;
-            const msg = isHeartbeat ? 'Heartbeat received' : `Synced ${tradeCount} trades from terminal`;
+            // Only log and update heartbeats if it's a real sync or explicit heartbeat
+            if (eaSession.data.isHeartbeat !== false) {
+                const isHeartbeat = eaSession.data.isHeartbeat;
+                const tradeCount = eaSession.data.trades?.length || 0;
+                const msg = isHeartbeat ? 'Heartbeat received' : `Synced ${tradeCount} trades from terminal`;
 
-            setSyncLog(prev => [
-                { time: new Date(), message: msg, type: 'success' } as const,
-                ...prev
-            ].slice(0, 5));
+                setSyncLog(prev => [
+                    { time: new Date().toISOString(), message: msg, type: 'success' } as const,
+                    ...prev
+                ].slice(0, 10));
+            } else {
+                // If it's an explicit offline signal, log it
+                setSyncLog(prev => [
+                    { time: new Date().toISOString(), message: 'Bridge manually stopped', type: 'info' } as const,
+                    ...prev
+                ].slice(0, 10));
+            }
         }
     }, [eaSession]);
 
@@ -61,6 +85,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
                 userProfile={userProfile}
                 liveData={liveData}
                 lastHeartbeat={lastHeartbeat}
+                isHeartbeat={eaSession?.data?.isHeartbeat !== false}
                 syncKey={syncKey}
                 syncLog={syncLog}
                 onDisconnect={async () => {
@@ -70,6 +95,7 @@ const Bridge: React.FC<BridgeProps> = ({ isDarkMode, userProfile, onUpdateProfil
                 }}
                 onTradeAdded={onTradeAdded}
                 onEditTrade={onEditTrade}
+                onAddOffline={onAddOffline}
                 trades={trades}
                 userId={userId}
             />
@@ -97,22 +123,23 @@ interface BridgeMonitorProps {
     userProfile: UserProfile;
     liveData: any;
     lastHeartbeat: Date | null;
+    isHeartbeat: boolean;
     syncKey: string;
     syncLog: { time: Date; message: string; type: 'success' | 'info' | 'error' }[];
     onDisconnect: () => Promise<void>;
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
+    onAddOffline?: (trade: Trade) => void;
     trades: Trade[];
     userId: string;
 }
 
-const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, liveData, lastHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, trades, userId }) => {
+const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, liveData, lastHeartbeat, isHeartbeat, syncKey, syncLog, onDisconnect, onTradeAdded, onEditTrade, onAddOffline, trades, userId }) => {
     const [activeTab, setActiveTab] = useState<'monitor' | 'settings'>('monitor');
     const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
     const [autoLog, setAutoLog] = useLocalStorage('bridge_auto_log', false);
     const [activeSetup, setActiveSetup] = useState<{ id: string, name: string } | null>(null);
     const [now, setNow] = useState(new Date());
-    const [savedTrades, setSavedTrades] = useState<Trade[]>([]);
     const [isSavingTrade, setIsSavingTrade] = useState<string | null>(null); // Track specific trade being saved
     const [copied, setCopied] = useState(false);
 
@@ -146,27 +173,13 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
         return () => clearInterval(timer);
     }, []);
 
-    // Load saved trades to compare
-    useEffect(() => {
-        const loadSavedTrades = async () => {
-            if (!userId) return;
-            try {
-                const trades = await dataService.getTrades(userId);
-                setSavedTrades(trades);
-            } catch (err) {
-                console.error("Failed to load saved trades:", err);
-            }
-        };
-        loadSavedTrades();
-    }, [liveData, userId]); // Reload when live data updates to reflect new saves
-
     const timeAgo = lastHeartbeat ? Math.floor((now.getTime() - lastHeartbeat.getTime()) / 1000) : null;
-    const isOnline = timeAgo !== null && timeAgo < 15; // 15s threshold for 'offline'
+    const isOnline = isHeartbeat && timeAgo !== null && timeAgo < 15; // 15s threshold for 'offline'
 
     // Filter "Pending" trades (from bridge but not in DB)
     // Only show "Exit" deals (entry=1 or 2) as candidates for Journal
     const incomingTrades = (liveData?.trades || []).filter((t: EADeal) => t.entry === 1 || t.entry === 2);
-    const pendingTrades = incomingTrades.filter((t: EADeal) => !savedTrades.some(st => st.ticketId === String(t.ticket)));
+    const pendingTrades = incomingTrades.filter((t: EADeal) => !trades.some(st => st.ticketId === String(t.ticket)));
 
     // Auto-Log Logic
     useEffect(() => {
@@ -234,15 +247,20 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                 return;
             }
 
-            const saved = await dataService.addTrade(newTrade);
-            setSavedTrades(prev => [saved, ...prev]);
-
-            // Notify global state
-            if (onTradeAdded) {
-                onTradeAdded(saved);
+            try {
+                const saved = await dataService.addTrade(newTrade);
+                // Notify global state
+                if (onTradeAdded) {
+                    onTradeAdded(saved);
+                }
+            } catch (syncError) {
+                console.warn("Sync failed, queuing offline:", syncError);
+                if (onAddOffline) {
+                    onAddOffline(newTrade);
+                }
             }
         } catch (error) {
-            console.error("Failed to add trade:", error);
+            console.error("Failed to process trade:", error);
         } finally {
             setIsSavingTrade(null);
         }
@@ -518,7 +536,7 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                                         </div>
                                                         <div className="flex items-center justify-between">
                                                             <div></div>
-                                                            {savedTrades.some(st => st.ticketId === String(trade.ticket)) ? (
+                                                            {trades.some(st => st.ticketId === String(trade.ticket)) ? (
                                                                 <CheckCircle2 size={14} className="text-emerald-500" />
                                                             ) : (
                                                                 <button
@@ -554,7 +572,9 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                         {syncLog?.length > 0 ? (
                                             syncLog.map((log: any, i: number) => (
                                                 <div key={i} className="flex items-start gap-3 text-[11px] font-mono leading-tight">
-                                                    <div className="opacity-30 whitespace-nowrap">{log.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                                                    <div className="opacity-30 whitespace-nowrap">
+                                                        {new Date(log.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    </div>
                                                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${log.type === 'success' ? 'bg-emerald-500' :
                                                         log.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
                                                         }`} />

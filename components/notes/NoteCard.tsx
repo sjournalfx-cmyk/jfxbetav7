@@ -78,11 +78,14 @@ const NoteCard: React.FC<NoteCardProps> = ({
             <tbody>
               {visibleRows.map((row, i) => (
                 <tr key={i} className="border-b border-[var(--notebook-divider)] last:border-0">
-                  {row.slice(0, 3).map((cell, j) => (
-                    <td key={j} className="p-1 border-r border-[var(--notebook-divider)] last:border-0 truncate max-w-[60px] text-[var(--notebook-text)] opacity-80">
-                      {cell}
-                    </td>
-                  ))}
+                  {row.slice(0, 3).map((cell, j) => {
+                    const cellData = typeof cell === 'string' ? { text: cell } : cell;
+                    return (
+                      <td key={j} className={`p-1 border-r border-[var(--notebook-divider)] last:border-0 truncate max-w-[60px] text-[var(--notebook-text)] opacity-80 ${cellData.color ? ColorStyles[cellData.color] : ''}`}>
+                        {cellData.text}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -103,11 +106,6 @@ const NoteCard: React.FC<NoteCardProps> = ({
 
   return (
     <div
-      draggable={!note.isTrashed}
-      onDragStart={() => !note.isTrashed && onDragStart?.(note)}
-      onDragEnd={() => onDragEnd?.()}
-      onDragOver={handleDragOver}
-      onDrop={() => !note.isTrashed && onDrop?.(note)}
       className={`relative rounded-xl border transition-all duration-200 ease-out cursor-grab active:cursor-grabbing group overflow-hidden
         ${ColorStyles[note.color]} 
         ${note.color === 'DEFAULT' ? 'border-[var(--notebook-divider)]' : 'border-transparent'}

@@ -108,7 +108,7 @@ export const MermaidWidget = ({ code, type, isDarkMode, onSave, onFix }: { code:
                             const scaleY = (containerHeight * 0.8) / bBox.height;
                             const initialScale = Math.min(Math.min(scaleX, scaleY), 1.2); // Cap at 1.2x zoom
                             
-                            setScale(Math.max(initialScale, 0.4)); // Don't go below 0.4x
+                            setScale(Math.max(initialScale, 0.2)); // Don't go below 0.2x
                         }
                     }
                     setError(null);
@@ -143,6 +143,14 @@ export const MermaidWidget = ({ code, type, isDarkMode, onSave, onFix }: { code:
         }
     };
 
+    const handleWheel = (e: React.WheelEvent) => {
+        if (e.ctrlKey || isFullScreen) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            setScale(s => Math.min(4, Math.max(0.2, s + delta)));
+        }
+    };
+
     const WidgetContent = (
         <div className={`flex flex-col h-full ${isFullScreen ? 'p-6' : ''}`}>
             <div className="w-full flex justify-between items-center mb-4 shrink-0">
@@ -160,7 +168,7 @@ export const MermaidWidget = ({ code, type, isDarkMode, onSave, onFix }: { code:
                     {/* Zoom Controls */}
                     <div className={`flex items-center gap-1 rounded-lg p-1 ${isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
                         <button 
-                            onClick={() => setScale(s => Math.max(0.4, s - 0.2))} 
+                            onClick={() => setScale(s => Math.max(0.2, s - 0.2))} 
                             className={`p-1.5 rounded-md transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500'}`}
                             title="Zoom Out"
                         >
@@ -170,7 +178,7 @@ export const MermaidWidget = ({ code, type, isDarkMode, onSave, onFix }: { code:
                             {Math.round(scale * 100)}%
                         </span>
                         <button 
-                            onClick={() => setScale(s => Math.min(3, s + 0.2))} 
+                            onClick={() => setScale(s => Math.min(4, s + 0.2))} 
                             className={`p-1.5 rounded-md transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500'}`}
                             title="Zoom In"
                         >
@@ -226,7 +234,11 @@ export const MermaidWidget = ({ code, type, isDarkMode, onSave, onFix }: { code:
                 )}
 
                 {/* Drag Constraints Container */}
-                <div ref={wrapperRef} className="w-full h-full overflow-hidden relative flex items-center justify-center">
+                <div 
+                    ref={wrapperRef} 
+                    className="w-full h-full overflow-hidden relative flex items-center justify-center"
+                    onWheel={handleWheel}
+                >
                     <motion.div
                         drag
                         dragMomentum={false}

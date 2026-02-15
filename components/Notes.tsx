@@ -49,7 +49,6 @@ const Notes: React.FC<NotesProps> = ({
 }) => {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [draggedNote, setDraggedNote] = useState<KeepNote | null>(null);
   const [currentSection, setCurrentSection] = useState<SidebarSection>('NOTES');
   
   // Canvas Size State
@@ -74,6 +73,7 @@ const Notes: React.FC<NotesProps> = ({
     listItems: (n as any).listItems || [],
     image: (n as any).image,
     tableData: (n as any).tableData,
+    position: n.position,
   }));
 
   const selectedNote = notes.find(n => n.id === selectedNoteId) || null;
@@ -86,6 +86,7 @@ const Notes: React.FC<NotesProps> = ({
       color: newNoteData.color.toLowerCase() as any,
       tags: [],
       date: new Date().toISOString(),
+      position: 0 // New notes start at the top
     };
     
     // Add extra fields for the new notebook
@@ -113,6 +114,7 @@ const Notes: React.FC<NotesProps> = ({
       color: updatedNote.color.toLowerCase() as any,
       tags: updatedNote.labels,
       date: new Date(updatedNote.updatedAt).toISOString(),
+      position: updatedNote.position,
     };
     
     // Add extra fields
@@ -156,12 +158,6 @@ const Notes: React.FC<NotesProps> = ({
           updatedAt: Date.now(),
       };
       handleCreateNote(duplicate);
-  };
-
-  const handleDropNote = (targetNote: KeepNote) => {
-    if (!draggedNote || draggedNote.id === targetNote.id) return;
-    // Reordering logic would go here if we had a position field in DB
-    setDraggedNote(null);
   };
 
   // Resize Handlers
@@ -342,16 +338,12 @@ const Notes: React.FC<NotesProps> = ({
                                                     <SortableWrapper key={note.id} id={note.id}>
                                                         <NoteCard 
                                                             note={note} 
-                                                            isDragging={draggedNote?.id === note.id}
                                                             onClick={(n) => setSelectedNoteId(n.id)}
                                                             onPin={handlePinNote}
                                                             onArchive={handleArchiveNote}
                                                             onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
                                                             onRestore={handleRestoreNote}
                                                             onUpdate={handleUpdateKeepNote}
-                                                            onDragStart={setDraggedNote}
-                                                            onDragEnd={() => setDraggedNote(null)}
-                                                            onDrop={handleDropNote}
                                                         />
                                                     </SortableWrapper>
                                                 ))}
@@ -380,16 +372,12 @@ const Notes: React.FC<NotesProps> = ({
                                                         <NoteCard 
                                                             key={note.id} 
                                                             note={note} 
-                                                            isDragging={draggedNote?.id === note.id}
                                                             onClick={(n) => setSelectedNoteId(n.id)}
                                                             onPin={handlePinNote}
                                                             onArchive={handleArchiveNote}
                                                             onDelete={(e, n) => { e.stopPropagation(); handleDeleteNote(n.id); }}
                                                             onRestore={handleRestoreNote}
                                                             onUpdate={handleUpdateKeepNote}
-                                                            onDragStart={setDraggedNote}
-                                                            onDragEnd={() => setDraggedNote(null)}
-                                                            onDrop={handleDropNote}
                                                         />
                                                     </SortableWrapper>
                                                 ))}
@@ -485,7 +473,7 @@ const Notes: React.FC<NotesProps> = ({
   );
 };
 
-const SortableWrapper = ({ id, children }: { id: string, children: React.ReactNode }) => {
+const SortableWrapper = ({ id, children }: { id: string, children: React.ReactElement }) => {
   const {
     attributes,
     listeners,
@@ -507,14 +495,14 @@ const SortableWrapper = ({ id, children }: { id: string, children: React.ReactNo
       ref={setNodeRef}
       style={style}
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 25 }}
       {...attributes}
       {...listeners}
     >
-      {children}
+      {React.cloneElement(children, { isDragging })}
     </motion.div>
   );
 };

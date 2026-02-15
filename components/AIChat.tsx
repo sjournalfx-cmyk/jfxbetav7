@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trade, UserProfile, Goal, DailyBias } from '../types';
+import { Trade, UserProfile, Goal, DailyBias, EASession } from '../types';
 import { geminiService } from '../services/geminiService';
+import { calculateStats } from '../lib/statsUtils';
 import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
 import { OutcomeDistributionWidget } from './analytics/OutcomeDistributionWidget';
 import { PerformanceRadarWidget } from './analytics/PerformanceRadarWidget';
@@ -38,6 +39,7 @@ interface AIChatProps {
   userProfile: UserProfile | null;
   goals?: Goal[];
   dailyBias?: DailyBias[];
+  eaSession?: EASession | null;
   onAddNote?: (note: any) => Promise<any>;
 }
 
@@ -47,6 +49,7 @@ const AIChat: React.FC<AIChatProps> = ({
   userProfile,
   goals = [],
   dailyBias = [],
+  eaSession = null,
   onAddNote
 }) => {
   const [persistedMessages, setPersistedMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history', []);
@@ -88,6 +91,23 @@ const AIChat: React.FC<AIChatProps> = ({
     "Processing psychology...",
     "Generating growth goals..."
   ];
+
+  const stepColors = [
+    'text-zinc-400',
+    'text-blue-400',
+    'text-emerald-400',
+    'text-purple-400',
+    'text-amber-400'
+  ];
+
+  const stepBgColors = [
+    'bg-zinc-400',
+    'bg-blue-400',
+    'bg-emerald-400',
+    'bg-purple-400',
+    'bg-amber-400'
+  ];
+
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionMenuFilter] = useState('');
@@ -287,7 +307,17 @@ ${code}
     const getWidgetContent = () => {
       switch (key) {
         case 'pnl': {
-          let cumulative = userProfile?.initialBalance || 0;
+          const isPro = userProfile?.plan === 'HOBBY'; // PRO TIER
+          const isPremium = userProfile?.plan === 'STANDARD'; // PREMIUM
+          
+          let effectiveInitialBalance = userProfile?.initialBalance || 0;
+          
+          if ((isPro || isPremium) && eaSession?.data?.account?.balance !== undefined) {
+               const totalPnL = (trades || []).reduce((acc, t) => acc + t.pnl, 0);
+               effectiveInitialBalance = eaSession.data.account.balance - totalPnL;
+          }
+
+          let cumulative = effectiveInitialBalance;
           const equityData = [cumulative];
           [...trades]
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -295,9 +325,20 @@ ${code}
               cumulative += t.pnl;
               equityData.push(cumulative);
             });
+          
+          const currentBalance = eaSession?.data?.account?.equity !== undefined
+            ? eaSession.data.account.equity
+            : (equityData?.length > 0 ? equityData[equityData.length - 1] : 0);
+
           return (
             <div className="p-0 sm:p-2 w-full h-full">
-              <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={currencySymbol} />
+              <EquityCurveWidget 
+                trades={trades} 
+                equityData={equityData} 
+                isDarkMode={isDarkMode} 
+                currencySymbol={currencySymbol} 
+                currentBalanceOverride={currentBalance}
+              />
             </div>
           );
         }
@@ -743,7 +784,7 @@ ${code}
               ul: ({ children }) => <ul className="list-disc ml-4 mb-4 space-y-2">{children}</ul>,
               ol: ({ children }) => <ol className="list-decimal ml-4 mb-4 space-y-2">{children}</ol>,
               li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
-              strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{renderWithMentions(children)}</strong>,
+              strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
             }}>
               {item.value}
             </ReactMarkdown>
@@ -778,6 +819,7 @@ ${code}
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                     p: ({ children }) => <p className="mb-0 leading-relaxed italic">{renderWithMentions(children)}</p>,
                     li: ({ children }) => <li className="marker:text-indigo-500 pl-1 italic">{renderWithMentions(children)}</li>,
+                    strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
                   }}>
                     {items[j].value}
                   </ReactMarkdown>
@@ -1070,19 +1112,65 @@ ${code}
 
         {isTyping && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start relative z-10 pl-1">
-            <div className="flex gap-4 items-center">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+            <div className="flex gap-4 items-start">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20 shrink-0">
                 <Brain size={20} className="animate-pulse" />
               </div>
-              <div className={`flex gap-1.5 p-4 rounded-2xl rounded-tl-none border ${isDarkMode ? 'bg-indigo-500/5 border-indigo-500/10' : 'bg-white border-slate-200 shadow-sm'}`}>
-                {[0, 1, 2].map((i) => (
+              <div className={`flex flex-col gap-3 p-4 rounded-3xl rounded-tl-none border ${isDarkMode ? 'bg-indigo-500/5 border-indigo-500/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className="flex gap-1.5 items-center">
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={i}
+                      animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                      className="w-1.5 h-1.5 rounded-full bg-indigo-500"
+                    />
+                  ))}
+                </div>
+                {analysisStatus === 'analyzing' && (
                   <motion.div
-                    key={i}
-                    animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }}
-                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                    className="w-1.5 h-1.5 rounded-full bg-indigo-500"
-                  />
-                ))}
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="flex flex-col gap-3 border-t border-indigo-500/10 pt-3 min-w-[220px]"
+                  >
+                    <div className="flex justify-between items-center px-1">
+                        <span className={`text-[10px] font-black uppercase tracking-[0.15em] transition-colors duration-500 ${stepColors[currentStepIndex]}`}>
+                          {analysisSteps[currentStepIndex]}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold opacity-40">
+                            {Math.round(((currentStepIndex + 1) / analysisSteps.length) * 100)}%
+                        </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="h-1 w-full bg-zinc-500/10 rounded-full overflow-hidden">
+                        <motion.div 
+                            className={`h-full transition-colors duration-500 ${stepBgColors[currentStepIndex]}`}
+                            animate={{ width: `${((currentStepIndex + 1) / analysisSteps.length) * 100}%` }}
+                        />
+                    </div>
+
+                    {/* Step History */}
+                    <div className="space-y-1.5 mt-1">
+                        {analysisSteps.map((step, i) => (
+                            <div 
+                                key={i} 
+                                className={`flex items-center gap-2 text-[8px] font-bold uppercase tracking-wider transition-all duration-500 ${
+                                    i < currentStepIndex ? 'text-emerald-500 opacity-60' : 
+                                    i === currentStepIndex ? 'text-indigo-400' : 'opacity-20'
+                                }`}
+                            >
+                                {i < currentStepIndex ? (
+                                    <CheckCircle2 size={10} className="text-emerald-500" />
+                                ) : (
+                                    <div className={`w-1 h-1 rounded-full ${i === currentStepIndex ? 'bg-indigo-400 animate-pulse' : 'bg-current'}`} />
+                                )}
+                                {step.replace('...', '')}
+                            </div>
+                        ))}
+                    </div>
+                  </motion.div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -1098,27 +1186,6 @@ ${code}
           <div className="flex items-center gap-2 p-2 px-4 sm:px-6">
             <div className="flex items-center gap-1">
               <div className="relative">
-                <AnimatePresence>
-                  {analysisStatus === 'analyzing' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, x: '-50%' }}
-                      animate={{ opacity: 1, y: -40, x: '-50%' }}
-                      exit={{ opacity: 0, y: 10, x: '-50%' }}
-                      className={`absolute left-1/2 whitespace-nowrap px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest z-50 shadow-2xl border ${isDarkMode ? 'bg-zinc-900 border-white/10 text-indigo-400' : 'bg-white border-slate-200 text-indigo-600'
-                        }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="flex gap-0.5">
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="w-1 h-1 rounded-full bg-indigo-500 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
-                          ))}
-                        </div>
-                        {analysisSteps[currentStepIndex]}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
                 <button
                   onClick={handleSpecialAnalysis}
                   disabled={isTyping}

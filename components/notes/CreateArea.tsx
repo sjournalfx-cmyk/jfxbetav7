@@ -1,8 +1,24 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Image as ImageIcon, CheckSquare, Paintbrush, Pin, RotateCcw, RotateCw, Sparkles, Loader2, X, Plus, Minus, Square, CheckSquare as CheckSquareIcon, GripVertical, Palette, Archive, MoreVertical, Trash2, Check, Table as TableIcon, PlusSquare, MinusSquare } from 'lucide-react';
 import { Note, NoteColor, ColorStyles, ListItem, TableData } from './types';
 import { generateNoteContent } from '../../services/notesGeminiService';
+import {
+  DndContext, 
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface CreateAreaProps {
   onCreate: (note: Omit<Note, 'id' | 'createdAt' | 'updatedAt' | 'isArchived' | 'isTrashed' | 'labels'>) => void;
@@ -12,6 +28,54 @@ interface CreateAreaProps {
 
 const genId = () => Math.random().toString(36).slice(2, 9);
 const COLUMN_WIDTH_INC = 120;
+
+const SortableListItem = ({ item, onToggle, onChange, onRemove }: { 
+    item: ListItem, 
+    onToggle: () => void, 
+    onChange: (val: string) => void,
+    onRemove: () => void
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative' as const,
+    marginLeft: item.indentLevel ? `${item.indentLevel * 1.5}rem` : '0px'
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={`flex items-center group px-4 py-1 ${isDragging ? 'opacity-50' : ''}`}>
+        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-[var(--notebook-muted)] p-1 mr-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <GripVertical className="w-4 h-4" />
+        </div>
+        <button onClick={onToggle} className="p-1 mr-2 text-[var(--notebook-muted)]">
+            {item.checked ? <CheckSquareIcon className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+        </button>
+        <input 
+            id={`create-note-list-item-${item.id}`}
+            name={`list-item-${item.id}`}
+            aria-label="List item"
+            type="text"
+            value={item.text}
+            onChange={(e) => onChange(e.target.value)}
+            className={`w-full bg-transparent outline-none text-[0.875rem] ${item.checked ? 'text-[var(--notebook-muted)] line-through' : 'text-[var(--notebook-text)]'}`}
+            placeholder="List item"
+        />
+        <button onClick={onRemove} className="p-2 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] opacity-0 group-hover:opacity-100 transition-opacity">
+            <X className="w-3 h-3" />
+        </button>
+    </div>
+  );
+};
 
 const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanvasWidth }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -26,11 +90,14 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
   const [color, setColor] = useState<NoteColor>(NoteColor.DEFAULT);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showColorOptions, setShowColorOptions] = useState(false);
+  const [focusedCell, setFocusedCell] = useState<{ rIdx: number, cIdx: number } | null>(null);
+  const [showCellColorOptions, setShowCellColorOptions] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+  const cellColorPickerRef = useRef<HTMLDivElement>(null);
 
   const handleOutsideClick = (e: MouseEvent) => {
     if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -39,14 +106,17 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
     if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
       setShowColorOptions(false);
     }
+    if (cellColorPickerRef.current && !cellColorPickerRef.current.contains(e.target as Node)) {
+      setShowCellColorOptions(false);
+    }
   };
 
   useEffect(() => {
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [title, content, listItems, isList, color, isPinned, isExpanded, image, tableData]);
+  }, [title, content, listItems, isList, color, isPinned, isExpanded, image, tableData, focusedCell, showCellColorOptions]);
 
-  const hasContent = title.trim() || (isList ? listItems.some(item => item.text.trim().length > 0) : content.trim()) || image || (tableData && tableData.rows.some(row => row.some(cell => cell.trim().length > 0)));
+  const hasContent = title.trim() || (isList ? listItems.some(item => item.text.trim().length > 0) : content.trim()) || image || (tableData && tableData.rows.some(row => row.some(cell => cell.text.trim().length > 0)));
 
   const discard = () => {
     setTitle('');
@@ -59,13 +129,15 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
     setColor(NoteColor.DEFAULT);
     setIsExpanded(false);
     setShowColorOptions(false);
+    setShowCellColorOptions(false);
+    setFocusedCell(null);
   };
 
   const saveAndClose = () => {
     if (!isExpanded) return;
 
     const validItems = listItems.filter(item => item.text.trim().length > 0);
-    const hasTableContent = tableData && tableData.rows.some(row => row.some(cell => cell.trim().length > 0));
+    const hasTableContent = tableData && tableData.rows.some(row => row.some(cell => cell.text.trim().length > 0));
 
     if (title.trim() || (isList ? validItems.length > 0 : content.trim()) || image || hasTableContent) {
       onCreate({
@@ -122,7 +194,8 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
             const listText = listItems.map(i => i.text).join(', ');
             prompt = `Create a checklist based on: ${title}. Context: ${listText}`;
         } else if (tableData) {
-            prompt = `Provide data for this table about: ${title}. Columns: ${tableData.rows[0].join(', ')}`;
+            const colHeaders = tableData.rows[0].map(c => c.text).join(', ');
+            prompt = `Provide data for this table about: ${title}. Columns: ${colHeaders}`;
         } else {
             prompt = title ? `Write a detailed note about: ${title}. ${content}` : `Elaborate on this note: ${content}`;
         }
@@ -168,7 +241,7 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
     setIsList(false);
     setContent('');
     setTableData({
-      rows: [['', ''], ['', '']]
+      rows: [[{ text: '' }, { text: '' }], [{ text: '' }, { text: '' }]]
     });
     if (!isExpanded) setIsExpanded(true);
   };
@@ -176,19 +249,27 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
   const handleTableCellChange = (rowIndex: number, colIndex: number, value: string) => {
     if (!tableData) return;
     const newRows = [...tableData.rows];
-    newRows[rowIndex][colIndex] = value;
+    newRows[rowIndex][colIndex] = { ...newRows[rowIndex][colIndex], text: value };
     setTableData({ rows: newRows });
+  };
+
+  const handleCellColorChange = (rIdx: number, cIdx: number, cellColor: NoteColor) => {
+    if (!tableData) return;
+    const newRows = [...tableData.rows];
+    newRows[rIdx][cIdx] = { ...newRows[rIdx][cIdx], color: cellColor };
+    setTableData({ rows: newRows });
+    setShowCellColorOptions(false);
   };
 
   const addRow = () => {
     if (!tableData) return;
     const colCount = tableData.rows[0].length;
-    setTableData({ rows: [...tableData.rows, Array(colCount).fill('')] });
+    setTableData({ rows: [...tableData.rows, Array(colCount).fill(null).map(() => ({ text: '' }))] });
   };
 
   const addCol = () => {
     if (!tableData) return;
-    setTableData({ rows: tableData.rows.map(row => [...row, '']) });
+    setTableData({ rows: tableData.rows.map(row => [...row, { text: '' }]) });
     // Adjust canvas width automatically
     if (setCanvasWidth) {
         setCanvasWidth(prev => prev + COLUMN_WIDTH_INC);
@@ -216,6 +297,20 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
               return Math.max(400, Math.min(2000, next));
           });
       }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEndItems = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = listItems.findIndex(i => i.id === active.id);
+      const newIndex = listItems.findIndex(i => i.id === over.id);
+      setListItems(arrayMove(listItems, oldIndex, newIndex));
+    }
   };
 
   return (
@@ -282,13 +377,14 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                         {tableData.rows.map((row, rIdx) => (
                           <tr key={rIdx}>
                             {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="border border-[var(--notebook-divider)] p-0 relative group/cell align-top">
+                              <td key={cIdx} className={`border border-[var(--notebook-divider)] p-0 relative group/cell align-top transition-colors duration-200 ${cell.color ? ColorStyles[cell.color] : ''}`}>
                                 <textarea 
                                   id={`create-note-table-cell-${rIdx}-${cIdx}`}
                                   name={`table-cell-${rIdx}-${cIdx}`}
                                   aria-label={`Table cell row ${rIdx + 1} column ${cIdx + 1}`}
-                                  value={cell}
+                                  value={cell.text}
                                   rows={1}
+                                  onFocus={() => setFocusedCell({ rIdx, cIdx })}
                                   onChange={(e) => {
                                       handleTableCellChange(rIdx, cIdx, e.target.value);
                                       e.target.style.height = 'auto';
@@ -297,6 +393,15 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                                   className="w-full bg-transparent p-2 outline-none text-[var(--notebook-text)] placeholder-[var(--notebook-placeholder)] resize-none overflow-hidden block"
                                   placeholder="Cell..."
                                 />
+                                <div className="absolute top-1 right-1 opacity-0 group-cell/hover:opacity-100 flex gap-1 z-10">
+                                    <button 
+                                      onClick={() => { setFocusedCell({ rIdx, cIdx }); setShowCellColorOptions(true); }}
+                                      className="p-1 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] bg-[var(--note-default-bg)]/80 rounded-full shadow-sm"
+                                      title="Cell color"
+                                    >
+                                      <Palette className="w-3 h-3" />
+                                    </button>
+                                </div>
                                 {rIdx === 0 && tableData.rows[0].length > 1 && (
                                   <button onClick={() => removeCol(cIdx)} className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-cell/hover:opacity-100 text-[var(--notebook-muted)] hover:text-red-400 z-10 bg-[var(--note-default-bg)] rounded-full transition-opacity">
                                     <MinusSquare className="w-3 h-3" />
@@ -306,6 +411,18 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                                   <button onClick={() => removeRow(rIdx)} className="absolute top-1/2 -left-3 -translate-y-1/2 opacity-0 group-cell/hover:opacity-100 text-[var(--notebook-muted)] hover:text-red-400 z-10 bg-[var(--note-default-bg)] rounded-full transition-opacity">
                                     <MinusSquare className="w-3 h-3" />
                                   </button>
+                                )}
+                                
+                                {showCellColorOptions && focusedCell?.rIdx === rIdx && focusedCell?.cIdx === cIdx && (
+                                    <div ref={cellColorPickerRef} className="absolute top-full right-0 mt-1 p-2 bg-[var(--note-default-bg)] border border-[var(--notebook-divider)] rounded-lg shadow-2xl grid grid-cols-6 gap-1 z-[60] min-w-[180px]">
+                                        {Object.values(NoteColor).map((c) => (
+                                            <button 
+                                                key={c} 
+                                                className={`w-5 h-5 rounded-full border transition-all ${ColorStyles[c].split(' ')[0]} ${cell.color === c ? 'ring-2 ring-white scale-110' : 'hover:scale-110'}`}
+                                                onClick={() => handleCellColorChange(rIdx, cIdx, c)}
+                                            />
+                                        ))}
+                                    </div>
                                 )}
                               </td>
                             ))}
@@ -321,29 +438,23 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                   </div>
                 ) : isList ? (
                     <div className="flex flex-col">
-                        {listItems.map((item, index) => (
-                            <div key={item.id} className="flex items-center group px-4 py-1" style={{ marginLeft: item.indentLevel ? `${item.indentLevel * 1.5}rem` : '0px' }}>
-                                <div className="cursor-move text-[var(--notebook-muted)] p-1 mr-1 opacity-0 group-hover:opacity-100">
-                                    <GripVertical className="w-4 h-4" />
-                                </div>
-                                <button onClick={() => setListItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i))} className="p-1 mr-2 text-[var(--notebook-muted)]">
-                                    {item.checked ? <CheckSquareIcon className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                                </button>
-                                <input 
-                                    id={`create-note-list-item-${item.id}`}
-                                    name={`list-item-${item.id}`}
-                                    aria-label={`List item ${index + 1}`}
-                                    type="text"
-                                    value={item.text}
-                                    onChange={(e) => setListItems(prev => prev.map(i => i.id === item.id ? { ...i, text: e.target.value } : i))}
-                                    className={`w-full bg-transparent outline-none text-[0.875rem] ${item.checked ? 'text-[var(--notebook-muted)] line-through' : 'text-[var(--notebook-text)]'}`}
-                                    placeholder={listItems.length === 1 ? "List item" : ""}
-                                />
-                                <button onClick={() => setListItems(prev => prev.filter(i => i.id !== item.id))} className="p-2 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] opacity-0 group-hover:opacity-100">
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        ))}
+                        <DndContext 
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleDragEndItems}
+                        >
+                            <SortableContext items={listItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                                {listItems.map((item) => (
+                                    <SortableListItem 
+                                        key={item.id}
+                                        item={item}
+                                        onToggle={() => setListItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i))}
+                                        onChange={(val) => setListItems(prev => prev.map(i => i.id === item.id ? { ...i, text: val } : i))}
+                                        onRemove={() => setListItems(prev => prev.filter(i => i.id !== item.id))}
+                                    />
+                                ))}
+                            </SortableContext>
+                        </DndContext>
                          <div className="flex items-center px-4 py-1 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] cursor-pointer" onClick={() => setListItems(prev => [...prev, { id: genId(), text: '', checked: false, indentLevel: 0 }])}>
                             <Plus className="w-4 h-4 mr-3 ml-7" />
                             <span className="text-[0.875rem]">List item</span>
@@ -375,7 +486,7 @@ const CreateArea: React.FC<CreateAreaProps> = ({ onCreate, canvasWidth, setCanva
                       title="Background options" 
                     />
                     {showColorOptions && (
-                      <div className="absolute bottom-full left-0 mb-3 p-2 bg-[#2d2e30] border border-[var(--notebook-divider)] rounded-lg shadow-xl grid grid-cols-4 gap-2 z-40 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="absolute bottom-full left-0 mb-3 p-3 bg-[var(--note-default-bg)] border border-[var(--notebook-divider)] rounded-xl shadow-2xl grid grid-cols-6 gap-3 z-40 animate-in fade-in zoom-in-95 duration-150 min-w-[240px]">
                           {Object.values(NoteColor).map((c) => (
                               <button 
                                   key={c} 

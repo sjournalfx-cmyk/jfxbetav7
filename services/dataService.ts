@@ -499,6 +499,9 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    // Upload image if it is base64
+    const imageUrl = await uploadImage(user.id, note.image, 'after');
+
     const { data, error } = await supabase
       .from('notes')
       .insert({
@@ -513,7 +516,7 @@ export const dataService = {
         is_trashed: note.isTrashed,
         is_list: note.isList,
         list_items: note.listItems,
-        image: note.image,
+        image: imageUrl,
         table_data: note.tableData,
         position: note.position || 0
       })
@@ -537,6 +540,12 @@ export const dataService = {
   },
 
   async updateNote(note: Partial<Note> & { id: string }) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Upload image if it is base64
+    const imageUrl = await uploadImage(user.id, note.image, 'after');
+
     const updateData: any = {};
     if (note.title !== undefined) updateData.title = note.title;
     if (note.content !== undefined) updateData.content = note.content;
@@ -547,17 +556,35 @@ export const dataService = {
     if (note.isTrashed !== undefined) updateData.is_trashed = note.isTrashed;
     if (note.isList !== undefined) updateData.is_list = note.isList;
     if (note.listItems !== undefined) updateData.list_items = note.listItems;
-    if (note.image !== undefined) updateData.image = note.image;
+    if (imageUrl !== undefined) updateData.image = imageUrl;
+    else if (note.image !== undefined) updateData.image = note.image;
     if (note.tableData !== undefined) updateData.table_data = note.tableData;
     if (note.date !== undefined) updateData.date = note.date;
     if (note.position !== undefined) updateData.position = note.position;
 
-    const { error } = await supabase
-      .from('notes')
-      .update(updateData)
-      .eq('id', note.id);
+    const performUpdate = async (data: any): Promise<void> => {
+      const { error } = await supabase
+        .from('notes')
+        .update(data)
+        .eq('id', note.id);
 
-    if (error) throw error;
+      if (error) {
+        console.error("Supabase updateNote error:", error);
+        // Handle missing columns by stripping them and retrying
+        if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
+          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
+          if (fieldMatch && fieldMatch[1]) {
+            const missingField = fieldMatch[1].replace(/"/g, '') as string;
+            console.warn(`Column ${missingField} missing in notes table. Retrying update without it.`);
+            const { [missingField]: _, ...safeData } = data;
+            return performUpdate(safeData);
+          }
+        }
+        throw error;
+      }
+    };
+
+    await performUpdate(updateData);
   },
 
   async deleteNote(noteId: string) {
@@ -615,6 +642,22 @@ export const dataService = {
   async addGoal(goal: Goal) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
+
+    // Check for potential duplicate goals (same title, type, target)
+    const { data: existing } = await supabase
+      .from('goals')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('title', goal.title)
+      .eq('type', goal.type)
+      .eq('target_value', goal.targetValue)
+      .maybeSingle();
+
+    if (existing) {
+      console.warn("Potential duplicate goal detected. Returning existing.");
+      const { data } = await supabase.from('goals').select('*').eq('id', existing.id).single();
+      return mapGoalFromDB(data);
+    }
 
     const { data, error } = await supabase
       .from('goals')

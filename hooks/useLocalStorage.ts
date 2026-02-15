@@ -38,6 +38,15 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T 
 
   // Subscribe to storage events to sync across tabs
   useEffect(() => {
+    // Re-read value when key changes (e.g. user logs in)
+    try {
+      const item = window.localStorage.getItem(key);
+      const parsed = item ? JSON.parse(item) : initialValue;
+      setStoredValue(parsed !== null ? parsed : initialValue);
+    } catch (error) {
+      setStoredValue(initialValue);
+    }
+
     const handleStorageChange = (e: StorageEvent) => {
         if (e.key === key && e.newValue) {
              const parsed = JSON.parse(e.newValue);

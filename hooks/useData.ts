@@ -6,16 +6,75 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../components/ui/Toast';
 import { getSASTDateTime } from '../lib/timeUtils';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { useLocalStorage } from './useLocalStorage';
 
 export const useData = (userId: string | null, userProfile: UserProfile | null) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [dailyBias, setDailyBias] = useState<DailyBias[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [eaSession, setEASession] = useState<EASession | null>(null);
+  const [eaSession, setEASession] = useLocalStorage<EASession | null>(`jfx_ea_session_${userId}`, null);
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [isDataLoading, setIsDataLoading] = useState(false);
+  const [offlineQueue, setOfflineQueue] = useLocalStorage<Trade[]>(`jfx_offline_trades_${userId}`, []);
+  const [isSyncing, setIsSyncing] = useState(false);
   const { addToast } = useToast();
+
+  const addToOfflineQueue = (trade: Trade) => {
+    setOfflineQueue(prev => [...prev, trade]);
+    addToast({
+      type: 'info',
+      title: 'Offline Mode',
+      message: 'Trade saved locally. It will sync automatically when you are back online.',
+      duration: 5000
+    });
+  };
+
+  const syncOfflineTrades = async () => {
+    if (!userId || offlineQueue.length === 0 || isSyncing) return;
+    
+    setIsSyncing(true);
+    const successfullySynced: string[] = [];
+    
+    // We use a temporary array to avoid state staleness issues during the loop
+    const queueToProcess = [...offlineQueue];
+    
+    for (const trade of queueToProcess) {
+      try {
+        await dataService.addTrade(trade);
+        successfullySynced.push(trade.ticketId || trade.id || Math.random().toString());
+      } catch (error) {
+        console.error("Failed to sync offline trade:", error);
+        // Stop processing if we hit a network error again
+        break; 
+      }
+    }
+
+    if (successfullySynced.length > 0) {
+      setOfflineQueue(prev => prev.filter(t => !successfullySynced.includes(t.ticketId || t.id || '')));
+      addToast({
+        type: 'success',
+        title: 'Sync Complete',
+        message: `Successfully synced ${successfullySynced.length} offline trade(s).`,
+        duration: 5000
+      });
+    }
+    setIsSyncing(false);
+  };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      syncOfflineTrades();
+    };
+
+    window.addEventListener('online', handleOnline);
+    // Also try syncing on mount if online
+    if (navigator.onLine) {
+      syncOfflineTrades();
+    }
+
+    return () => window.removeEventListener('online', handleOnline);
+  }, [offlineQueue, userId]);
 
   const loadInitialData = async (currentUserId: string, currentUserProfile: UserProfile | null) => {
     setIsDataLoading(true);
@@ -28,9 +87,15 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
       ]);
 
       setTrades(fetchedTrades);
+      // Ensure goals are unique by ID and logical content
+      const uniqueGoals = fetchedGoals.filter((g, index, self) => 
+        index === self.findIndex((t) => (
+          t.id === g.id || (t.title === g.title && t.type === g.type && t.targetValue === g.targetValue)
+        ))
+      );
       setNotes(fetchedNotes);
       setDailyBias(fetchedBias);
-      setGoals(fetchedGoals);
+      setGoals(uniqueGoals);
       
       if (currentUserProfile && currentUserProfile.eaConnected && currentUserProfile.syncKey) {
         const session = await dataService.getEASession(currentUserProfile.syncKey);
@@ -147,7 +212,13 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
       const goalsChannel = supabase
         .channel('goals_sync')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'goals', filter: `user_id=eq.${userId}` }, (payload) => {
-          if (payload.eventType === 'INSERT') setGoals(prev => [mapGoalFromDB(payload.new as any), ...prev]);
+          if (payload.eventType === 'INSERT') {
+            const newGoal = mapGoalFromDB(payload.new as any);
+            setGoals(prev => {
+              if (prev.some(g => g.id === newGoal.id)) return prev;
+              return [newGoal, ...prev];
+            });
+          }
           else if (payload.eventType === 'UPDATE') setGoals(prev => prev.map(g => g.id === payload.new.id ? mapGoalFromDB(payload.new as any) : g));
           else if (payload.eventType === 'DELETE') setGoals(prev => prev.filter(g => g.id !== (payload.old as any).id));
         }).subscribe();
@@ -184,6 +255,8 @@ export const useData = (userId: string | null, userProfile: UserProfile | null) 
     setGoals,
     setEASession,
     setEditingTrade,
-    handleUpdateGoal
+    handleUpdateGoal,
+    offlineQueue,
+    addToOfflineQueue
   };
 };

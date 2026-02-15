@@ -6,8 +6,13 @@ export interface ListItem {
   indentLevel?: number;
 }
 
+export interface TableCell {
+  text: string;
+  color?: NoteColor;
+}
+
 export interface TableData {
-  rows: string[][];
+  rows: TableCell[][];
 }
 
 export interface Note {

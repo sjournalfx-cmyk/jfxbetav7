@@ -49,6 +49,7 @@ import { Tooltip } from './ui/Tooltip';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { Select } from './Select';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { calculateStats } from '../lib/statsUtils';
 
 interface AnalyticsProps {
     isDarkMode: boolean;
@@ -632,25 +633,17 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades: rawTrades = [
     };
 
     const stats = useMemo(() => {
-        const safeTrades = trades || [];
-        const wins = safeTrades.filter(t => t.result === 'Win');
-        const losses = safeTrades.filter(t => t.result === 'Loss');
-        const totalCount = safeTrades.length || 1;
-        const grossProfit = wins.reduce((acc, t) => acc + t.pnl, 0);
-        const grossLoss = Math.abs(losses.reduce((acc, t) => acc + t.pnl, 0));
-        const netProfit = grossProfit - grossLoss;
-        const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 9.9 : 0);
-        const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
-        const avgLoss = losses.length > 0 ? grossLoss / losses.length : 0;
-        const riskRewardRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0;
-        const winRate = (wins.length / totalCount) * 100;
+        const results = calculateStats(trades);
         return {
-            netProfit, grossProfit, grossLoss,
-            winRate: winRate.toFixed(1),
-            profitFactor: profitFactor.toFixed(1),
-            avgWin, avgLoss,
-            rrRatio: riskRewardRatio.toFixed(2),
-            totalTrades: safeTrades.length
+            netProfit: results.netProfit,
+            grossProfit: results.grossProfit,
+            grossLoss: results.grossLoss,
+            winRate: results.winRate.toFixed(1),
+            profitFactor: results.profitFactor.toFixed(1),
+            avgWin: results.avgWin,
+            avgLoss: results.avgLoss,
+            rrRatio: results.rrRatio.toFixed(2),
+            totalTrades: results.totalTrades
         };
     }, [trades]);
 

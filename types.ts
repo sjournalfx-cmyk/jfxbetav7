@@ -107,7 +107,7 @@ export interface Note {
   }[];
   image?: string;
   tableData?: {
-    rows: string[][];
+    rows: { text: string; color?: string }[][];
   };
   position?: number;
 }

@@ -4,7 +4,7 @@ import {
     Target, Trophy, Calendar, Plus, Activity, TrendingUp, Sparkles, Clock,
     DollarSign, Brain, Shield, Flag, BarChart, Percent, CheckCircle2,
     ArrowRight, ChevronLeft, Trash2, Settings2, TrendingDown, X,
-    ChevronDown, Info, Check, Layers, GripVertical, Edit3
+    ChevronDown, Info, Check, Layers, GripVertical, Edit3, Loader2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Goal, Trade, MetricType, GoalType, GoalMilestone } from '../types'; import { Select } from './Select';
@@ -209,6 +209,7 @@ const getDaysRemaining = (endDate: string) => {
 const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onUpdateGoal, onDeleteGoal, currencySymbol }) => {
     const [view, setView] = useState<'dashboard' | 'wizard' | 'detail'>('dashboard');
     const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     // Confirmation Modal State
     const [confirmModal, setConfirmModal] = useState<{
@@ -253,6 +254,30 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     // Celebration State
     const [celebratedGoals, setCelebratedGoals] = useState<Set<string>>(new Set());
 
+    // Performance Optimization: Pre-calculate all goals progress
+    const goalsProgress = useMemo(() => {
+        const map: Record<string, number> = {};
+        goals.forEach(g => {
+            map[g.id] = calculateProgress(g, trades);
+        });
+        return map;
+    }, [goals, trades]);
+
+    const linkedTradesCount = useMemo(() => {
+        const uniqueTradeIds = new Set<string>();
+        goals.forEach(goal => {
+            if (goal.autoTrackRule) {
+                const relevantTrades = trades.filter(t => 
+                    t.date >= goal.startDate && 
+                    t.date <= goal.endDate &&
+                    (!goal.autoTrackRule?.filterTag || t.tags.some(tag => tag.includes(goal.autoTrackRule!.filterTag!)))
+                );
+                relevantTrades.forEach(t => uniqueTradeIds.add(t.id));
+            }
+        });
+        return uniqueTradeIds.size;
+    }, [goals, trades]);
+
     const selectedGoal = useMemo(() => goals.find(g => g.id === selectedGoalId), [goals, selectedGoalId]);
 
     // Actions
@@ -282,62 +307,72 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     };
 
     const handleAddManualEntry = async () => {
-        if (!selectedGoalId || !selectedGoal || !manualEntryForm.value) return;
+        if (!selectedGoalId || !selectedGoal || !manualEntryForm.value || isSaving) return;
 
-        const newValue = parseFloat(manualEntryForm.value);
-        const newEntry = {
-            id: Date.now().toString(),
-            value: newValue,
-            date: new Date().toISOString().split('T')[0],
-            note: manualEntryForm.note
-        };
+        setIsSaving(true);
+        try {
+            const newValue = parseFloat(manualEntryForm.value);
+            const newEntry = {
+                id: Date.now().toString(),
+                value: newValue,
+                date: new Date().toISOString().split('T')[0],
+                note: manualEntryForm.note
+            };
 
-        const updatedEntries = [...(selectedGoal.manualEntries || []), newEntry];
-        const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
+            const updatedEntries = [...(selectedGoal.manualEntries || []), newEntry];
+            const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
 
-        let updatedGoal: Goal = {
-            ...selectedGoal,
-            manualEntries: updatedEntries
-        };
+            let updatedGoal: Goal = {
+                ...selectedGoal,
+                manualEntries: updatedEntries
+            };
 
-        // Auto-check milestones
-        updatedGoal = checkMilestones(updatedGoal, newTotalProgress);
+            // Auto-check milestones
+            updatedGoal = checkMilestones(updatedGoal, newTotalProgress);
 
-        await onUpdateGoal(updatedGoal);
-        setIsAddingManualEntry(false);
-        setManualEntryForm({ value: '', note: '' });
+            await onUpdateGoal(updatedGoal);
+            setIsAddingManualEntry(false);
+            setManualEntryForm({ value: '', note: '' });
 
-        if (newTotalProgress < updatedGoal.targetValue) {
-            confetti({
-                particleCount: 40,
-                spread: 50,
-                origin: { y: 0.8 },
-                colors: ['#6366f1', '#10b981']
-            });
+            if (newTotalProgress < updatedGoal.targetValue) {
+                confetti({
+                    particleCount: 40,
+                    spread: 50,
+                    origin: { y: 0.8 },
+                    colors: ['#6366f1', '#10b981']
+                });
+            }
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleDeleteManualEntry = async (entryId: string) => {
-        if (!selectedGoal) return;
+        if (!selectedGoal || isSaving) return;
 
         setConfirmModal({
             isOpen: true,
             title: 'Remove Entry',
             description: 'Are you sure you want to remove this progress entry?',
             onConfirm: async () => {
-                const updatedEntries = (selectedGoal.manualEntries || []).filter(e => e.id !== entryId);
-                const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
+                setIsSaving(true);
+                try {
+                    const updatedEntries = (selectedGoal.manualEntries || []).filter(e => e.id !== entryId);
+                    const newTotalProgress = (selectedGoal.manualProgress || 0) + updatedEntries.reduce((acc, e) => acc + e.value, 0);
 
-                let updatedGoal: Goal = {
-                    ...selectedGoal,
-                    manualEntries: updatedEntries
-                };
+                    let updatedGoal: Goal = {
+                        ...selectedGoal,
+                        manualEntries: updatedEntries
+                    };
 
-                // Re-check milestones (might un-achieve)
-                updatedGoal = checkMilestones(updatedGoal, newTotalProgress);
+                    // Re-check milestones (might un-achieve)
+                    updatedGoal = checkMilestones(updatedGoal, newTotalProgress);
 
-                await onUpdateGoal(updatedGoal);
-                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                    await onUpdateGoal(updatedGoal);
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                } finally {
+                    setIsSaving(false);
+                }
             }
         });
     };
@@ -345,7 +380,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     // Track Goal Completion for Celebrations
     React.useEffect(() => {
         goals.forEach(goal => {
-            const current = calculateProgress(goal, trades);
+            const current = goalsProgress[goal.id];
             const progress = (current / goal.targetValue) * 100;
 
             if (progress >= 100 && !celebratedGoals.has(goal.id)) {
@@ -371,53 +406,58 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                 setCelebratedGoals(prev => new Set(prev).add(goal.id));
             }
         });
-    }, [goals, trades, celebratedGoals]);
+    }, [goals, celebratedGoals, goalsProgress]);
 
     // Actions
     const handleSaveGoal = async () => {
-        if (!newGoal.title) return;
+        if (!newGoal.title || isSaving) return;
 
-        if (isEditing && selectedGoal) {
-            const updatedGoal: Goal = {
-                ...selectedGoal,
-                ...newGoal,
-                title: newGoal.title!,
-                description: newGoal.description || '',
-                type: newGoal.type as GoalType,
-                metric: newGoal.metric as MetricType,
-                targetValue: newGoal.targetValue || 0,
-                startValue: newGoal.startValue || 0,
-                startDate: newGoal.startDate!,
-                endDate: newGoal.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
-                autoTrackRule: newGoal.autoTrackRule,
-                milestones: newGoal.milestones || [],
-            };
-            await onUpdateGoal(updatedGoal);
-            setView('detail');
-        } else {
-            const goal: Goal = {
-                id: '', // Set by DB
-                title: newGoal.title!,
-                description: newGoal.description || '',
-                type: newGoal.type as GoalType,
-                metric: newGoal.metric as MetricType,
-                targetValue: newGoal.targetValue || 0,
-                startValue: newGoal.startValue || 0,
-                startDate: newGoal.startDate!,
-                endDate: newGoal.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
-                autoTrackRule: newGoal.autoTrackRule,
-                manualProgress: 0,
-                milestones: newGoal.milestones || [],
-                status: 'active',
-                createdAt: new Date().toISOString()
-            };
-            await onAddGoal(goal);
-            setView('dashboard');
+        setIsSaving(true);
+        try {
+            if (isEditing && selectedGoal) {
+                const updatedGoal: Goal = {
+                    ...selectedGoal,
+                    ...newGoal,
+                    title: newGoal.title!,
+                    description: newGoal.description || '',
+                    type: newGoal.type as GoalType,
+                    metric: newGoal.metric as MetricType,
+                    targetValue: newGoal.targetValue || 0,
+                    startValue: newGoal.startValue || 0,
+                    startDate: newGoal.startDate!,
+                    endDate: newGoal.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
+                    autoTrackRule: newGoal.autoTrackRule,
+                    milestones: newGoal.milestones || [],
+                };
+                await onUpdateGoal(updatedGoal);
+                setView('detail');
+            } else {
+                const goal: Goal = {
+                    id: '', // Set by DB
+                    title: newGoal.title!,
+                    description: newGoal.description || '',
+                    type: newGoal.type as GoalType,
+                    metric: newGoal.metric as MetricType,
+                    targetValue: newGoal.targetValue || 0,
+                    startValue: newGoal.startValue || 0,
+                    startDate: newGoal.startDate!,
+                    endDate: newGoal.endDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'),
+                    autoTrackRule: newGoal.autoTrackRule,
+                    manualProgress: 0,
+                    milestones: newGoal.milestones || [],
+                    status: 'active',
+                    createdAt: new Date().toISOString()
+                };
+                await onAddGoal(goal);
+                setView('dashboard');
+            }
+
+            setIsEditing(false);
+            setWizardStep(1);
+            setNewGoal({ type: 'Financial', metric: 'currency', startDate: new Date().toLocaleDateString('en-CA'), endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'), autoTrackRule: { type: 'pnl' }, milestones: [] });
+        } finally {
+            setIsSaving(false);
         }
-
-        setIsEditing(false);
-        setWizardStep(1);
-        setNewGoal({ type: 'Financial', metric: 'currency', startDate: new Date().toLocaleDateString('en-CA'), endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toLocaleDateString('en-CA'), autoTrackRule: { type: 'pnl' }, milestones: [] });
     };
 
     const handleEditGoal = () => {
@@ -431,44 +471,57 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     };
 
     const deleteGoal = async (id: string) => {
+        if (isSaving) return;
         setConfirmModal({
             isOpen: true,
             title: 'Delete Goal',
             description: 'Are you sure you want to delete this goal? This cannot be undone.',
             onConfirm: async () => {
-                await onDeleteGoal(id);
-                if (selectedGoalId === id) setView('dashboard');
-                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                setIsSaving(true);
+                try {
+                    await onDeleteGoal(id);
+                    if (selectedGoalId === id) setView('dashboard');
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                } finally {
+                    setIsSaving(false);
+                }
             }
         });
     };
 
     const toggleMilestone = async (goalId: string, milestoneId: string) => {
+        if (isSaving) return;
         const goal = goals.find(g => g.id === goalId);
         if (!goal) return;
 
-        const updatedGoal: Goal = {
-            ...goal,
-            milestones: goal.milestones.map(m => {
-                if (m.id !== milestoneId) return m;
-                const isNowAchieved = !m.isAchieved;
-                if (isNowAchieved) {
-                    confetti({
-                        particleCount: 100,
-                        spread: 70,
-                        origin: { y: 0.6 },
-                        colors: ['#6366f1', '#10b981', '#f59e0b']
-                    });
-                }
-                return { ...m, isAchieved: isNowAchieved, dateAchieved: isNowAchieved ? new Date().toISOString().split('T')[0] : undefined };
-            })
-        };
-        await onUpdateGoal(updatedGoal);
+        setIsSaving(true);
+        try {
+            const updatedGoal: Goal = {
+                ...goal,
+                milestones: goal.milestones.map(m => {
+                    if (m.id !== milestoneId) return m;
+                    const isNowAchieved = !m.isAchieved;
+                    if (isNowAchieved) {
+                        confetti({
+                            particleCount: 100,
+                            spread: 70,
+                            origin: { y: 0.6 },
+                            colors: ['#6366f1', '#10b981', '#f59e0b']
+                        });
+                    }
+                    return { ...m, isAchieved: isNowAchieved, dateAchieved: isNowAchieved ? new Date().toISOString().split('T')[0] : undefined };
+                })
+            };
+            await onUpdateGoal(updatedGoal);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleAddMilestone = async () => {
-        if (!selectedGoalId || !selectedGoal || !milestoneForm.title || !milestoneForm.target) return;
+        if (!selectedGoalId || !selectedGoal || !milestoneForm.title || !milestoneForm.target || isSaving) return;
 
+        setIsSaving(true);
         try {
             const newMilestone: GoalMilestone = {
                 id: Math.random().toString(36).substr(2, 9),
@@ -487,12 +540,13 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
             setMilestoneForm({ title: '', target: '' });
         } catch (error) {
             console.error("Failed to add milestone:", error);
-            // Optionally show an error toast here if available
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleDeleteMilestone = (milestoneId: string) => {
-        if (!selectedGoal) return;
+        if (!selectedGoal || isSaving) return;
 
         const milestone = selectedGoal.milestones?.find(m => m.id === milestoneId);
         setConfirmModal({
@@ -500,6 +554,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
             title: 'Delete Milestone',
             description: `Are you sure you want to delete "${milestone?.title || 'this milestone'}"? This cannot be undone.`,
             onConfirm: async () => {
+                setIsSaving(true);
                 try {
                     const updatedGoal: Goal = {
                         ...selectedGoal,
@@ -509,6 +564,8 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                     setConfirmModal(prev => ({ ...prev, isOpen: false }));
                 } catch (error) {
                     console.error("Failed to delete milestone:", error);
+                } finally {
+                    setIsSaving(false);
                 }
             }
         });
@@ -523,8 +580,9 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     };
 
     const handleSaveMilestoneEdit = async () => {
-        if (!selectedGoal || !editingMilestoneId || !editMilestoneForm.title || !editMilestoneForm.target) return;
+        if (!selectedGoal || !editingMilestoneId || !editMilestoneForm.title || !editMilestoneForm.target || isSaving) return;
 
+        setIsSaving(true);
         try {
             const updatedGoal: Goal = {
                 ...selectedGoal,
@@ -539,6 +597,8 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
             setEditMilestoneForm({ title: '', target: '' });
         } catch (error) {
             console.error("Failed to edit milestone:", error);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -547,11 +607,12 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
     };
 
     const handleMilestoneDrop = async (targetMilestoneId: string) => {
-        if (!selectedGoal || !draggedMilestoneId || draggedMilestoneId === targetMilestoneId) {
+        if (!selectedGoal || !draggedMilestoneId || draggedMilestoneId === targetMilestoneId || isSaving) {
             setDraggedMilestoneId(null);
             return;
         }
 
+        setIsSaving(true);
         try {
             const milestones = [...(selectedGoal.milestones || [])];
             const draggedIndex = milestones.findIndex(m => m.id === draggedMilestoneId);
@@ -572,6 +633,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
             console.error("Failed to reorder milestones:", error);
         } finally {
             setDraggedMilestoneId(null);
+            setIsSaving(false);
         }
     };
 
@@ -587,18 +649,18 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {[
-                    { label: 'Active Goals', value: goals.filter(g => g.status === 'active').length, sub: 'Keep pushing forward', icon: Target, color: 'text-indigo-500', bg: isDarkMode ? 'bg-indigo-500/10' : 'bg-indigo-50' },
-                    { label: 'Avg Completion', value: `${goals.length ? Math.round(goals.reduce((acc, g) => acc + Math.min(100, (calculateProgress(g, trades) / g.targetValue) * 100), 0) / goals.length) : 0}%`, sub: 'Across all active goals', icon: TrendingUp, color: 'text-emerald-500', bg: isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50' },
-                    { label: 'Linked Trades', value: goals.reduce((acc, g) => acc + (g.autoTrackRule ? trades.filter(t => (t.tags.some(tag => tag.includes(g.autoTrackRule?.filterTag || '')) || !g.autoTrackRule.filterTag)).length : 0), 0), sub: 'Contributing to progress', icon: Activity, color: 'text-amber-500', bg: isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50' }
+                    { label: 'Active Goals', value: goals.filter(g => g.status === 'active').length, icon: Target, color: 'text-indigo-500', bg: 'bg-indigo-500/10', iconBg: 'bg-indigo-500/20' },
+                    { label: 'Avg Completion', value: `${goals.length ? Math.round(goals.reduce((acc, g) => acc + (g.targetValue > 0 ? Math.min(100, (goalsProgress[g.id] / g.targetValue) * 100) : 0), 0) / goals.length) : 0}%`, icon: TrendingUp, color: 'text-emerald-500', bg: 'bg-emerald-500/10', iconBg: 'bg-emerald-500/20' },
+                    { label: 'Linked Trades', value: linkedTradesCount, icon: Activity, color: 'text-amber-500', bg: 'bg-amber-500/10', iconBg: 'bg-amber-500/20' }
                 ].map((stat, i) => (
-                    <div key={i} className={`p-4 rounded-xl border transition-all hover:-translate-y-1 hover:shadow-md ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                            <div className={`p-2.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon size={16} /></div>
-                            <Info size={12} className="opacity-20 hover:opacity-100 cursor-help transition-opacity" />
+                    <div key={i} className={`p-3.5 rounded-2xl border transition-all hover:-translate-y-1 hover:shadow-lg ${isDarkMode ? `${stat.bg} border-zinc-800` : 'bg-white border-slate-100 shadow-md'}`}>
+                        <div className="flex items-center gap-4">
+                            <div className={`p-2.5 rounded-xl ${stat.iconBg} ${stat.color} shadow-sm`}><stat.icon size={18} /></div>
+                            <div>
+                                <div className="text-[10px] font-bold uppercase tracking-wider opacity-40 leading-none mb-1.5">{stat.label}</div>
+                                <div className="text-xl font-black tracking-tight leading-none">{stat.value}</div>
+                            </div>
                         </div>
-                        <div className="text-xl font-black tracking-tight">{stat.value}</div>
-                        <div className="text-[9px] font-bold uppercase tracking-wider opacity-50 mb-1">{stat.label}</div>
-                        <div className="text-[9px] opacity-60 font-medium">{stat.sub}</div>
                     </div>
                 ))}
             </div>
@@ -777,7 +839,17 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
                 )}
                 <div className="flex justify-between mt-8 pt-6 border-t border-dashed border-gray-500/20">
                     <button onClick={() => wizardStep === 1 ? setView('dashboard') : setWizardStep(s => s - 1)} className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-100 text-slate-600'}`}>{wizardStep === 1 ? 'Cancel' : 'Back'}</button>
-                    <button onClick={() => wizardStep === 4 ? handleSaveGoal() : setWizardStep(s => s + 1)} disabled={(wizardStep === 2 && !newGoal.title)} className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:translate-x-1">{wizardStep === 4 ? (isEditing ? 'Save Changes' : 'Confirm & Create') : 'Next Step'} <ArrowRight size={16} /></button>
+                    <button 
+                        onClick={() => wizardStep === 4 ? handleSaveGoal() : setWizardStep(s => s + 1)} 
+                        disabled={(wizardStep === 2 && !newGoal.title) || isSaving} 
+                        className="flex items-center gap-2 px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:translate-x-1"
+                    >
+                        {wizardStep === 4 ? (
+                            isEditing ? (isSaving ? <Loader2 className="animate-spin" size={16} /> : 'Save Changes') : 
+                            (isSaving ? <Loader2 className="animate-spin" size={16} /> : 'Confirm & Create')
+                        ) : 'Next Step'} 
+                        {(!isSaving || wizardStep < 4) && <ArrowRight size={16} />}
+                    </button>
                 </div>
             </div>
         </div>
@@ -785,7 +857,7 @@ const Goals: React.FC<GoalsProps> = ({ isDarkMode, trades, goals, onAddGoal, onU
 
     const renderDetail = () => {
         if (!selectedGoal) return null;
-        const current = calculateProgress(selectedGoal, trades);
+        const current = goalsProgress[selectedGoal.id];
         const progressPercent = Math.min(100, Math.max(0, (current / selectedGoal.targetValue) * 100));
         const startDate = new Date(selectedGoal.startDate);
         const endDate = new Date(selectedGoal.endDate);

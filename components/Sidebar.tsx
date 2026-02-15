@@ -45,6 +45,7 @@ interface SidebarProps {
   userProfile?: UserProfile | null;
   trades?: Trade[];
   eaSession?: EASession | null;
+  offlineQueueCount?: number;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -58,7 +59,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   userProfile,
   trades = [],
-  eaSession
+  eaSession,
+  offlineQueueCount = 0
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -81,15 +83,22 @@ const Sidebar: React.FC<SidebarProps> = ({
         return;
       }
 
+      // Check explicit heartbeat flag from bridge for instant reaction
+      if (eaSession.data?.isHeartbeat === false) {
+        setIsBridgeOnline(false);
+        return;
+      }
+
       const lastUpdate = new Date(eaSession.last_updated).getTime();
       const now = new Date().getTime();
       const diffSeconds = (now - lastUpdate) / 1000;
 
-      setIsBridgeOnline(diffSeconds < 30); // 30 second threshold for Sidebar indicator
+      // Use a shorter 15s threshold for better accuracy
+      setIsBridgeOnline(diffSeconds < 15);
     };
 
     checkHealth();
-    const interval = setInterval(checkHealth, 5000);
+    const interval = setInterval(checkHealth, 2000); // Check every 2s for better responsiveness
     return () => clearInterval(interval);
   }, [eaSession, userProfile?.eaConnected]);
 
@@ -111,7 +120,18 @@ const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: 'dashboard', icon: IconLayoutDashboard, label: 'Dashboard' },
     { id: 'log-trade', icon: IconPlus, label: 'Log Trade' },
-    { id: 'history', icon: IconNotebook, label: 'Journal' },
+    { 
+      id: 'history', 
+      icon: (props: any) => (
+        <div className="relative">
+          <IconNotebook {...props} />
+          {offlineQueueCount > 0 && (
+            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-indigo-500 rounded-full border border-white dark:border-[#050505] animate-pulse" />
+          )}
+        </div>
+      ), 
+      label: 'Journal' 
+    },
     { id: 'analytics', icon: IconChartBar, label: 'Analytics' },
     { id: 'notes', icon: IconFileText, label: 'Notebook' },
     { id: 'broker', icon: IconWorld, label: 'Broker' },

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
     Play, Pause, ChevronRight, RotateCcw,
     TrendingUp, TrendingDown, XCircle, X,
@@ -118,6 +119,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
     // Replay Modes
     const [isSelectBarMode, setIsSelectBarMode] = useState(false);
     const [isTFMenuOpen, setIsTFMenuOpen] = useState(false);
+    const [showWelcome, setShowWelcome] = useState(true);
 
     // Feature: Drawing Settings Modal
     const [editingDrawingSettings, setEditingDrawingSettings] = useState<Drawing | null>(null);
@@ -134,6 +136,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [savedSessions, setSavedSessions] = useState<BacktestSession[]>([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
 
     // Feature: AI Analysis
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -217,6 +220,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
 
             setCurrentIdx(session.data.length - 1);
             setDataSource('live'); 
+            setShowWelcome(false);
             addToast({ type: 'success', title: 'Session Loaded', message: `Restored ${session.symbol} ${session.timeframe} session.` });
             setIsSettingsOpen(false);
         } catch (err: any) {
@@ -288,19 +292,31 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        setIsImporting(true);
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
                 const data = JSON.parse(event.target?.result as string);
                 if (Array.isArray(data)) {
-                    setAllData(data);
-                    setCurrentIdx(Math.min(data.length - 1, 50));
-                    setDataSource('cache');
-                    addToast({ type: 'success', title: 'Data Imported', message: `Loaded ${data.length} bars from file.` });
+                    setTimeout(() => {
+                        setAllData(data);
+                        setCurrentIdx(Math.min(data.length - 1, 50));
+                        setDataSource('cache');
+                        setShowWelcome(false);
+                        setIsImporting(false);
+                        addToast({ type: 'success', title: 'Data Imported', message: `Loaded ${data.length} bars from file.` });
+                    }, 800);
+                } else {
+                    setIsImporting(false);
                 }
             } catch (err) {
+                setIsImporting(false);
                 addToast({ type: 'error', title: 'Import Failed', message: 'Invalid JSON file format.' });
             }
+        };
+        reader.onerror = () => {
+            setIsImporting(false);
+            addToast({ type: 'error', title: 'Read Failed', message: 'Could not read file.' });
         };
         reader.readAsText(file);
     };
@@ -319,6 +335,7 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
             setHistory([]);
             saveToLocalCache(data, overrideSymbol, overrideTimeframe);
             setDataSource('live');
+            setShowWelcome(false);
             addToast({ type: 'success', title: 'Data Synced', message: `Loaded ${data.length} bars for ${activeSymbol}` });
         } catch (err: any) {
             addToast({
@@ -657,12 +674,15 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
         const observer = new ResizeObserver(updateDimensions);
         observer.observe(chartContainerRef.current);
         
-        if (!loadFromLocalCache()) handleFetchMT5Data();
+        // Always show welcome on refresh as requested
+        setShowWelcome(true);
+        fetchSavedSessions();
+        
         return () => {
             window.removeEventListener('resize', updateDimensions);
             observer.disconnect();
         };
-    }, []);
+    }, [fetchSavedSessions]);
 
     const resetReplay = () => {
         setCurrentIdx(0);
@@ -731,9 +751,19 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
         <div className={`w-full h-full flex flex-col overflow-hidden font-sans ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-white text-slate-900'}`} onMouseUp={handleMouseUp}>
             <div className={`h-16 shrink-0 border-b flex items-center justify-between px-8 z-50 relative shadow-sm ${isDarkMode ? 'border-zinc-800 bg-[#09090b]/95 backdrop-blur-sm' : 'border-slate-200 bg-white/95 backdrop-blur-sm'}`}>
                 <div className="flex items-center gap-5 w-72">
-                    <div className={`p-2.5 rounded-2xl border shadow-inner ${isDarkMode ? 'bg-gradient-to-br from-[#FF4F01]/20 to-[#FF4F01]/5 border-[#FF4F01]/20 shadow-[#FF4F01]/10 text-[#FF4F01]' : 'bg-[#FF4F01]/5 border-[#FF4F01]/20 shadow-[#FF4F01]/5 text-[#FF4F01]'}`}>
-                        <Zap size={20} fill="currentColor" />
-                    </div>
+                    {!showWelcome ? (
+                        <button 
+                            onClick={() => setShowWelcome(true)}
+                            className={`p-2.5 rounded-2xl border transition-all ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-[#FF4F01] hover:border-[#FF4F01]/50' : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-[#FF4F01] hover:border-[#FF4F01]/50'}`}
+                            title="Back to Lab Menu"
+                        >
+                            <ArrowLeftToLine size={20} />
+                        </button>
+                    ) : (
+                        <div className={`p-2.5 rounded-2xl border shadow-inner ${isDarkMode ? 'bg-gradient-to-br from-[#FF4F01]/20 to-[#FF4F01]/5 border-[#FF4F01]/20 shadow-[#FF4F01]/10 text-[#FF4F01]' : 'bg-[#FF4F01]/5 border-[#FF4F01]/20 shadow-[#FF4F01]/5 text-[#FF4F01]'}`}>
+                            <Zap size={20} fill="currentColor" />
+                        </div>
+                    )}
                     <div className="flex flex-col justify-center">
                         <h2 className={`text-base font-black uppercase tracking-tight leading-none ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Backtest Lab</h2>
                         <div className="flex items-center gap-2 mt-1">
@@ -876,50 +906,160 @@ const BacktestLab: React.FC<BacktestLabProps> = ({ isDarkMode, userProfile, onUp
                         </CustomChart>
                     </ChartErrorBoundary>
 
-                    {allData.length === 0 && (
-                        <div className="absolute inset-0 flex items-center justify-center z-[60] p-8 bg-black/40 backdrop-blur-sm">
-                            <div className="flex flex-col md:flex-row gap-6 w-full max-w-4xl">
-                                {/* Option 1: Live Sync */}
-                                <div 
-                                    onClick={() => handleFetchMT5Data()}
-                                    className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/50'}`}
+                    <AnimatePresence>
+                        {showWelcome && (
+                            <motion.div 
+                                initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+                                animate={{ opacity: 1, backdropFilter: 'blur(8px)' }}
+                                exit={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+                                transition={{ duration: 0.4, ease: "easeInOut" }}
+                                className="absolute inset-0 flex items-center justify-center z-[60] p-8 bg-black/40"
+                            >
+                                <motion.div 
+                                    initial={{ scale: 0.95, y: 20 }}
+                                    animate={{ scale: 1, y: 0 }}
+                                    exit={{ scale: 0.95, y: 20 }}
+                                    transition={{ duration: 0.4, delay: 0.1 }}
+                                    className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full max-w-6xl"
                                 >
-                                    <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-emerald-500 group-hover:text-emerald-500 text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-emerald-500 group-hover:text-emerald-500 text-slate-400'}`}>
-                                        <RefreshCw size={48} className={isFetching ? 'animate-spin' : ''} />
+                                    {/* Option 1: Live Sync */}
+                                    <div 
+                                        onClick={() => handleFetchMT5Data()}
+                                        className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-emerald-500/50 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/50'}`}
+                                    >
+                                        <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-emerald-500 group-hover:text-emerald-500 text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-emerald-500 group-hover:text-emerald-500 text-slate-400'}`}>
+                                            <RefreshCw size={48} className={isFetching ? 'animate-spin' : ''} />
+                                        </div>
+                                        <div className="text-center space-y-2">
+                                            <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Live MT5 Sync</h3>
+                                            <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Requires JournalFX Bridge to be running<br/>Connects directly to your MT5 Terminal</p>
+                                        </div>
+                                        <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-emerald-400' : 'bg-white border-slate-200 text-slate-500 group-hover:text-emerald-600'}`}>
+                                            {isFetching ? 'Connecting...' : 'Start Sync'}
+                                        </div>
+                                    </div>
+
+                                    {/* Option 2: Manual Upload */}
+                                    <label htmlFor="backtest-file-upload" className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-[#FF4F01]/50 hover:bg-[#FF4F01]/5' : 'bg-white border-slate-200 hover:border-[#FF4F01]/50'}`}>
+                                        <input 
+                                            id="backtest-file-upload"
+                                            name="backtest-data-file"
+                                            type="file" 
+                                            accept=".json" 
+                                            onChange={handleFileUpload} 
+                                            className="hidden" 
+                                        />
+                                        <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:-rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-slate-400'}`}>
+                                            <FileUp size={48} />
+                                        </div>
+                                        <div className="text-center space-y-2">
+                                            <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Import JSON File</h3>
+                                            <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Upload an MT5 Export JSON<br/>Array of OHLC objects</p>
+                                        </div>
+                                        <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-[#FF4F01]' : 'bg-white border-slate-200 text-slate-500 group-hover:text-[#FF4F01]'}`}>
+                                            Browse Files
+                                        </div>
+                                    </label>
+
+                                    {/* Option 3: Recent Sessions */}
+                                    <div 
+                                        className={`p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-start gap-6 transition-all group overflow-hidden ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-purple-500/50 hover:bg-purple-500/5' : 'bg-white border-slate-200 hover:border-purple-500/50'}`}
+                                    >
+                                        <div className="flex flex-col items-center gap-4 w-full h-full">
+                                            <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:scale-110 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-purple-500 group-hover:text-purple-500 text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-purple-500 group-hover:text-purple-500 text-slate-400'}`}>
+                                                <Database size={48} />
+                                            </div>
+                                            <div className="text-center space-y-2">
+                                                <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Recent Sessions</h3>
+                                                <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Continue where you left off<br/>Saved to your JFX Cloud</p>
+                                            </div>
+
+                                            <div className="flex-1 w-full space-y-2 mt-2 overflow-y-auto max-h-[220px] pr-2 custom-scrollbar">
+                                                {isLoadingSessions ? (
+                                                    <div className="flex items-center justify-center py-10">
+                                                        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                                                    </div>
+                                                ) : savedSessions.length === 0 ? (
+                                                    <div className="flex flex-col items-center justify-center py-10 opacity-30 text-center">
+                                                        <Database size={24} className="mb-2" />
+                                                        <p className="text-[10px] font-black uppercase tracking-widest">No Cloud Data</p>
+                                                    </div>
+                                                                                            ) : (
+                                                                                                savedSessions.slice(0, 1).map((sess) => (
+                                                                                                    <button
+                                                                                                        key={sess.id}
+                                                                                                        onClick={() => handleLoadSession(sess)}
+                                                                                                        className={`w-full flex items-center justify-between p-4 rounded-xl border text-left transition-all group/item ${isDarkMode ? 'bg-black/40 border-zinc-800 hover:border-emerald-500/30 hover:bg-emerald-500/5' : 'bg-white border-slate-200 hover:border-emerald-500/30 hover:bg-emerald-50/50'}`}
+                                                                                                    >
+                                                                                                        <div className="flex flex-col gap-1">
+                                                                                                            <span className={`text-sm font-black tracking-tight ${isDarkMode ? 'text-zinc-100' : 'text-slate-900'}`}>{sess.symbol}</span>
+                                                                                                            <div className="flex items-center gap-2">
+                                                                                                                <span className="px-1.5 py-0.5 rounded bg-zinc-500/10 text-[8px] font-bold text-zinc-500 uppercase">{sess.timeframe}</span>
+                                                                                                                <span className="text-[8px] font-bold text-zinc-500 uppercase">{new Date(sess.updated_at).toLocaleDateString()}</span>
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                        <div className="flex items-center gap-3">
+                                                                                                            <span className="text-[8px] font-black uppercase tracking-widest opacity-0 group-hover/item:opacity-40 transition-opacity">Quick Load</span>
+                                                                                                            <ChevronRight size={16} className="text-zinc-600 group-hover/item:translate-x-1 transition-transform" />
+                                                                                                        </div>
+                                                                                                    </button>
+                                                                                                ))
+                                                                                            )}
+                                                
+                                            </div>
+
+                                            {savedSessions.length > 0 && (
+                                                <button 
+                                                    onClick={() => setIsSettingsOpen(true)}
+                                                    className={`w-full py-3 rounded-xl border border-dashed text-[9px] font-black uppercase tracking-[0.2em] transition-all ${
+                                                        isDarkMode ? 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10 hover:text-white' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white hover:text-slate-900'
+                                                    }`}
+                                                >
+                                                    View All ({savedSessions.length})
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    <AnimatePresence>
+                        {isImporting && (
+                            <motion.div 
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md"
+                            >
+                                <div className="flex flex-col items-center gap-6">
+                                    <div className="relative">
+                                        <div className="w-20 h-20 border-2 border-dashed border-zinc-800 rounded-full animate-spin" />
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <FileUp size={32} className="text-[#FF4F01] animate-pulse" />
+                                        </div>
                                     </div>
                                     <div className="text-center space-y-2">
-                                        <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Live MT5 Sync</h3>
-                                        <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Requires JournalFX Bridge to be running<br/>Connects directly to your MT5 Terminal</p>
-                                    </div>
-                                    <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-emerald-400' : 'bg-white border-slate-200 text-slate-500 group-hover:text-emerald-600'}`}>
-                                        {isFetching ? 'Connecting...' : 'Start Sync'}
+                                        <h3 className="text-xl font-black uppercase tracking-tight text-white">Importing Data</h3>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex gap-1">
+                                                {[0, 1, 2].map(i => (
+                                                    <motion.div 
+                                                        key={i}
+                                                        animate={{ opacity: [0.3, 1, 0.3] }}
+                                                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                                                        className="w-1.5 h-1.5 rounded-full bg-[#FF4F01]"
+                                                    />
+                                                ))}
+                                            </div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Processing JSON structures</p>
+                                        </div>
                                     </div>
                                 </div>
-
-                                {/* Option 2: Manual Upload */}
-                                <label htmlFor="backtest-file-upload" className={`flex-1 p-8 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] group ${isDarkMode ? 'bg-zinc-900/80 border-zinc-800 hover:border-[#FF4F01]/50 hover:bg-[#FF4F01]/5' : 'bg-white border-slate-200 hover:border-[#FF4F01]/50'}`}>
-                                    <input 
-                                        id="backtest-file-upload"
-                                        name="backtest-data-file"
-                                        type="file" 
-                                        accept=".json" 
-                                        onChange={handleFileUpload} 
-                                        className="hidden" 
-                                    />
-                                    <div className={`p-6 rounded-2xl border-2 border-dashed transition-all group-hover:-rotate-12 ${isDarkMode ? 'bg-black border-zinc-800 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-zinc-600' : 'bg-slate-50 border-slate-200 group-hover:border-[#FF4F01] group-hover:text-[#FF4F01] text-slate-400'}`}>
-                                        <FileUp size={48} />
-                                    </div>
-                                    <div className="text-center space-y-2">
-                                        <h3 className={`text-xl font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Import JSON File</h3>
-                                        <p className={`text-xs font-bold uppercase tracking-widest leading-relaxed ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>Upload an MT5 Export JSON<br/>Array of OHLC objects</p>
-                                    </div>
-                                    <div className={`px-6 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-400 group-hover:text-[#FF4F01]' : 'bg-white border-slate-200 text-slate-500 group-hover:text-[#FF4F01]'}`}>
-                                        Browse Files
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-                    )}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {analysisResult && (
                         <div className={`absolute top-4 right-4 w-64 p-4 rounded-xl border backdrop-blur-md shadow-2xl z-20 ${isDarkMode ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white/90 border-slate-200'}`}>

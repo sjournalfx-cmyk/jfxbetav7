@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Trade, UserProfile, Goal, DailyBias } from "../types";
+import { calculateStats } from "../lib/statsUtils";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MODEL_NAME = import.meta.env.VITE_GEMINI_MODEL || "gemini-1.5-flash";
@@ -21,18 +22,7 @@ export const geminiService = {
   ) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-
-      const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
-      const wins = trades.filter(t => t.pnl > 0);
-      const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
-
-      const pairStats: Record<string, number> = {};
-      trades.forEach(t => {
-        const pair = t.pair.toUpperCase();
-        pairStats[pair] = (pairStats[pair] || 0) + t.pnl;
-      });
-      const bestPair = Object.entries(pairStats).sort((a, b) => b[1] - a[1])[0];
-      const worstPair = Object.entries(pairStats).sort((a, b) => a[1] - b[1])[0];
+      const stats = calculateStats(trades);
 
       const mindsetStats: Record<string, { pnl: number, count: number }> = {};
       trades.forEach(t => {
@@ -57,21 +47,18 @@ export const geminiService = {
           riskPerTrade: userProfile?.defaultRR,
         },
         overallPerformance: {
-          totalTrades: trades.length,
-          totalPnL,
-          winRate: `${winRate.toFixed(2)}%`,
-          bestPair: bestPair ? `${bestPair[0]} (${bestPair[1].toFixed(2)})` : 'N/A',
-          worstPair: worstPair ? `${worstPair[0]} (${worstPair[1].toFixed(2)})` : 'N/A',
+          totalTrades: stats.totalTrades,
+          totalPnL: stats.netProfit,
+          winRate: `${stats.winRate.toFixed(2)}%`,
+          bestPair: stats.bestPair ? `${stats.bestPair.symbol} (${stats.bestPair.pnl.toFixed(2)})` : 'N/A',
+          worstPair: stats.worstPair ? `${stats.worstPair.symbol} (${stats.worstPair.pnl.toFixed(2)})` : 'N/A',
         },
-        perPairStats: Object.entries(pairStats).reduce((acc, [pair, pnl]) => {
-          const pairTrades = trades.filter(t => t.pair.toUpperCase() === pair);
-          const pairWins = pairTrades.filter(t => t.pnl > 0).length;
-          const pairWinRate = pairTrades.length > 0 ? (pairWins / pairTrades.length) * 100 : 0;
+        perPairStats: Object.entries(stats.pairStats).reduce((acc, [pair, data]) => {
           acc[pair] = {
-            pnl,
-            trades: pairTrades.length,
-            winRate: `${pairWinRate.toFixed(1)}%`,
-            avgPnl: (pnl / pairTrades.length).toFixed(2)
+            pnl: data.pnl,
+            trades: data.trades,
+            winRate: `${((data.wins / data.trades) * 100).toFixed(1)}%`,
+            avgPnl: (data.pnl / data.trades).toFixed(2)
           };
           return acc;
         }, {} as Record<string, any>),
@@ -79,7 +66,7 @@ export const geminiService = {
         sessions: sessionStats,
         activeGoals: goals.filter(g => g.status !== 'completed').map(g => g.title),
         recentBias: dailyBias.slice(-3).map(b => ({ date: b.date, bias: b.bias, note: b.notes })),
-        recentTrades: trades.slice(-20).map(t => ({
+        recentTrades: trades.slice(-50).map(t => ({
           date: t.date,
           pair: t.pair,
           pnl: t.pnl,
@@ -167,7 +154,8 @@ export const geminiService = {
           USER QUERY: "${query}"
 
           CORE INSTRUCTIONS:
-          1. DIRECT & CONCISE: Answer ONLY what the user asked. Do not volunteer unsolicited advice, analysis, or summaries. 
+          1. STRICT DATA ADHERENCE: Use ONLY the numbers provided in the USER DATA SUMMARY. Do not estimate, extrapolate, or "guess" metrics like Win Rate, P&L, or Trade Counts. If a metric is not in the summary, state that you don't have that specific data point.
+          2. DIRECT & CONCISE: Answer ONLY what the user asked. Do not volunteer unsolicited advice, analysis, or summaries. 
           2. CONVERSATIONAL & PERSONAL: Start greetings by acknowledging the user by name (e.g., "Hey there Phemelo!").
           3. REACTIVE, NOT PROACTIVE: Do not analyze the user's performance or patterns unless they explicitly ask for it (e.g. "How am I doing?", "Analyze my trades").
           

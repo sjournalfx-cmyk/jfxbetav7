@@ -84,7 +84,9 @@ const AppContent: React.FC = () => {
     setDailyBias,
     setGoals,
     setEASession,
-    setEditingTrade
+    setEditingTrade,
+    offlineQueue,
+    addToOfflineQueue
   } = useData(userId, userProfile);
 
 
@@ -163,6 +165,19 @@ const AppContent: React.FC = () => {
       setCurrentView('history');
     } catch (error) {
       console.error("Error saving trade:", error);
+      
+      // Check if it's a network/connectivity error
+      const isNetworkError = !navigator.onLine || 
+        error instanceof TypeError || 
+        (error as any).code === 'FETCH_ERROR' ||
+        (error as any).message?.includes('Failed to fetch');
+
+      if (isNetworkError && !editingTrade) {
+        addToOfflineQueue(trade);
+        setCurrentView('history');
+        return;
+      }
+
       setConfirmModal({
         isOpen: true,
         title: 'Error',
@@ -441,26 +456,41 @@ const AppContent: React.FC = () => {
   };
 
   const handleAddGoal = async (goal: Goal) => {
+    // Optimistic update
+    const tempId = `temp-${Date.now()}`;
+    const optimisticGoal = { ...goal, id: tempId };
+    setGoals(prev => [optimisticGoal, ...prev]);
+
     try {
-      await dataService.addGoal(goal);
+      const added = await dataService.addGoal(goal);
+      // Replace temp with real
+      setGoals(prev => prev.map(g => g.id === tempId ? added : g));
     } catch (error) {
       console.error("Error adding goal:", error);
+      // Rollback
+      setGoals(prev => prev.filter(g => g.id !== tempId));
     }
   };
 
   const handleUpdateGoal = async (goal: Goal) => {
+    // Optimistic update
+    setGoals(prev => prev.map(g => g.id === goal.id ? goal : g));
     try {
       await dataService.updateGoal(goal);
     } catch (error) {
       console.error("Error updating goal:", error);
+      // Rollback is usually handled by realtime re-syncing from DB
     }
   };
 
   const handleDeleteGoal = async (goalId: string) => {
+    // Optimistic delete
+    setGoals(prev => prev.filter(g => g.id !== goalId));
     try {
       await dataService.deleteGoal(goalId);
     } catch (error) {
       console.error("Error deleting goal:", error);
+      // Re-load data or let realtime handle it
     }
   };
 
@@ -603,19 +633,20 @@ const AppContent: React.FC = () => {
         )}
 
         {!isFocusMode && (
-          <Sidebar
-            currentView={currentView}
-            onViewChange={setCurrentView}
-            onSettingsTabChange={setSettingsTab}
-            isDarkMode={isDarkMode}
-            onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-            onOpenCalculator={() => setIsCalculatorOpen(true)}
-            onOpenQuickLog={() => setIsQuickLogOpen(true)}
-            onLogout={onLogout}
-            userProfile={userProfile}
-            trades={trades}
-            eaSession={eaSession}
-          />
+            <Sidebar
+              currentView={currentView}
+              onViewChange={setCurrentView}
+              onSettingsTabChange={setSettingsTab}
+              isDarkMode={isDarkMode}
+              onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+              onOpenCalculator={() => setIsCalculatorOpen(true)}
+              onOpenQuickLog={() => setIsQuickLogOpen(true)}
+              onLogout={onLogout}
+              userProfile={userProfile}
+              trades={trades}
+              eaSession={eaSession}
+              offlineQueueCount={offlineQueue.length}
+            />
         )}
 
         <main className="flex-1 h-full overflow-hidden relative">
@@ -630,6 +661,7 @@ const AppContent: React.FC = () => {
                 onViewChange={setCurrentView}
                 eaSession={eaSession}
                 isLoading={isDataLoading}
+                offlineQueue={offlineQueue}
               />
             )}
             {currentView === 'ai-chat' && (
@@ -640,6 +672,7 @@ const AppContent: React.FC = () => {
                 goals={goals}
                 dailyBias={dailyBias}
                 onAddNote={handleAddNote}
+                eaSession={eaSession}
               />
             )}
             {currentView === 'log-trade' && userProfile && (
@@ -665,6 +698,7 @@ const AppContent: React.FC = () => {
                 onDeleteTrades={handleDeleteTrades}
                 onEditTrade={handleEditTrade}
                 userProfile={userProfile}
+                offlineQueue={offlineQueue}
               />
             )}
             {currentView === 'analytics' && userProfile && (
@@ -733,8 +767,11 @@ const AppContent: React.FC = () => {
                 userProfile={userProfile}
                 onUpdateProfile={handleUpdateProfile}
                 eaSession={eaSession}
-                onTradeAdded={(newTrade) => {}}
+                onTradeAdded={(newTrade) => {
+                  setTrades(prev => [newTrade, ...prev]);
+                }}
                 onEditTrade={handleEditTrade}
+                onAddOffline={addToOfflineQueue}
                 trades={trades}
                 userId={userId}
               />

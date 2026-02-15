@@ -3,6 +3,23 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Pin, Archive, Trash2, Sparkles, Loader2, X, CheckSquare, Plus, Minus, Square, CheckSquare as CheckSquareIcon, GripVertical, Bell, Image as ImageIcon, MoreVertical, Palette, RotateCcw, RotateCw, Copy, Tag, Check, Table as TableIcon, PlusSquare, MinusSquare } from 'lucide-react';
 import { Note, NoteColor, ColorStyles, ListItem, TableData } from './types';
 import { generateNoteContent } from '../../services/notesGeminiService';
+import {
+  DndContext, 
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface NoteEditorProps {
   note: Note;
@@ -18,18 +35,85 @@ interface NoteEditorProps {
 const genId = () => Math.random().toString(36).slice(2, 9);
 const COLUMN_WIDTH_INC = 120;
 
+const SortableListItem = ({ item, isTrashed, onToggle, onChange, onBlur, onRemove }: { 
+    item: ListItem, 
+    isTrashed: boolean, 
+    onToggle: () => void, 
+    onChange: (val: string) => void,
+    onBlur: () => void,
+    onRemove: () => void
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    position: 'relative' as const,
+    marginLeft: `${(item.indentLevel || 0) * 1.5}rem`
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={`flex items-center group py-1 ${isDragging ? 'opacity-50' : ''}`}>
+        {!isTrashed && (
+            <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-1">
+                <GripVertical className="w-4 h-4 text-[var(--notebook-placeholder)] opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+        )}
+        <button 
+            disabled={isTrashed}
+            onClick={onToggle} 
+            className="text-[var(--notebook-muted)] mr-2"
+        >
+            {item.checked ? <CheckSquareIcon className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+        </button>
+        <input 
+            id={`edit-note-list-item-${item.id}`}
+            name={`list-item-${item.id}`}
+            aria-label="List item"
+            type="text" value={item.text}
+            readOnly={isTrashed}
+            onChange={(e) => onChange(e.target.value)}
+            onBlur={onBlur}
+            className={`bg-transparent outline-none flex-1 text-base ${item.checked ? 'text-[var(--notebook-muted)] line-through' : 'text-[var(--notebook-text)]'}`}
+        />
+        {!isTrashed && (
+            <button onClick={onRemove} className="p-2 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] opacity-0 group-hover:opacity-100 transition-opacity">
+                <X className="w-3 h-3" />
+            </button>
+        )}
+    </div>
+  );
+};
+
 const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDelete, onRestore, onDuplicate, canvasWidth, setCanvasWidth }) => {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [isList, setIsList] = useState(note.isList || false);
   const [listItems, setListItems] = useState<ListItem[]>(note.listItems || []);
   const [image, setImage] = useState<string | undefined>(note.image);
-  const [tableData, setTableData] = useState<TableData | undefined>(note.tableData);
+  const [tableData, setTableData] = useState<TableData | undefined>(() => {
+    if (!note.tableData) return undefined;
+    // Migrate old data if necessary
+    const rows = note.tableData.rows.map(row => 
+      row.map(cell => typeof cell === 'string' ? { text: cell } : cell)
+    );
+    return { rows };
+  });
   const [isPinned, setIsPinned] = useState(note.isPinned);
   const [color, setColor] = useState(note.color);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showColorOptions, setShowColorOptions] = useState(false);
+  const [focusedCell, setFocusedCell] = useState<{ rIdx: number, cIdx: number } | null>(null);
+  const [showCellColorOptions, setShowCellColorOptions] = useState(false);
   
   const [history, setHistory] = useState<any[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -38,6 +122,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+  const cellColorPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setTitle(note.title);
@@ -45,11 +130,24 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
     setIsList(note.isList || false);
     setListItems(note.listItems || []);
     setImage(note.image);
-    setTableData(note.tableData);
+    const initialTableData = note.tableData ? {
+      rows: note.tableData.rows.map(row => 
+        row.map(cell => typeof cell === 'string' ? { text: cell } : cell)
+      )
+    } : undefined;
+    setTableData(initialTableData);
     setIsPinned(note.isPinned);
     setColor(note.color);
     
-    const initialState = { title: note.title, content: note.content, listItems: note.listItems || [], image: note.image, color: note.color, tableData: note.tableData };
+    const initialState = { 
+      title: note.title, 
+      content: note.content, 
+      isList: note.isList || false,
+      listItems: note.listItems || [], 
+      image: note.image, 
+      color: note.color, 
+      tableData: initialTableData 
+    };
     setHistory([initialState]);
     setHistoryIndex(0);
   }, [note.id]);
@@ -80,6 +178,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
       const prevState = history[historyIndex - 1];
       setTitle(prevState.title);
       setContent(prevState.content);
+      setIsList(prevState.isList);
       setListItems(prevState.listItems);
       setImage(prevState.image);
       setTableData(prevState.tableData);
@@ -96,6 +195,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
       const nextState = history[historyIndex + 1];
       setTitle(nextState.title);
       setContent(nextState.content);
+      setIsList(nextState.isList);
       setListItems(nextState.listItems);
       setImage(nextState.image);
       setTableData(nextState.tableData);
@@ -130,7 +230,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
              const listText = listItems.map(i => i.text).join(', ');
              prompt = `Rewrite and improve this checklist: ${title}. Items: ${listText}`;
         } else if (tableData) {
-             prompt = `Suggest data for this table about ${title}. Columns are: ${tableData.rows[0].join(', ')}`;
+             const colHeaders = tableData.rows[0].map(c => c.text).join(', ');
+             prompt = `Suggest data for this table about ${title}. Columns are: ${colHeaders}`;
         } else {
              prompt = title ? `Rewrite and improve this note: ${title}. ${content}` : `Improve this note: ${content}`;
         }
@@ -174,7 +275,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
   const addTable = () => {
     setIsList(false);
     setContent('');
-    const newTable = { rows: [['', ''], ['', '']] };
+    const newTable = { 
+      rows: [
+        [{ text: '' }, { text: '' }], 
+        [{ text: '' }, { text: '' }]
+      ] 
+    };
     setTableData(newTable);
     handleUpdate({ tableData: newTable, isList: false, content: '' });
     addToHistory({ title, content: '', listItems: [], image, color, tableData: newTable });
@@ -183,22 +289,33 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
   const handleTableCellChange = (rIdx: number, cIdx: number, val: string) => {
     if (!tableData) return;
     const newRows = [...tableData.rows];
-    newRows[rIdx][cIdx] = val;
+    newRows[rIdx][cIdx] = { ...newRows[rIdx][cIdx], text: val };
     const nextTable = { rows: newRows };
     setTableData(nextTable);
     handleUpdate({ tableData: nextTable });
   };
 
+  const handleCellColorChange = (rIdx: number, cIdx: number, cellColor: NoteColor) => {
+    if (!tableData) return;
+    const newRows = [...tableData.rows];
+    newRows[rIdx][cIdx] = { ...newRows[rIdx][cIdx], color: cellColor };
+    const nextTable = { rows: newRows };
+    setTableData(nextTable);
+    handleUpdate({ tableData: nextTable });
+    setShowCellColorOptions(false);
+    addToHistory({ title, content, isList, listItems, image, color, tableData: nextTable });
+  };
+
   const addRow = () => {
     if (!tableData) return;
-    const nextTable = { rows: [...tableData.rows, Array(tableData.rows[0].length).fill('')] };
+    const nextTable = { rows: [...tableData.rows, Array(tableData.rows[0].length).fill(null).map(() => ({ text: '' }))] };
     setTableData(nextTable);
     handleUpdate({ tableData: nextTable });
   };
 
   const addCol = () => {
     if (!tableData) return;
-    const nextTable = { rows: tableData.rows.map(row => [...row, '']) };
+    const nextTable = { rows: tableData.rows.map(row => [...row, { text: '' }]) };
     setTableData(nextTable);
     handleUpdate({ tableData: nextTable });
     // Adjust canvas width automatically
@@ -238,12 +355,32 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
     if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
       setShowColorOptions(false);
     }
+    if (cellColorPickerRef.current && !cellColorPickerRef.current.contains(e.target as Node)) {
+      setShowCellColorOptions(false);
+    }
   };
 
   useEffect(() => {
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEndItems = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = listItems.findIndex(i => i.id === active.id);
+      const newIndex = listItems.findIndex(i => i.id === over.id);
+      const newItems = arrayMove(listItems, oldIndex, newIndex);
+      setListItems(newItems);
+      handleUpdate({ listItems: newItems });
+      addToHistory({ title, content, isList, listItems: newItems, image, color, tableData });
+    }
+  };
 
   return (
     <div className={`w-full rounded-xl transition-all duration-300 ${ColorStyles[color]} ${color === NoteColor.DEFAULT ? 'border border-[var(--notebook-divider)]' : 'border-transparent'} shadow-2xl relative overflow-hidden`}>
@@ -271,8 +408,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
               onChange={(e) => {
                   setTitle(e.target.value);
                   handleUpdate({ title: e.target.value });
-                  addToHistory({ title: e.target.value, content, listItems, image, color, tableData });
               }}
+              onBlur={() => addToHistory({ title, content, isList, listItems, image, color, tableData })}
               placeholder="Title"
               className="bg-transparent text-[var(--notebook-text)] placeholder-[var(--notebook-placeholder)] font-medium text-2xl outline-none w-full mr-4"
             />
@@ -299,14 +436,15 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                       {tableData.rows.map((row, rIdx) => (
                         <tr key={rIdx}>
                           {row.map((cell, cIdx) => (
-                            <td key={cIdx} className="border border-[var(--notebook-divider)] p-0 relative group/cell align-top">
+                            <td key={cIdx} className={`border border-[var(--notebook-divider)] p-0 relative group/cell align-top transition-colors duration-200 ${cell.color ? ColorStyles[cell.color] : ''}`}>
                                 <textarea 
                                   id={`edit-note-table-cell-${rIdx}-${cIdx}`}
                                   name={`table-cell-${rIdx}-${cIdx}`}
                                   aria-label={`Table cell row ${rIdx + 1} column ${cIdx + 1}`}
-                                  value={cell}
+                                  value={cell.text}
                                   rows={1}
                                   readOnly={note.isTrashed}
+                                  onFocus={() => setFocusedCell({ rIdx, cIdx })}
                                   onChange={(e) => {
                                       handleTableCellChange(rIdx, cIdx, e.target.value);
                                       e.target.style.height = 'auto';
@@ -321,6 +459,15 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                                   className="w-full bg-transparent p-3 outline-none text-[var(--notebook-text)] placeholder-[var(--notebook-placeholder)] resize-none overflow-hidden block"
                                   placeholder="Cell..."
                                 />
+                                <div className="absolute top-1 right-1 opacity-0 group-cell/hover:opacity-100 flex gap-1 z-10">
+                                    <button 
+                                      onClick={() => { setFocusedCell({ rIdx, cIdx }); setShowCellColorOptions(true); }}
+                                      className="p-1 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)] bg-[var(--note-default-bg)]/80 rounded-full shadow-sm"
+                                      title="Cell color"
+                                    >
+                                      <Palette className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
                                 {rIdx === 0 && tableData.rows[0].length > 1 && !note.isTrashed && (
                                   <button onClick={() => removeCol(cIdx)} className="absolute -top-3 left-1/2 -translate-x-1/2 opacity-0 group-cell/hover:opacity-100 text-[var(--notebook-muted)] hover:text-red-400 z-10 bg-[var(--note-default-bg)] rounded-full transition-opacity">
                                     <MinusSquare className="w-4 h-4" />
@@ -330,6 +477,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                                   <button onClick={() => removeRow(rIdx)} className="absolute top-1/2 -left-4 -translate-y-1/2 opacity-0 group-cell/hover:opacity-100 text-[var(--notebook-muted)] hover:text-red-400 z-10 bg-[var(--note-default-bg)] rounded-full transition-opacity">
                                     <MinusSquare className="w-4 h-4" />
                                   </button>
+                                )}
+                                
+                                {showCellColorOptions && focusedCell?.rIdx === rIdx && focusedCell?.cIdx === cIdx && (
+                                    <div ref={cellColorPickerRef} className="absolute top-full right-0 mt-1 p-2 bg-[var(--note-default-bg)] border border-[var(--notebook-divider)] rounded-lg shadow-2xl grid grid-cols-6 gap-1 z-[60] min-w-[180px]">
+                                        {Object.values(NoteColor).map((c) => (
+                                            <button 
+                                                key={c} 
+                                                className={`w-6 h-6 rounded-full border transition-all ${ColorStyles[c].split(' ')[0]} ${cell.color === c ? 'ring-2 ring-white scale-110' : 'hover:scale-110'}`}
+                                                onClick={() => handleCellColorChange(rIdx, cIdx, c)}
+                                            />
+                                        ))}
+                                    </div>
                                 )}
                             </td>
                           ))}
@@ -347,33 +506,47 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                </div>
             ) : isList ? (
                 <div className="flex flex-col gap-1">
-                    {listItems.map((item) => (
-                        <div key={item.id} className="flex items-center group py-1" style={{ marginLeft: `${(item.indentLevel || 0) * 1.5}rem` }}>
-                             {!note.isTrashed && <GripVertical className="w-4 h-4 text-[var(--notebook-placeholder)] opacity-0 group-hover:opacity-100 cursor-move mr-1" />}
-                             <button 
-                                disabled={note.isTrashed}
-                                onClick={() => setListItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i))} 
-                                className="text-[var(--notebook-muted)] mr-2"
-                             >
-                                 {item.checked ? <CheckSquareIcon className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                             </button>
-                             <input 
-                                id={`edit-note-list-item-${item.id}`}
-                                name={`list-item-${item.id}`}
-                                aria-label="List item"
-                                type="text" value={item.text}
-                                readOnly={note.isTrashed}
-                                onChange={(e) => {
-                                    const newItems = listItems.map(i => i.id === item.id ? { ...i, text: e.target.value } : i);
-                                    setListItems(newItems); handleUpdate({ listItems: newItems });
-                                }}
-                                onBlur={() => addToHistory({ title, content, listItems, image, color, tableData })}
-                                className={`bg-transparent outline-none flex-1 text-base ${item.checked ? 'text-[var(--notebook-muted)] line-through' : 'text-[var(--notebook-text)]'}`}
-                             />
-                        </div>
-                    ))}
+                    <DndContext 
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEndItems}
+                    >
+                        <SortableContext items={listItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                            {listItems.map((item) => (
+                                <SortableListItem 
+                                    key={item.id}
+                                    item={item}
+                                    isTrashed={!!note.isTrashed}
+                                    onToggle={() => {
+                                        const newItems = listItems.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i);
+                                        setListItems(newItems);
+                                        handleUpdate({ listItems: newItems });
+                                        addToHistory({ title, content, isList, listItems: newItems, image, color, tableData });
+                                    }}
+                                    onChange={(val) => {
+                                        const newItems = listItems.map(i => i.id === item.id ? { ...i, text: val } : i);
+                                        setListItems(newItems);
+                                        handleUpdate({ listItems: newItems });
+                                    }}
+                                    onBlur={() => addToHistory({ title, content, isList, listItems, image, color, tableData })}
+                                    onRemove={() => {
+                                        const newItems = listItems.filter(i => i.id !== item.id);
+                                        setListItems(newItems);
+                                        handleUpdate({ listItems: newItems });
+                                        addToHistory({ title, content, isList, listItems: newItems, image, color, tableData });
+                                    }}
+                                />
+                            ))}
+                        </SortableContext>
+                    </DndContext>
                     {!note.isTrashed && (
-                      <button className="flex items-center gap-3 px-8 py-2 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)]" onClick={() => setListItems(prev => [...prev, { id: genId(), text: '', checked: false, indentLevel: 0 }])}>
+                      <button className="flex items-center gap-3 px-8 py-2 text-[var(--notebook-muted)] hover:text-[var(--notebook-text)]" onClick={() => {
+                          const newItem = { id: genId(), text: '', checked: false, indentLevel: 0 };
+                          const newItems = [...listItems, newItem];
+                          setListItems(newItems);
+                          handleUpdate({ listItems: newItems });
+                          addToHistory({ title, content, isList, listItems: newItems, image, color, tableData });
+                      }}>
                          <Plus className="w-4 h-4" /> <span>List item</span>
                       </button>
                     )}
@@ -386,7 +559,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                     ref={textareaRef} value={content}
                     readOnly={note.isTrashed}
                     onChange={(e) => { setContent(e.target.value); handleUpdate({ content: e.target.value }); }}
-                    onBlur={() => addToHistory({ title, content, listItems, image, color, tableData })}
+                    onBlur={() => addToHistory({ title, content, isList, listItems, image, color, tableData })}
                     placeholder="Note"
                     className="w-full bg-transparent text-[var(--notebook-text)] placeholder-[var(--notebook-placeholder)] text-base outline-none resize-none min-h-[300px]"
                 />
@@ -422,7 +595,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, onClose, onUpdate, onDele
                                 title="Background options" 
                             />
                             {showColorOptions && (
-                                <div className="absolute bottom-full left-0 mb-3 p-2 bg-[var(--note-default-bg)] border border-[var(--notebook-divider)] rounded-lg shadow-xl grid grid-cols-4 gap-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                                <div className="absolute bottom-full left-0 mb-3 p-3 bg-[var(--note-default-bg)] border border-[var(--notebook-divider)] rounded-xl shadow-2xl grid grid-cols-6 gap-3 z-50 animate-in fade-in zoom-in-95 duration-150 min-w-[240px]">
                                     {Object.values(NoteColor).map((c) => (
                                         <button 
                                             key={c} 

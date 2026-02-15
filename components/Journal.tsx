@@ -18,10 +18,11 @@ interface JournalProps {
   onEditTrade: (trade: Trade) => void;
   userProfile: UserProfile;
   isLoading?: boolean;
+  offlineQueue?: Trade[];
 }
 
 interface GroupedTrade {
-    type: 'standalone' | 'setup';
+    type: 'standalone' | 'setup' | 'pending';
     setupId?: string;
     trades: Trade[];
     date: string; // Latest trade date
@@ -89,7 +90,7 @@ const MiniCalendar = ({ year, month, trades, isDarkMode, onClick }: any) => {
         const dayTrades = monthTrades.filter((t: Trade) => t.date === dateStr);
         if (dayTrades.length === 0) return { bg: isDarkMode ? 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600', text: '' };
         const pnl = dayTrades.reduce((acc: number, t: Trade) => acc + t.pnl, 0);
-        if (pnl > 0) return { bg: 'bg-emerald-500 shadow-sm shadow-emerald-500/20', text: 'text-white font-bold' };
+        if (pnl > 0) return { bg: 'bg-emerald-600 shadow-sm shadow-emerald-600/20', text: 'text-white font-bold' };
         if (pnl < 0) return { bg: 'bg-rose-500 shadow-sm shadow-rose-500/20', text: 'text-white font-bold' };
         return { bg: 'bg-zinc-400', text: 'text-white font-bold' };
     };
@@ -328,7 +329,7 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     );
 };
 
-const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile, isLoading = false }) => {
+const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile, isLoading = false, offlineQueue = [] }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
@@ -353,6 +354,16 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
 
         const groups: Record<string, GroupedTrade> = {};
         const result: GroupedTrade[] = [];
+
+        // Add pending trades at the very top
+        offlineQueue.forEach(trade => {
+            result.push({
+                type: 'pending',
+                trades: [trade],
+                date: trade.date,
+                id: `pending-${trade.ticketId || Math.random()}`
+            });
+        });
 
         filtered.forEach(trade => {
             if (trade.setupId) {
@@ -811,6 +822,42 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                 </div>
                             ) : (
                                 groupedTrades.map(group => {
+                                    if (group.type === 'pending') {
+                                        const trade = group.trades[0];
+                                        return (
+                                            <div key={group.id} className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-2 py-4 border-b items-center transition-all rounded-xl opacity-60 border-dashed ${isDarkMode ? 'border-indigo-500/20 bg-indigo-500/5' : 'border-indigo-200 bg-indigo-50/30'}`}>
+                                                <div className="col-span-1 flex items-center justify-center">
+                                                    <RefreshCw size={14} className="text-indigo-500 animate-spin" />
+                                                </div>
+                                                <div className="col-span-1 pl-2">
+                                                    <p className="font-bold text-sm">{trade.date}</p>
+                                                    <p className="text-xs opacity-50">{trade.time}</p>
+                                                </div>
+                                                <div className="col-span-1 font-bold">{trade.pair}</div>
+                                                <div className="col-span-1 text-xs opacity-70">{trade.assetType}</div>
+                                                <div className="col-span-1">
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${trade.direction === 'Long' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                                                        {trade.direction === 'Long' ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {trade.direction}
+                                                    </span>
+                                                </div>
+                                                <div className="col-span-1 text-xs opacity-80">{trade.session}</div>
+                                                <div className="col-span-1 text-xs opacity-50">---</div>
+                                                <div className="col-span-1 flex flex-wrap gap-1">
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-500/30 text-indigo-500 animate-pulse">Syncing...</span>
+                                                </div>
+                                                <div className="col-span-1">
+                                                    <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
+                                                </div>
+                                                <div className="col-span-1 text-right">
+                                                    <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
+                                                        {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </p>
+                                                </div>
+                                                <div className="col-span-1"></div>
+                                            </div>
+                                        );
+                                    }
+
                                     if (group.type === 'standalone') {
                                         return renderTradeRow(group.trades[0]);
                                     }

@@ -41,6 +41,7 @@ interface DashboardProps {
     onViewChange: (view: string) => void;
     eaSession?: EASession | null;
     isLoading?: boolean;
+    offlineQueue?: Trade[];
 }
 
 // --- WIDGET COMPONENTS ---
@@ -135,11 +136,25 @@ const StatCard = ({ label, value, subtext, trend, isDarkMode, icon: Icon, colorC
     </div>
 );
 
-const RecentTrades = ({ isDarkMode, trades, symbol }: { isDarkMode: boolean, trades: Trade[], symbol: string }) => (
+const RecentTrades = ({ isDarkMode, trades, symbol, offlineQueue = [] }: { isDarkMode: boolean, trades: Trade[], symbol: string, offlineQueue?: Trade[] }) => (
     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-md'}`}>
         <h3 className="font-bold mb-4">Recent Activity</h3>
         <div className="space-y-3 flex-1 overflow-auto custom-scrollbar pr-2">
-            {trades.slice(0, 5).map(trade => (
+            {offlineQueue.map(trade => (
+                <div key={`pending-${trade.ticketId || Math.random()}`} className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/5 border border-dashed border-indigo-500/20 animate-pulse">
+                    <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-8 rounded-full bg-indigo-500" />
+                        <div>
+                            <p className="font-bold text-xs">{trade.pair}</p>
+                            <p className="text-[10px] text-indigo-500 font-black uppercase">Syncing...</p>
+                        </div>
+                    </div>
+                    <span className="font-mono text-xs font-bold opacity-50">
+                        {symbol}{Number(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                </div>
+            ))}
+            {trades.slice(0, 5 - offlineQueue.length).map(trade => (
                 <div key={trade.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
                     <div className="flex items-center gap-3">
                         <div className={`w-1.5 h-8 rounded-full ${trade.result === 'Win' ? 'bg-teal-500' : trade.result === 'Loss' ? 'bg-rose-500' : 'bg-gray-400'}`} />
@@ -252,7 +267,7 @@ const DASHBOARD_PRESETS = {
     ANALYTICS: ['equityCurve', 'recentTrades', 'dailyBias', 'openPositions']
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading }) => {
+const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading, offlineQueue = [] }) => {
     // Robust free tier check
     const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
@@ -436,14 +451,24 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     })}
                 />;
             case 'recentTrades':
-                return <RecentTrades isDarkMode={isDarkMode} trades={trades} symbol={userProfile.currencySymbol} />;
+                return <RecentTrades isDarkMode={isDarkMode} trades={trades} symbol={userProfile.currencySymbol} offlineQueue={offlineQueue} />;
             case 'equityCurve':
                 return <EquityCurveWidget trades={trades} equityData={equityData} isDarkMode={isDarkMode} currencySymbol={userProfile.currencySymbol} isLoading={isLoading} />;
             case 'openPositions':
                 return (
                     <div className={`h-full p-6 rounded-2xl border flex flex-col ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-100 shadow-md'}`}>
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-bold flex items-center gap-2"><Activity size={18} className="text-emerald-500" /> Open Positions</h3>
+                            <div className="flex items-center gap-3">
+                                <h3 className="font-bold flex items-center gap-2"><Activity size={18} className="text-emerald-500" /> Open Positions</h3>
+                                {eaSession && (
+                                    <Tooltip content={`Last Synced: ${new Date(eaSession.last_updated).toLocaleString()}`} isDarkMode={isDarkMode}>
+                                        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                                            <div className="w-1 h-1 rounded-full bg-zinc-500" />
+                                            <span className="text-[8px] font-black uppercase tracking-widest">Cached</span>
+                                        </div>
+                                    </Tooltip>
+                                )}
+                            </div>
                             <div className="text-right">
                                 <div className={`text-lg font-black font-mono leading-none ${totalFloatingPnL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                     {totalFloatingPnL >= 0 ? '+' : ''}{userProfile.currencySymbol}{totalFloatingPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -550,6 +575,14 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${eaSession.data.account.is_demo ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'}`}>
                                         {eaSession.data.account.is_demo ? 'Demo' : 'Real'}
                                     </span>
+                                )}
+                                {eaSession && (
+                                    <Tooltip content={`Last Synced: ${new Date(eaSession.last_updated).toLocaleString()}`} isDarkMode={isDarkMode}>
+                                        <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                                            <div className="w-1 h-1 rounded-full bg-zinc-500" />
+                                            <span className="text-[8px] font-black uppercase tracking-widest">Cached</span>
+                                        </div>
+                                    </Tooltip>
                                 )}
                             </div>
                             <div className="text-xl font-black font-mono tracking-tighter leading-none">{userProfile.currencySymbol}{currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>

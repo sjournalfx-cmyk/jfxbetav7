@@ -172,6 +172,21 @@ def main():
 
     except KeyboardInterrupt:
         print("\nStopping Bridge...")
+        # Send explicit offline signal to dashboard
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Sync-Key": args.key,
+                "Authorization": f"Bearer {args.apikey}"
+            }
+            payload = {
+                "isHeartbeat": False,
+                "status": "offline",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            requests.post(args.url, json=payload, headers=headers, timeout=5)
+        except:
+            pass
         mt5.shutdown()
         sys.exit(0)
 
