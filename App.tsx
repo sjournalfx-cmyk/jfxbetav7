@@ -4,8 +4,8 @@ import LogTrade from './components/LogTrade';
 import Dashboard from './components/Dashboard';
 import Journal from './components/Journal';
 import Auth from './components/Auth';
-import { PartyPopper, MessageSquare, LogOut, X, Wallet, Activity, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
-import { UserProfile, Trade, Note, DailyBias, Goal, EASession } from './types';
+import { PartyPopper, MessageSquare, Activity, CheckCircle2, Loader2 } from 'lucide-react';
+import { Trade, Note, DailyBias, Goal } from './types';
 
 import Goals from './components/Goals';
 import PositionSizeCalculator from './components/PositionSizeCalculator';
@@ -67,8 +67,7 @@ const AppContent: React.FC = () => {
     setIsAuthenticated,
     setIsInitialLoading,
     setUserId,
-    setUserEmail,
-    setUserProfile
+    setUserEmail
   } = useAuth();
 
   const {
@@ -238,8 +237,6 @@ const AppContent: React.FC = () => {
   };
 
   const handleDeleteTrades = async (tradeIds: string[]) => {
-    const tradesToDelete = trades.filter(t => tradeIds.includes(t.id));
-
     setConfirmModal({
       isOpen: true,
       title: 'Delete Trades',
