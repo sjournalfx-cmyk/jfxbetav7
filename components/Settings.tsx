@@ -747,27 +747,37 @@ const Settings: React.FC<SettingsProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                       { title: 'Documentation', icon: HelpCircle, color: 'text-indigo-500', desc: 'Complete guides & tutorials.', link: '/DOCUMENTATION.md' },
-                      { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: 'https://youtube.com/@jfxtrading' },
+                      { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: null },
                       { title: 'Telegram Channel', icon: Telegram, color: 'text-violet-500', desc: 'Join our trading community.', link: 'https://t.me/+w_KvKM5HESYyMTdk' },
                       { title: 'GitHub Issues', icon: Github, color: 'text-zinc-500', desc: 'Report bugs & feature requests.', link: 'https://github.com/sjournalfx-cmyk/jfxbetav7/issues' },
-                    ].map((item, i) => (
-                      <a
-                        key={i}
-                        href={item.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`p-5 rounded-2xl border transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
-                      >
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className={`p-2 rounded-lg bg-black/5 dark:bg-white/5 ${item.color}`}>
-                            <item.icon size={16} />
+                    ].map((item, i) => {
+                      const isDisabled = !item.link;
+                      const Tag = isDisabled ? 'div' : 'a';
+                      
+                      return (
+                        <Tag
+                          key={i}
+                          {...(isDisabled ? {} : { 
+                            href: item.link as string,
+                            target: "_blank",
+                            rel: "noopener noreferrer"
+                          })}
+                          className={`p-5 rounded-2xl border transition-all ${isDisabled 
+                            ? 'opacity-50 cursor-not-allowed grayscale-[0.5]' 
+                            : 'hover:scale-[1.02]'} ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className={`p-2 rounded-lg bg-black/5 dark:bg-white/5 ${item.color}`}>
+                              <item.icon size={16} />
+                            </div>
+                            <h4 className="font-bold text-sm">{item.title}</h4>
+                            {!isDisabled && <ExternalLink size={12} className="ml-auto opacity-30" />}
+                            {isDisabled && <span className="ml-auto text-[8px] font-black uppercase tracking-widest opacity-30">Coming Soon</span>}
                           </div>
-                          <h4 className="font-bold text-sm">{item.title}</h4>
-                          <ExternalLink size={12} className="ml-auto opacity-30" />
-                        </div>
-                        <p className="text-xs opacity-50">{item.desc}</p>
-                      </a>
-                    ))}
+                          <p className="text-xs opacity-50">{item.desc}</p>
+                        </Tag>
+                      );
+                    })}
                   </div>
                 </div>
 
