@@ -4,7 +4,9 @@ import {
     Terminal, Shield, Cpu, ArrowRight, Loader2,
     Play, Command, Code, Zap, Globe, Link, X,
     Power, ExternalLink, Activity, Clock, PlusCircle, CheckCircle2,
-    Settings, LayoutDashboard, ChevronDown
+    Settings, LayoutDashboard, ChevronDown, Wifi, WifiOff,
+    TrendingUp, TrendingDown, DollarSign, BarChart3,
+    RefreshCw, Trash2, Edit3, Eye, EyeOff
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { supabase } from '../lib/supabase';
@@ -125,7 +127,7 @@ interface BridgeMonitorProps {
     lastHeartbeat: Date | null;
     isHeartbeat: boolean;
     syncKey: string;
-    syncLog: { time: Date; message: string; type: 'success' | 'info' | 'error' }[];
+    syncLog: { time: string; message: string; type: 'success' | 'info' | 'error' }[];
     onDisconnect: () => Promise<void>;
     onTradeAdded?: (trade: Trade) => void;
     onEditTrade?: (trade: Trade) => void;
@@ -272,15 +274,28 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
 
                 {/* Header Section */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                    <div>
-                        <div className="flex items-center gap-3 mb-2">
-                            <h1 className="text-3xl font-black tracking-tight">Desktop Bridge</h1>
-                            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border ${isOnline ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
-                                <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                                {isOnline ? 'Active' : 'Offline'}
-                            </div>
+                    <div className="flex items-start gap-6">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isOnline ? 'bg-emerald-500/10' : 'bg-rose-500/10'} shrink-0`}>
+                            {isOnline ? (
+                                <Wifi size={28} className="text-emerald-500" />
+                            ) : (
+                                <WifiOff size={28} className="text-rose-500" />
+                            )}
                         </div>
-                        <p className={subTextColor}>Real-time connection to your MetaTrader terminal.</p>
+                        <div>
+                            <div className="flex items-center gap-3 mb-2">
+                                <h1 className="text-3xl font-black tracking-tight">Desktop Bridge</h1>
+                                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border ${isOnline ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
+                                    <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                                    {isOnline ? 'Active' : 'Offline'}
+                                </div>
+                            </div>
+                            <p className={subTextColor}>
+                                {isOnline 
+                                    ? `Connected to ${liveData?.account?.server || 'MT5 Terminal'} • Last sync ${timeAgo !== null ? `${timeAgo}s ago` : 'just now'}`
+                                    : 'Connection lost. Please check your bridge application.'}
+                            </p>
+                        </div>
                     </div>
 
                     <div className={`p-1 rounded-xl flex items-center border ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
@@ -368,7 +383,8 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                 <div className="w-px h-10 bg-zinc-500/10 hidden md:block" />
                                 <div>
                                     <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Floating P/L</div>
-                                    <div className={`text-xl font-mono font-black ${liveData?.account?.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                    <div className={`text-xl font-mono font-black flex items-center gap-2 ${liveData?.account?.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                        {liveData?.account?.profit >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
                                         {liveData?.account?.profit >= 0 ? '+' : ''}{userProfile.currencySymbol}{liveData?.account?.profit?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '---'}
                                     </div>
                                 </div>
@@ -388,6 +404,24 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                                 <Cpu size={14} /> {showTechnicalDetails ? 'Hide Details' : 'Account Details'}
                                 <ChevronDown size={14} className={`transition-transform duration-300 ${showTechnicalDetails ? 'rotate-180' : ''}`} />
                             </button>
+                        </div>
+
+                        {/* Quick Stats Summary */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {[
+                                { label: 'Balance', value: userProfile.currencySymbol + (liveData?.account?.balance?.toLocaleString() || '---'), icon: DollarSign, color: 'text-zinc-500' },
+                                { label: 'Margin Used', value: userProfile.currencySymbol + (liveData?.account?.margin?.toLocaleString() || '---'), icon: BarChart3, color: 'text-amber-500' },
+                                { label: 'Free Margin', value: userProfile.currencySymbol + ((liveData?.account?.equity || 0) - (liveData?.account?.margin || 0)).toLocaleString(), icon: Activity, color: 'text-blue-500' },
+                                { label: 'Leverage', value: `1:${liveData?.account?.leverage || '---'}`, icon: TrendingUp, color: 'text-purple-500' },
+                            ].map((stat, idx) => (
+                                <div key={idx} className={`p-4 rounded-2xl border-2 ${cardBg} hover:border-zinc-500/20 transition-colors`}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <stat.icon size={14} className={stat.color} />
+                                        <div className="text-[9px] font-black uppercase tracking-widest opacity-40">{stat.label}</div>
+                                    </div>
+                                    <div className="text-lg font-mono font-bold">{stat.value}</div>
+                                </div>
+                            ))}
                         </div>
 
                         {/* Collapsible Technical Details */}

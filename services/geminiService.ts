@@ -22,10 +22,18 @@ export const geminiService = {
   ) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const stats = calculateStats(trades);
+      
+      // Ensure trades are sorted by date and time for accurate summary
+      const sortedTrades = [...trades].sort((a, b) => {
+        const dateTimeA = new Date(`${a.date}T${a.time}`);
+        const dateTimeB = new Date(`${b.date}T${b.time}`);
+        return dateTimeA.getTime() - dateTimeB.getTime();
+      });
+
+      const stats = calculateStats(sortedTrades);
 
       const mindsetStats: Record<string, { pnl: number, count: number }> = {};
-      trades.forEach(t => {
+      sortedTrades.forEach(t => {
         const m = t.mindset || 'Neutral';
         if (!mindsetStats[m]) mindsetStats[m] = { pnl: 0, count: 0 };
         mindsetStats[m].pnl += t.pnl;
@@ -33,7 +41,7 @@ export const geminiService = {
       });
 
       const sessionStats: Record<string, number> = {};
-      trades.forEach(t => {
+      sortedTrades.forEach(t => {
         if (t.session) {
           sessionStats[t.session] = (sessionStats[t.session] || 0) + t.pnl;
         }
@@ -66,7 +74,7 @@ export const geminiService = {
         sessions: sessionStats,
         activeGoals: goals.filter(g => g.status !== 'completed').map(g => g.title),
         recentBias: dailyBias.slice(-3).map(b => ({ date: b.date, bias: b.bias, note: b.notes })),
-        recentTrades: trades.slice(-50).map(t => ({
+        recentTrades: sortedTrades.slice(-50).map(t => ({
           date: t.date,
           pair: t.pair,
           pnl: t.pnl,
@@ -156,10 +164,10 @@ export const geminiService = {
           CORE INSTRUCTIONS:
           1. STRICT DATA ADHERENCE: Use ONLY the numbers provided in the USER DATA SUMMARY. Do not estimate, extrapolate, or "guess" metrics like Win Rate, P&L, or Trade Counts. If a metric is not in the summary, state that you don't have that specific data point.
           2. DIRECT & CONCISE: Answer ONLY what the user asked. Do not volunteer unsolicited advice, analysis, or summaries. 
-          2. CONVERSATIONAL & PERSONAL: Start greetings by acknowledging the user by name (e.g., "Hey there Phemelo!").
-          3. REACTIVE, NOT PROACTIVE: Do not analyze the user's performance or patterns unless they explicitly ask for it (e.g. "How am I doing?", "Analyze my trades").
+          3. CONVERSATIONAL & PERSONAL: Start greetings by acknowledging the user by name (e.g., "Hey there Phemelo!").
+          4. REACTIVE, NOT PROACTIVE: Do not analyze the user's performance or patterns unless they explicitly ask for it (e.g. "How am I doing?", "Analyze my trades").
           
-          4. CLARIFICATION PROTOCOL (CRITICAL):
+          5. CLARIFICATION PROTOCOL (CRITICAL):
              If the user's request is UNCLEAR, AMBIGUOUS, or LACKS SPECIFICS, you MUST ask for clarification BEFORE providing an answer.
              
              WHEN TO ASK FOR CLARIFICATION:
@@ -187,6 +195,13 @@ export const geminiService = {
              - [WIDGET:WINRATE] -> @winrate, @outcomes, @components/analytics/OutcomeDistributionWidget.tsx
              - [WIDGET:MINDSET] -> @mindset, @psychology, @discipline, @components/analytics/PerformanceRadarWidget.tsx
              - [WIDGET:SESSIONS] -> @sessions, @timing, @components/analytics/PerformanceBySession.tsx
+             - [WIDGET:MOMENTUM] -> @momentum, @streaks, @flow, @components/analytics/MomentumStreakWidget.tsx
+             - [WIDGET:EXIT] -> @exit, @outcomes, @components/analytics/TradeExitAnalysisWidget.tsx
+             - [WIDGET:CURRENCY] -> @currency, @strength, @components/analytics/CurrencyStrengthMeter.tsx
+             - [WIDGET:MONTHLY] -> @monthly, @performance, @components/analytics/MonthlyPerformanceWidget.tsx
+             - [WIDGET:ADHERENCE] -> @adherence, @discipline, @components/analytics/PLByPlanAdherenceWidget.tsx
+             - [WIDGET:MINDSET_PL] -> @mindset_pl, @psychology_pl, @components/analytics/PLByMindsetWidget.tsx
+             - [WIDGET:CREATE_GOAL] -> @create_goal, @goal, @target, @newgoal
              - [WIDGET:PAIR] -> @pairs, @symbols, @assets
              - [WIDGET:DRAWDOWN] -> @drawdown, @risk, @leaks, @components/analytics/DrawdownOverTimeWidget.tsx
              - [WIDGET:TABLE] -> @history, @trades, @list, @components/analytics/ExecutionPerformanceTable.tsx

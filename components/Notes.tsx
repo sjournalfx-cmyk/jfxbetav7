@@ -502,7 +502,7 @@ const SortableWrapper = ({ id, children }: { id: string, children: React.ReactEl
       {...attributes}
       {...listeners}
     >
-      {React.cloneElement(children, { isDragging })}
+      {React.cloneElement(children as React.ReactElement<any>, { isDragging })}
     </motion.div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trade, UserProfile, Goal, DailyBias, EASession } from '../types';
+import { Trade, UserProfile, Goal, DailyBias, EASession, MetricType } from '../types';
 import { geminiService } from '../services/geminiService';
 import { calculateStats } from '../lib/statsUtils';
 import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
@@ -12,14 +12,201 @@ import { ExecutionPerformanceTable } from './analytics/ExecutionPerformanceTable
 import { DrawdownOverTimeWidget } from './analytics/DrawdownOverTimeWidget';
 import { StrategyPerformanceBubbleChart } from './analytics/StrategyPerformanceBubbleChart';
 import { SymbolPerformanceWidget } from './analytics/SymbolPerformanceWidget';
+import { MomentumStreakWidget } from './analytics/MomentumStreakWidget';
+import { TradeExitAnalysisWidget } from './analytics/TradeExitAnalysisWidget';
+import { CurrencyStrengthMeter } from './analytics/CurrencyStrengthMeter';
+import { MonthlyPerformanceWidget } from './analytics/MonthlyPerformanceWidget';
+import { PLByPlanAdherenceWidget } from './analytics/PLByPlanAdherenceWidget';
+import { PLByMindsetWidget } from './analytics/PLByMindsetWidget';
 import TradingViewWidget from './TradingViewWidget';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { TrendingUp, PieChart, Brain, Clock, Wand2, Send, Bot, User, Trash2, Coins, ChevronDown, List, Settings as SettingsIcon, X, History, Plus, ChevronRight, Workflow, CheckCircle2, StickyNote, Download, FileText, Activity } from 'lucide-react';
+import { TrendingUp, PieChart, Brain, Clock, Wand2, Send, Bot, User, Trash2, Coins, ChevronDown, List, Settings as SettingsIcon, X, History, Plus, ChevronRight, Workflow, CheckCircle2, StickyNote, Download, FileText, Activity, Sparkles, Target } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
 import { ChecklistWidget, MermaidWidget } from './ai/AIWidgets';
 import { AISettingsDrawer } from './ai/AISettingsDrawer';
+import { APP_CONSTANTS } from '../lib/constants';
+import { useToast } from './ui/Toast';
+
+// --- Goal Creation Widget ---
+const GoalCreationWidget = ({ 
+  isDarkMode, 
+  onAddGoal,
+  initialTitle = "",
+  initialTarget = 0,
+  initialMetric = "currency" as "currency" | "percentage" | "count"
+}: { 
+  isDarkMode: boolean, 
+  onAddGoal: (goal: any) => Promise<void>,
+  initialTitle?: string,
+  initialTarget?: number,
+  initialMetric?: "currency" | "percentage" | "count"
+}) => {
+  const [step, setStep] = useState(1);
+  const [title, setTitle] = useState(initialTitle);
+  const [type, setType] = useState<Goal['type']>('Financial');
+  const [metric, setMetric] = useState<MetricType>(initialMetric);
+  const [target, setTarget] = useState(initialTarget);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDone, setIsDone] = useState(false);
+
+  const handleCreate = async () => {
+    setIsSubmitting(true);
+    try {
+      const now = new Date();
+      const endDate = new Date();
+      endDate.setDate(now.getDate() + 30); // Default 30 days
+
+      await onAddGoal({
+        title,
+        type,
+        metric,
+        targetValue: target,
+        startValue: 0,
+        startDate: now.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+        status: 'active',
+        milestones: [],
+        createdAt: now.toISOString()
+      });
+      setIsDone(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isDone) {
+    return (
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className={`p-6 rounded-[32px] border flex flex-col items-center text-center gap-4 ${isDarkMode ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}
+      >
+        <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+          <CheckCircle2 size={24} />
+        </div>
+        <div>
+          <h4 className="text-lg font-black uppercase tracking-tight">Goal Created!</h4>
+          <p className="text-xs font-medium opacity-60 mt-1">Your new objective has been added to the Goals page.</p>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <div className={`p-6 rounded-[32px] border flex flex-col gap-6 relative overflow-hidden w-fit max-w-full ${isDarkMode ? 'bg-zinc-900/60 border-white/5 shadow-2xl' : 'bg-white border-slate-200 shadow-xl'}`}>
+      {/* Lava Lamp Background Blobs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-[0.08] dark:opacity-[0.12]">
+        <div className="absolute -top-10 -left-10 w-40 h-40 bg-indigo-500 blur-[40px] animate-lava" style={{ animationDelay: '0s' }} />
+        <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-purple-500 blur-[50px] animate-lava" style={{ animationDelay: '-5s' }} />
+      </div>
+
+      <div className="flex items-center justify-between relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
+            <Target size={20} />
+          </div>
+          <div>
+            <h4 className="text-[11px] font-black uppercase tracking-widest">Goal Architect</h4>
+            <div className="flex gap-1 mt-1">
+              {[1, 2, 3].map(i => (
+                <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-4 bg-indigo-500' : (i < step ? 'w-2 bg-emerald-500' : 'w-2 bg-zinc-500/20')}`} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <span className="text-[10px] font-mono font-bold opacity-30">Step {step} of 3</span>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {step === 1 && (
+          <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
+            <p className="text-sm font-medium opacity-60">What should we call this objective?</p>
+            <input 
+              autoFocus
+              type="text" 
+              value={title} 
+              onChange={e => setTitle(e.target.value)}
+              placeholder="e.g. 5% Monthly Return"
+              className={`w-full bg-transparent border-b-2 border-zinc-500/20 py-2 text-lg font-black focus:border-indigo-500 focus:outline-none transition-all ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+            />
+            <button 
+              disabled={!title}
+              onClick={() => setStep(2)}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20"
+            >
+              Next Strategy Step
+            </button>
+          </motion.div>
+        )}
+
+        {step === 2 && (
+          <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
+            <p className="text-sm font-medium opacity-60">What is the measurement metric?</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Currency ($)', value: 'currency' },
+                { label: 'Percentage (%)', value: 'percentage' },
+                { label: 'Trade Count', value: 'count' },
+                { label: 'Win/Loss', value: 'boolean' }
+              ].map(m => (
+                <button
+                  key={m.value}
+                  onClick={() => setMetric(m.value as any)}
+                  className={`p-4 rounded-2xl border text-left transition-all ${metric === m.value ? 'border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500' : 'border-zinc-500/10 hover:border-zinc-500/30'}`}
+                >
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${metric === m.value ? 'text-indigo-500' : 'opacity-40'}`}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+            <button 
+              onClick={() => setStep(3)}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+            >
+              Confirm Metric
+            </button>
+          </motion.div>
+        )}
+
+        {step === 3 && (
+          <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
+            <p className="text-sm font-medium opacity-60">Set your final target value</p>
+            <div className="flex items-end gap-3">
+              <input 
+                autoFocus
+                type="number" 
+                value={target || ''} 
+                onChange={e => setTarget(Number(e.target.value))}
+                placeholder="0.00"
+                className={`flex-1 bg-transparent border-b-2 border-zinc-500/20 py-2 text-3xl font-black focus:border-indigo-500 focus:outline-none transition-all ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+              />
+              <span className="text-xl font-black opacity-30 pb-3">{metric === 'currency' ? '$' : metric === 'percentage' ? '%' : 'trades'}</span>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setStep(2)}
+                className={`flex-1 py-3 border border-zinc-500/20 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-500/5 transition-all`}
+              >
+                Back
+              </button>
+              <button 
+                onClick={handleCreate}
+                disabled={isSubmitting || !target}
+                className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles size={14} />}
+                {isSubmitting ? 'Architecting...' : 'Deploy Goal'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 interface Message {
   id: string;
@@ -41,25 +228,36 @@ interface AIChatProps {
   dailyBias?: DailyBias[];
   eaSession?: EASession | null;
   onAddNote?: (note: any) => Promise<any>;
+  onAddGoal?: (goal: any) => Promise<any>;
 }
 
 const AIChat: React.FC<AIChatProps> = ({
   isDarkMode,
-  trades,
+  trades: rawTrades = [],
   userProfile,
   goals = [],
   dailyBias = [],
   eaSession = null,
-  onAddNote
+  onAddNote,
+  onAddGoal
 }) => {
+  const trades = useMemo(() => {
+    return [...rawTrades].sort((a, b) => {
+      const dateTimeA = new Date(`${a.date}T${a.time}`);
+      const dateTimeB = new Date(`${b.date}T${b.time}`);
+      return dateTimeA.getTime() - dateTimeB.getTime();
+    });
+  }, [rawTrades]);
+
   const [persistedMessages, setPersistedMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history', []);
   const [selectedModel, setSelectedModel] = useLocalStorage<string>('jfx_ai_selected_model', 'gemini-1.5-flash');
   const [communicationStyle, setCommunicationStyle] = useLocalStorage<string>('jfx_ai_communication_style', 'Professional');
-  const [autoRevealCharts, setAutoRevealCharts] = useLocalStorage<boolean>('jfx_ai_auto_reveal', false);
+  const [autoRevealCharts, setAutoRevealCharts] = useLocalStorage<boolean>('jfx_ai_auto_reveal', true);
   const [recallMemory, setRecallMemory] = useLocalStorage<boolean>('jfx_ai_recall_memory', true);
   const [isPlanMode, setIsPlanMode] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { addToast } = useToast();
 
   const [messages, setMessages] = useState<Message[]>(() => {
     if (persistedMessages.length > 0) {
@@ -119,13 +317,20 @@ const AIChat: React.FC<AIChatProps> = ({
     const widgets = [
       { label: 'Equity Growth', value: 'equitycurve', icon: <TrendingUp size={14} />, type: 'widget' },
       { label: 'Win Rate', value: 'winrate', icon: <PieChart size={14} />, type: 'widget' },
-      { label: 'Psychology', value: 'mindset', icon: <Brain size={14} />, type: 'widget' },
-      { label: 'Sessions', value: 'sessions', icon: <Clock size={14} />, type: 'widget' },
-      { label: 'Pair breakdown', value: 'pairs', icon: <List size={14} />, type: 'widget' },
+      { label: 'Psychology Radar', value: 'mindset', icon: <Brain size={14} />, type: 'widget' },
+      { label: 'Session Analysis', value: 'sessions', icon: <Clock size={14} />, type: 'widget' },
+      { label: 'Trade Momentum', value: 'momentum', icon: <Activity size={14} />, type: 'widget' },
+      { label: 'Trade Exits', value: 'exit', icon: <PieChart size={14} />, type: 'widget' },
+      { label: 'Currency Strength', value: 'currency', icon: <Coins size={14} />, type: 'widget' },
+      { label: 'Monthly Growth', value: 'monthly', icon: <TrendingUp size={14} />, type: 'widget' },
+      { label: 'Plan Adherence', value: 'adherence', icon: <CheckCircle2 size={14} />, type: 'widget' },
+      { label: 'Mindset P/L', value: 'mindset_pl', icon: <Brain size={14} />, type: 'widget' },
+      { label: 'Create Goal', value: 'create_goal', icon: <Target size={14} />, type: 'widget' },
+      { label: 'Pair Breakdown', value: 'pairs', icon: <List size={14} />, type: 'widget' },
       { label: 'Drawdown Map', value: 'drawdown', icon: <TrendingUp size={14} />, type: 'widget' },
       { label: 'Trade History', value: 'history', icon: <List size={14} />, type: 'widget' },
       { label: 'Strategy Efficiency', value: 'strategy', icon: <Wand2 size={14} />, type: 'widget' },
-      { label: 'Symbol Performance', value: 'components/analytics/SymbolPerformanceWidget.tsx', icon: <PieChart size={14} />, type: 'widget' },
+      { label: 'Symbol Performance', value: 'symbol', icon: <PieChart size={14} />, type: 'widget' },
     ];
 
     const uniqueSymbols = Array.from(new Set(trades.map(t => t.pair.toUpperCase())))
@@ -143,7 +348,14 @@ const AIChat: React.FC<AIChatProps> = ({
   const renderWithMentions = (content: React.ReactNode): React.ReactNode => {
     if (typeof content !== 'string') return content;
 
-    const parts = content.split(/(@[a-zA-Z0-9_/.:-]+)/g);
+    // Create a dynamic regex from available labels and values to handle multi-word mentions
+    const mentionTerms = availableMentions.flatMap(m => [m.label, m.value]);
+    // Sort by length descending to match longest phrases first (e.g. "Trade Momentum" before "Trade")
+    const sortedTerms = Array.from(new Set(mentionTerms)).sort((a, b) => b.length - a.length);
+    const escapedTerms = sortedTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const mentionRegex = new RegExp(`(@(?:${escapedTerms.join('|')}))`, 'gi');
+
+    const parts = content.split(mentionRegex);
     return parts.map((part, i) => {
       if (part.startsWith('@')) {
         return (
@@ -198,10 +410,17 @@ const AIChat: React.FC<AIChatProps> = ({
     'sessions': 'Session Performance',
     'pair': 'Currency Pair breakdown',
     'drawdown': 'Risk & Drawdown Map',
+    'momentum': 'Trade Momentum & Streaks',
+    'exit': 'Trade Exit Analysis',
+    'currency': 'Currency Strength Meter',
+    'monthly': 'Monthly Performance vs Drawdown',
+    'adherence': 'P/L by Plan Adherence',
+    'mindset_pl': 'P/L by Mindset Breakdown',
     'table': 'Recent Trade History',
     'chart': 'Live Market Chart',
     'strategy': 'Strategy Efficiency',
     'symbol': 'Symbol Performance',
+    'create_goal': 'Goal Architect',
     'mermaid': 'Strategic Diagram',
     'checklist': 'Interactive Plan Checklist'
   };
@@ -304,11 +523,20 @@ ${code}
     const isExpanded = expandedWidgets[`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`];
     const currencySymbol = userProfile?.currencySymbol || '$';
 
+    if (key === 'create_goal') {
+      return (
+        <GoalCreationWidget 
+          isDarkMode={isDarkMode} 
+          onAddGoal={onAddGoal || (async () => {})} 
+        />
+      );
+    }
+
     const getWidgetContent = () => {
       switch (key) {
         case 'pnl': {
-          const isPro = userProfile?.plan === 'HOBBY'; // PRO TIER
-          const isPremium = userProfile?.plan === 'STANDARD'; // PREMIUM
+          const isPro = userProfile?.plan === APP_CONSTANTS.PLANS.HOBBY; // PRO TIER
+          const isPremium = userProfile?.plan === APP_CONSTANTS.PLANS.STANDARD; // PREMIUM
           
           let effectiveInitialBalance = userProfile?.initialBalance || 0;
           
@@ -319,12 +547,10 @@ ${code}
 
           let cumulative = effectiveInitialBalance;
           const equityData = [cumulative];
-          [...trades]
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-            .forEach(t => {
-              cumulative += t.pnl;
-              equityData.push(cumulative);
-            });
+          trades.forEach(t => {
+            cumulative += t.pnl;
+            equityData.push(cumulative);
+          });
           
           const currentBalance = eaSession?.data?.account?.equity !== undefined
             ? eaSession.data.account.equity
@@ -352,6 +578,18 @@ ${code}
           return <div className="p-0 sm:p-2 w-full h-full"><PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'drawdown':
           return <div className="p-0 sm:p-2 w-full h-full"><DrawdownOverTimeWidget trades={trades} isDarkMode={isDarkMode} userProfile={userProfile!} /></div>;
+        case 'momentum':
+          return <div className="p-0 sm:p-2 w-full h-full"><MomentumStreakWidget trades={trades} isDarkMode={isDarkMode} /></div>;
+        case 'exit':
+          return <div className="p-0 sm:p-2 w-full h-full"><TradeExitAnalysisWidget trades={trades} isDarkMode={isDarkMode} /></div>;
+        case 'currency':
+          return <div className="p-0 sm:p-2 w-full h-full"><CurrencyStrengthMeter trades={trades} isDarkMode={isDarkMode} /></div>;
+        case 'monthly':
+          return <div className="p-0 sm:p-2 w-full h-full"><MonthlyPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+        case 'adherence':
+          return <div className="p-0 sm:p-2 w-full h-full"><PLByPlanAdherenceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
+        case 'mindset_pl':
+          return <div className="p-0 sm:p-2 w-full h-full"><PLByMindsetWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
         case 'table':
           return <div className="p-0 sm:p-2 w-full h-full overflow-x-auto"><ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} initialBalance={userProfile?.initialBalance || 0} /></div>;
         case 'strategy':
@@ -362,7 +600,7 @@ ${code}
           const chartKey = index !== undefined ? `${messageId}-chart-${index}` : `${messageId}-chart`;
           const symbol = message.chartSymbols?.[chartKey] || "FX:EURUSD";
           return (
-            <div className="p-0 sm:p-2 w-full h-[300px] sm:h-[450px]">
+            <div className="p-0 sm:p-2 w-full h-[250px] sm:h-[350px]">
               <TradingViewWidget
                 symbol={symbol}
                 theme={isDarkMode ? 'dark' : 'light'}
@@ -402,33 +640,35 @@ ${code}
       }
     };
 
+    const isSmallWidget = ['sessions', 'strategy', 'table', 'exit', 'currency'].includes(key);
+
     return (
-      <div key={`${key}-${index ?? 0}`} className={`rounded-[32px] border transition-all duration-500 overflow-hidden w-full ${isDarkMode
-        ? 'bg-[#0d0d0f]/60 border-white/5 shadow-2xl shadow-black/40'
-        : 'bg-white border-slate-200 shadow-sm'
-        } ${isExpanded ? 'ring-1 ring-indigo-500/20' : ''} group/widget`}>
+      <div key={`${key}-${index ?? 0}`} className={`rounded-2xl sm:rounded-[20px] border transition-all duration-500 overflow-hidden w-full ${isDarkMode
+        ? 'bg-gradient-to-br from-[#121218] to-[#0a0a0c] border-white/8 shadow-lg shadow-black/20'
+        : 'bg-gradient-to-br from-white to-slate-50 border-slate-200/60 shadow-md'
+        } ${isExpanded ? 'ring-1 ring-indigo-500/30' : ''} group/widget`}>
         <button
           onClick={() => toggleWidget(`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`)}
-          className={`w-full flex items-center justify-between p-4 sm:p-5 transition-all ${isExpanded
-            ? (isDarkMode ? 'bg-indigo-500/[0.03] text-indigo-400' : 'bg-indigo-50 text-indigo-600')
-            : (isDarkMode ? 'hover:bg-white/[0.02] text-zinc-400' : 'hover:bg-slate-50 text-slate-500')
+          className={`w-full flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 transition-all ${isExpanded
+            ? (isDarkMode ? 'bg-indigo-500/[0.05] text-indigo-400' : 'bg-indigo-50/80 text-indigo-600')
+            : (isDarkMode ? 'hover:bg-white/[0.03] text-zinc-400' : 'hover:bg-slate-50/80 text-slate-500')
             }`}
         >
-          <div className="flex items-center gap-4">
-            <div className={`p-2.5 rounded-xl transition-all duration-500 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-500/5 group-hover/widget:bg-zinc-500/10'}`}>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className={`p-2 sm:p-2.5 rounded-xl transition-all duration-500 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-lg shadow-indigo-500/10' : 'bg-zinc-500/5 group-hover/widget:bg-zinc-500/10'}`}>
               {key === 'mermaid' ? <Workflow size={16} /> :
                 key === 'checklist' ? <List size={16} /> :
                   <TrendingUp size={16} />}
             </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em]">
               {tagToLabel[key] || 'Data Widget'}
             </span>
           </div>
           <motion.div
             animate={{ rotate: isExpanded ? 180 : 0 }}
-            className={`p-1 rounded-lg ${isExpanded ? 'text-indigo-500 bg-indigo-500/10' : 'opacity-20'}`}
+            className={`p-1.5 rounded-lg transition-all ${isExpanded ? 'text-indigo-500 bg-indigo-500/10' : 'text-zinc-500/40'}`}
           >
-            <ChevronDown size={18} />
+            <ChevronDown size={16} />
           </motion.div>
         </button>
         <AnimatePresence>
@@ -587,6 +827,16 @@ ${code}
   };
 
   const handleSpecialAnalysis = async () => {
+    if (trades.length < 5 && !isPlanMode) {
+      addToast({
+        type: 'info',
+        title: 'Insufficient Data',
+        message: `You need at least 5 logged trades for a deep performance analysis. You currently have ${trades.length}.`,
+        duration: 5000
+      });
+      return;
+    }
+
     setIsTyping(true);
     setAnalysisStatus('analyzing');
     setCurrentStepIndex(0);
@@ -653,8 +903,11 @@ ${code}
         // Track widgets found in section for history/expansion
         const tagMap: Record<string, string> = {
           '[WIDGET:PNL]': 'pnl', '[WIDGET:WINRATE]': 'winrate', '[WIDGET:MINDSET]': 'mindset',
-          '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', '[WIDGET:TABLE]': 'table',
-          '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
+          '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', 
+          '[WIDGET:MOMENTUM]': 'momentum', '[WIDGET:EXIT]': 'exit', '[WIDGET:CURRENCY]': 'currency',
+          '[WIDGET:MONTHLY]': 'monthly', '[WIDGET:ADHERENCE]': 'adherence', '[WIDGET:MINDSET_PL]': 'mindset_pl',
+          '[WIDGET:CREATE_GOAL]': 'create_goal',
+          '[WIDGET:TABLE]': 'table', '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
         };
         for (const [t, key] of Object.entries(tagMap)) {
           if (sectionContent.includes(t)) foundKeys.push(key);
@@ -668,8 +921,11 @@ ${code}
 
     const tagMap: Record<string, string> = {
       '[WIDGET:PNL]': 'pnl', '[WIDGET:WINRATE]': 'winrate', '[WIDGET:MINDSET]': 'mindset',
-      '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', '[WIDGET:TABLE]': 'table',
-      '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
+      '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', 
+      '[WIDGET:MOMENTUM]': 'momentum', '[WIDGET:EXIT]': 'exit', '[WIDGET:CURRENCY]': 'currency',
+      '[WIDGET:MONTHLY]': 'monthly', '[WIDGET:ADHERENCE]': 'adherence', '[WIDGET:MINDSET_PL]': 'mindset_pl',
+      '[WIDGET:CREATE_GOAL]': 'create_goal',
+      '[WIDGET:TABLE]': 'table', '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
     };
 
     for (const [tag, key] of Object.entries(tagMap)) {
@@ -739,8 +995,7 @@ ${code}
     // Auto-expand widgets if autoRevealCharts is enabled
     if (autoRevealCharts && foundKeys.length > 0) {
       const newExpandedWidgets: Record<string, boolean> = {};
-      foundKeys.forEach(key => {
-        newExpandedWidgets[`${messageId}-${key}`] = true;
+      foundKeys.forEach((key, i) => { newExpandedWidgets[`${messageId}-${key}-${i}`] = true;
       });
       setExpandedWidgets(prev => ({ ...prev, ...newExpandedWidgets }));
     }
@@ -750,34 +1005,28 @@ ${code}
     const blocks: React.ReactNode[] = [];
     
     // 1. Identify all items
-    const parts = text.split(/(\[WIDGET:(?:PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED:\d+|MERMAID_INDEXED:\d+|CHECKLIST_INDEXED:\d+)\])/g);
+    const parts = text.split(/(\[WIDGET:(?:PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|MOMENTUM|EXIT|CURRENCY|MONTHLY|ADHERENCE|MINDSET_PL|CREATE_GOAL|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED:\d+|MERMAID_INDEXED:\d+|CHECKLIST_INDEXED:\d+)\])/g);
     
-    const items: { type: 'text' | 'widget', value: string, widgetData?: any }[] = [];
-    parts.forEach((part) => {
+    parts.forEach((part, idx) => {
       if (!part) return;
-      const match = part.match(/\[WIDGET:(PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED|MERMAID_INDEXED|CHECKLIST_INDEXED)(?::(\d+))?\]/);
+      const match = part.match(/\[WIDGET:(PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|MOMENTUM|EXIT|CURRENCY|MONTHLY|ADHERENCE|MINDSET_PL|CREATE_GOAL|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED|MERMAID_INDEXED|CHECKLIST_INDEXED)(?::(\d+))?\]/);
+      
       if (match) {
         const type = match[1];
         const index = match[2] ? parseInt(match[2]) : undefined;
         let actualKey = type.toLowerCase();
         if (type === 'STRATEGY_EFFICIENCY') actualKey = 'strategy';
         if (type.includes('_INDEXED')) actualKey = type.replace('_INDEXED', '').toLowerCase();
-        items.push({ type: 'widget', value: part, widgetData: { key: actualKey, index } });
+        
+        const isSmallWidget = ['sessions', 'strategy', 'table', 'exit', 'currency'].includes(actualKey);
+        
+        blocks.push(
+          <div key={`widget-${idx}`} className={`my-4 ${isSmallWidget ? 'w-fit max-w-full' : 'w-full'}`}>
+            {renderWidget(actualKey, message.id, message, index)}
+          </div>
+        );
       } else {
-        items.push({ type: 'text', value: part });
-      }
-    });
-
-    // 2. Logic: Greedy text-to-widget association
-    const widgetIndices = items.reduce((acc, it, idx) => it.type === 'widget' ? [...acc, idx] : acc, [] as number[]);
-    let pendingCommentary: React.ReactNode[] = [];
-    const consumedIndices = new Set<number>();
-
-    items.forEach((item, idx) => {
-      if (consumedIndices.has(idx)) return;
-
-      if (item.type === 'text') {
-        const textNode = (
+        blocks.push(
           <div key={`text-${idx}`} className={`mb-4 last:mb-0 text-[13px] sm:text-[14px] leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'} prose prose-sm max-w-none dark:prose-invert`}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
               p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{renderWithMentions(children)}</p>,
@@ -786,59 +1035,14 @@ ${code}
               li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
               strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
             }}>
-              {item.value}
+              {part}
             </ReactMarkdown>
-          </div>
-        );
-
-        // If there's a widget coming up LATER in the message, hold this text to put INSIDE the widget
-        const hasWidgetFollowing = items.slice(idx + 1).some(it => it.type === 'widget');
-        
-        if (hasWidgetFollowing) {
-          pendingCommentary.push(textNode);
-        } else if (widgetIndices.length > 0) {
-          // This is trailing text. It will be consumed by the last widget if one exists.
-          // If no widgets follow, but we have widgets in the message, it belongs to the last one.
-          // We don't push to blocks here; the last widget handling will pick it up.
-        } else {
-          // No widgets at all in the message, render standalone
-          blocks.push(textNode);
-        }
-      } else {
-        // Widget!
-        const isLastWidget = idx === widgetIndices[widgetIndices.length - 1];
-        let commentary = [...pendingCommentary];
-        pendingCommentary = [];
-
-        if (isLastWidget) {
-          // Consume all remaining text items in the message
-          for (let j = idx + 1; j < items.length; j++) {
-            if (items[j].type === 'text') {
-              commentary.push(
-                <div key={`trailing-${j}`} className="mt-4 border-t border-white/5 pt-4 opacity-80">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                    p: ({ children }) => <p className="mb-0 leading-relaxed italic">{renderWithMentions(children)}</p>,
-                    li: ({ children }) => <li className="marker:text-indigo-500 pl-1 italic">{renderWithMentions(children)}</li>,
-                    strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
-                  }}>
-                    {items[j].value}
-                  </ReactMarkdown>
-                </div>
-              );
-              consumedIndices.add(j);
-            }
-          }
-        }
-
-        blocks.push(
-          <div key={`widget-${idx}`} className="my-4 w-full">
-            {renderWidget(item.widgetData.key, message.id, message, item.widgetData.index, commentary.length > 0 ? commentary : undefined)}
           </div>
         );
       }
     });
 
-    return <div className="space-y-2 w-full">{blocks}</div>;
+    return <div className="space-y-2 w-fit max-w-full">{blocks}</div>;
   };
 
   const renderMessageContent = (message: Message) => {
@@ -1042,7 +1246,7 @@ ${code}
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full relative z-10`}
             >
-              <div className={`flex gap-4 sm:gap-5 w-full ${message.role === 'user' ? 'sm:max-w-[85%] lg:max-w-[70%] flex-row-reverse' : 'sm:max-w-[95%] lg:max-w-[90%]'} group/msg`}>
+              <div className={`flex gap-4 sm:gap-5 w-full ${message.role === 'user' ? 'sm:max-w-[75%] lg:max-w-[60%] flex-row-reverse' : 'sm:max-w-[85%] lg:max-w-[80%]'} group/msg`}>
                 {/* Avatar */}
                 <div className={`shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center border transition-all duration-500 ${message.role === 'user'
                   ? (isDarkMode ? 'bg-zinc-900 border-white/5 shadow-lg shadow-black/20' : 'bg-white border-slate-200 shadow-sm')
@@ -1054,18 +1258,22 @@ ${code}
                   }
                 </div>
 
-                <div className={`flex flex-col gap-2 flex-1 min-w-0 ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`flex flex-col gap-2 min-w-0 ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
                   {/* Message Bubble */}
-                  <div className={`w-full overflow-hidden transition-all duration-500 relative ${message.role === 'user'
-                    ? (isDarkMode ? 'bg-zinc-900/50 border border-white/5 rounded-[24px] rounded-tr-none' : 'bg-white border border-slate-200 shadow-sm rounded-[24px] rounded-tr-none')
-                    : (isDarkMode ? 'bg-[#0d0d0f]/40 border border-white/5 rounded-[32px] rounded-tl-none backdrop-blur-3xl shadow-2xl' : 'bg-white border border-slate-200 shadow-sm rounded-[32px] rounded-tl-none')
+                  <div className={`w-fit max-w-full overflow-hidden transition-all duration-500 relative group/bubble ${message.role === 'user'
+                    ? (isDarkMode ? 'bg-gradient-to-br from-zinc-800/80 to-zinc-900/80 border border-white/5 rounded-[24px] rounded-tr-none shadow-lg shadow-black/20' : 'bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 shadow-md rounded-[24px] rounded-tr-none')
+                    : (isDarkMode ? 'bg-gradient-to-br from-[#121218] to-[#0a0a0c] border border-white/8 rounded-[28px] rounded-tl-none backdrop-blur-xl shadow-2xl shadow-black/30' : 'bg-gradient-to-br from-white to-slate-50 border border-slate-200/60 shadow-lg rounded-[28px] rounded-tl-none')
                     }`}>
                     
+                    {/* Animated gradient accent for AI messages */}
                     {message.role === 'assistant' && (
-                      <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-transparent opacity-20" />
+                      <>
+                        <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-indigo-500 via-violet-500 to-purple-600 rounded-l-[28px]" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 via-transparent to-transparent opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-500 rounded-[28px]" />
+                      </>
                     )}
 
-                    <div className="p-6 sm:p-8">
+                    <div className="p-5 sm:p-7">
                       {renderMessageContent(message)}
                     </div>
 
@@ -1179,9 +1387,10 @@ ${code}
 
       {/* Input Section */}
       <div className="p-4 sm:p-6 pt-2 relative z-20">
-        <div className={`relative max-w-4xl mx-auto rounded-[24px] sm:rounded-[32px] border transition-all duration-500 backdrop-blur-3xl shadow-2xl ${isDarkMode
-          ? 'bg-zinc-900/40 border-white/10 hover:border-white/20 shadow-black/40'
-          : 'bg-white/80 border-slate-200/60 hover:border-slate-300 shadow-slate-200/40'
+        <div className={`relative max-w-4xl mx-auto rounded-[24px] sm:rounded-[32px] border transition-all duration-500 backdrop-blur-3xl shadow-2xl ${
+          input.includes('@')
+            ? (isDarkMode ? 'bg-indigo-500/10 border-indigo-500/40 shadow-indigo-500/20' : 'bg-indigo-50/80 border-indigo-300 shadow-indigo-100')
+            : (isDarkMode ? 'bg-zinc-900/40 border-white/10 hover:border-white/20 shadow-black/40' : 'bg-white/80 border-slate-200/60 hover:border-slate-300 shadow-slate-200/40')
           }`}>
           <div className="flex items-center gap-2 p-2 px-4 sm:px-6">
             <div className="flex items-center gap-1">
@@ -1189,7 +1398,7 @@ ${code}
                 <button
                   onClick={handleSpecialAnalysis}
                   disabled={isTyping}
-                  className={`p-1.5 rounded-lg transition-all group flex items-center gap-1.5 border relative overflow-hidden ${isDarkMode
+                  className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-lg transition-all group border relative overflow-hidden ${isDarkMode
                     ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20'
                     : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100'
                     }`}
@@ -1211,7 +1420,7 @@ ${code}
               <div className="relative">
                 <button
                   onClick={() => setShowModeDropdown(!showModeDropdown)}
-                  className={`p-1.5 border rounded-lg transition-all ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-400 hover:bg-white/5' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white'
+                  className={`w-8 h-8 shrink-0 flex items-center justify-center border rounded-lg transition-all ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-400 hover:bg-white/5' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white'
                     }`}
                 >
                   {isPlanMode ? <Workflow size={14} className="text-[#FF4F01]" /> : <Activity size={14} className="text-indigo-500" />}
@@ -1246,6 +1455,33 @@ ${code}
                   )}
                 </AnimatePresence>
               </div>
+
+              <div className={`w-px h-3.5 mx-0.5 ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`} />
+
+              <button
+                onClick={() => {
+                  const inputEl = document.getElementById('ai-chat-input') as HTMLInputElement;
+                  if (inputEl) {
+                    const newValue = input.endsWith(' ') || input === '' ? input + '@' : input + ' @';
+                    setInput(newValue);
+                    setMentionMenuFilter('');
+                    setShowMentionMenu(true);
+                    inputEl.focus();
+                  }
+                }}
+                className={`w-8 h-8 shrink-0 flex items-center justify-center border rounded-lg transition-all group ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-500 hover:text-amber-500 hover:border-amber-500/30' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-amber-600 hover:border-amber-300'
+                  }`}
+                title="Quick Mention"
+              >
+                <motion.span 
+                  whileTap={{ scale: 0.7, rotate: -15 }}
+                  whileHover={{ scale: 1.2 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                  className="text-[14px] font-black leading-none"
+                >
+                  @
+                </motion.span>
+              </button>
             </div>
 
             <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
@@ -1297,7 +1533,7 @@ ${code}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask your assistant anything..."
-                className={`w-full bg-transparent border-none focus:ring-0 text-[13px] sm:text-[14px] font-medium py-1.5 placeholder:opacity-30 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                className={`w-full bg-transparent border-none focus:ring-0 focus:outline-none text-[13px] sm:text-[14px] font-medium py-1.5 placeholder:opacity-30 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
               />
             </div>
 

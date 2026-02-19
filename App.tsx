@@ -672,6 +672,7 @@ const AppContent: React.FC = () => {
                 goals={goals}
                 dailyBias={dailyBias}
                 onAddNote={handleAddNote}
+                onAddGoal={handleAddGoal}
                 eaSession={eaSession}
               />
             )}

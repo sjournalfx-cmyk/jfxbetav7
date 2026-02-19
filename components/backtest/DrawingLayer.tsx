@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 import { Drawing, Point } from './types';
-import { getRayCoordinates, calculateFibLevels } from './utils';
+import { getRayCoordinates } from './utils';
 
 interface DrawingLayerProps {
     drawings: Drawing[];
@@ -55,7 +55,8 @@ const useCoordinateConverter = (
 };
 
 // Individual drawing renderer component - memoized
-const DrawingItem = React.memo<{
+// SVG is now HIT-AREA ONLY. All visual rendering is done by the Canvas in CustomChart.
+interface DrawingItemProps {
     drawing: Drawing;
     isPreview: boolean;
     mousePos: { x: number; y: number } | null;
@@ -73,7 +74,9 @@ const DrawingItem = React.memo<{
     onDoubleClickDrawing?: (drawing: Drawing) => void;
     onContextMenuDrawing?: (e: React.MouseEvent, drawing: Drawing) => void;
     tick?: number;
-}>(({
+}
+
+const DrawingItem = React.memo<DrawingItemProps>(({
     drawing: d,
     isPreview,
     mousePos,
@@ -96,17 +99,13 @@ const DrawingItem = React.memo<{
     const p1Coords = useMemo(() => convertCoordinate(d.p1), [d.p1, convertCoordinate, tick]);
 
     const p2Coords = useMemo(() => {
-        // Try to convert d.p2 first if it exists (even in preview for a smoother snapped experience)
         if (d.p2) {
             const converted = convertCoordinate(d.p2);
             if (converted) return converted;
         }
-        
-        // Fallback to raw mouse position for preview if conversion fails or d.p2 is missing
         if (isPreview && mousePos) {
             return mousePos;
         }
-        
         return null;
     }, [d.p2, isPreview, mousePos, convertCoordinate, tick]);
 
@@ -120,22 +119,8 @@ const DrawingItem = React.memo<{
     const y2 = p2Coords?.y ?? 0;
 
     const isSelected = d.id === selectedDrawingId;
-    const isHovered = d.id === hoveredDrawingId;
 
-    const color = isSelected
-        ? "#FF4F01"
-        : (d.color || (isHovered
-            ? "#2962ff"
-            : (isDarkMode ? "#2962ff" : "#475569")
-        ));
-
-    const baseStrokeWidth = d.strokeWidth || 2;
-    const strokeDasharray = d.strokeStyle === 'dashed' ? '6,6' : d.strokeStyle === 'dotted' ? '2,4' : undefined;
-
-    const commonProps = {
-        stroke: "transparent", // Visuals are now handled by Canvas
-        strokeWidth: isSelected ? baseStrokeWidth + 8 : baseStrokeWidth + 4, // Hit area only
-        strokeOpacity: 0, // Fully invisible
+    const commonEvents = {
         cursor: 'pointer' as const,
         onClick: (e: React.MouseEvent) => {
             e.preventDefault();
@@ -166,16 +151,13 @@ const DrawingItem = React.memo<{
         onMouseLeave: () => !isPreview && onHoverDrawing(null),
     };
 
-    const hitAreaProps = {
+    // All hit areas are invisible - canvas handles visuals
+    const hitProps = {
         stroke: 'transparent',
+        fill: 'transparent',
         strokeWidth: 15,
-        cursor: 'pointer' as const,
-        onClick: commonProps.onClick,
-        onDoubleClick: commonProps.onDoubleClick,
-        onContextMenu: commonProps.onContextMenu,
-        onMouseDown: commonProps.onMouseDown,
-        onMouseEnter: commonProps.onMouseEnter,
-        onMouseLeave: commonProps.onMouseLeave,
+        style: { cursor: 'pointer' } as React.CSSProperties,
+        ...commonEvents,
     };
 
     const renderHandles = () => {
@@ -191,7 +173,7 @@ const DrawingItem = React.memo<{
                     cursor="grab" style={handleStyle}
                     onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p1'); }}
                 />
-                {d.type !== 'vertical' && d.type !== 'horizontal' && (
+                {d.type !== 'vertical' && d.type !== 'horizontal' && d.type !== 'long' && d.type !== 'short' && (
                     <circle
                         cx={x2} cy={y2} r={6}
                         fill="#2962ff" stroke="white" strokeWidth={2}
@@ -208,36 +190,20 @@ const DrawingItem = React.memo<{
     switch (d.type) {
         case 'trendline':
             shape = (
-                <g>
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} {...hitAreaProps} />
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} {...commonProps} />
-                </g>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} {...hitProps} />
             );
             break;
 
         case 'ray':
             const ray = getRayCoordinates(x1, y1, x2, y2, containerWidth, containerHeight);
             shape = (
-                <g>
-                    <line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} {...hitAreaProps} />
-                    <line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} {...commonProps} />
-                </g>
+                <line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} {...hitProps} />
             );
             break;
 
         case 'arrow':
             shape = (
-                <g>
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} {...hitAreaProps} />
-                    <g onClick={commonProps.onClick} onMouseDown={commonProps.onMouseDown} style={{ cursor: 'pointer' }}>
-                        <defs>
-                            <marker id={`arrowhead-${d.id}`} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                                <polygon points="0 0, 10 3.5, 0 7" fill={color} />
-                            </marker>
-                        </defs>
-                        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={commonProps.strokeWidth} markerEnd={`url(#arrowhead-${d.id})`} />
-                    </g>
-                </g>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} {...hitProps} />
             );
             break;
 
@@ -247,62 +213,145 @@ const DrawingItem = React.memo<{
             const rw = Math.max(1, Math.abs(x2 - x1));
             const rh = Math.max(1, Math.abs(y2 - y1));
             shape = (
-                <g>
-                    <rect x={rx} y={ry} width={rw} height={rh} stroke="transparent" strokeWidth={10} fill="transparent" {...commonProps} />
-                </g>
+                <rect x={rx} y={ry} width={rw} height={rh} {...hitProps} />
             );
             break;
 
         case 'vertical':
             shape = (
-                <g>
-                    <line x1={x1} y1={0} x2={x1} y2={containerHeight} {...commonProps} strokeWidth={10} stroke="transparent" />
-                </g>
+                <line x1={x1} y1={0} x2={x1} y2={containerHeight} {...hitProps} />
             );
             break;
 
         case 'horizontal':
             shape = (
-                <g>
-                    <line x1={0} y1={y1} x2={containerWidth} y2={y1} {...commonProps} strokeWidth={10} stroke="transparent" />
-                </g>
+                <line x1={0} y1={y1} x2={containerWidth} y2={y1} {...hitProps} />
             );
             break;
 
+        case 'fib': {
+            const fibY1 = Math.min(y1, y2);
+            const fibY2 = Math.max(y1, y2);
+            const fibDiff = fibY2 - fibY1;
+            const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+            shape = (
+                <g {...commonEvents} style={{ cursor: 'pointer' }}>
+                    {fibLevels.map((level) => {
+                        const y = fibY1 + fibDiff * level;
+                        return (
+                            <line key={level} x1={Math.min(x1, x2)} y1={y} x2={Math.max(x1, x2)} y2={y} stroke="transparent" strokeWidth={12} />
+                        );
+                    })}
+                    <rect x={Math.min(x1, x2)} y={fibY1} width={Math.abs(x2 - x1)} height={fibDiff} fill="transparent" stroke="transparent" strokeWidth={1} />
+                </g>
+            );
+            break;
+        }
+
+        case 'channel': {
+            const channelDx = x2 - x1;
+            const channelDy = y2 - y1;
+            const channelAngle = Math.atan2(channelDy, channelDx);
+            const perpAngle = channelAngle + Math.PI / 2;
+            const channelOffset = 50;
+
+            const cx1 = x1;
+            const cy1 = y1;
+            const cx2 = x2;
+            const cy2 = y2;
+            const cx3 = x2 + Math.cos(perpAngle) * channelOffset;
+            const cy3 = y2 + Math.sin(perpAngle) * channelOffset;
+            const cx4 = x1 + Math.cos(perpAngle) * channelOffset;
+            const cy4 = y1 + Math.sin(perpAngle) * channelOffset;
+
+            shape = (
+                <polygon
+                    points={`${cx1},${cy1} ${cx2},${cy2} ${cx3},${cy3} ${cx4},${cy4}`}
+                    {...hitProps}
+                />
+            );
+            break;
+        }
+
+        case 'text': {
+            const textContent = d.text || 'Text';
+            // Invisible hit area rect around text
+            shape = (
+                <g {...commonEvents} style={{ cursor: 'pointer' }}>
+                    <rect x={x1 - 5} y={y1 - (d.fontSize || 14)} width={textContent.length * ((d.fontSize || 14) * 0.65)} height={(d.fontSize || 14) + 6} fill="transparent" stroke="transparent" />
+                </g>
+            );
+            break;
+        }
+
         case 'long':
-        case 'short':
-            const entryY = series?.priceToCoordinate(d.entry || d.p1.price) ?? y1;
-            const targetY = series?.priceToCoordinate(d.target || d.p1.price) ?? y1;
-            const stopY = series?.priceToCoordinate(d.stop || d.p1.price) ?? y1;
+        case 'short': {
+            const isLong = d.type === 'long';
+            const entryPrice = d.entry ?? d.p1.price;
+            const targetPrice = d.target ?? (isLong ? entryPrice * 1.02 : entryPrice * 0.98);
+            const stopPrice = d.stop ?? (isLong ? entryPrice * 0.99 : entryPrice * 1.01);
+
+            const entryY = series?.priceToCoordinate(entryPrice) ?? y1;
+            const targetY = series?.priceToCoordinate(targetPrice) ?? y1;
+            const stopY = series?.priceToCoordinate(stopPrice) ?? y1;
 
             const p1x = x1;
             const p2x = x2 || x1 + 150;
-            const rectWidth = Math.abs(p2x - p1x);
+            const rectWidth = Math.max(Math.abs(p2x - p1x), 50);
             const rectLeft = Math.min(p1x, p2x);
 
+            const targetColor = '#10b981';
+            const stopColor = '#ef4444';
+
+            const targetBoxY = Math.min(entryY, targetY);
+            const targetBoxHeight = Math.abs(targetY - entryY);
+            const stopBoxY = Math.min(entryY, stopY);
+            const stopBoxHeight = Math.abs(stopY - entryY);
+
             shape = (
-                <g onClick={commonProps.onClick} onMouseDown={commonProps.onMouseDown} style={{ cursor: 'pointer' }}>
+                <g {...commonEvents} style={{ cursor: 'pointer' }}>
+                    {/* Target area hit zone */}
                     <rect
-                        x={rectLeft} y={Math.min(entryY, targetY)}
-                        width={rectWidth} height={Math.abs(targetY - entryY)}
-                        fill="transparent" stroke="transparent" strokeWidth={10}
+                        x={rectLeft} y={targetBoxY}
+                        width={rectWidth} height={Math.max(targetBoxHeight, 5)}
+                        fill="transparent" stroke="transparent" strokeWidth={1}
                     />
+                    {/* Stop area hit zone */}
                     <rect
-                        x={rectLeft} y={Math.min(entryY, stopY)}
-                        width={rectWidth} height={Math.abs(stopY - entryY)}
-                        fill="transparent" stroke="transparent" strokeWidth={10}
+                        x={rectLeft} y={stopBoxY}
+                        width={rectWidth} height={Math.max(stopBoxHeight, 5)}
+                        fill="transparent" stroke="transparent" strokeWidth={1}
                     />
+
+                    {/* Draggable handles when selected */}
                     {isSelected && !isLocked && !d.isLocked && (
                         <>
-                            <circle cx={rectLeft + rectWidth / 2} cy={targetY} r="5" fill="#10b981" stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'target'); }} />
-                            <circle cx={rectLeft + rectWidth / 2} cy={stopY} r="5" fill="#ef4444" stroke="white" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'stop'); }} />
-                            <circle cx={rectLeft} cy={entryY} r="5" fill="white" stroke="black" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p1'); }} />
-                            <circle cx={rectLeft + rectWidth} cy={entryY} r="5" fill="white" stroke="black" strokeWidth="1" onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p2'); }} />
+                            {/* Target handle */}
+                            <circle cx={rectLeft + rectWidth / 2} cy={targetY} r="6" fill={targetColor} stroke="white" strokeWidth={2}
+                                style={{ cursor: 'grab', filter: 'drop-shadow(0 0 4px rgba(16, 185, 129, 0.6))' }}
+                                onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'target'); }}
+                            />
+                            {/* Stop handle */}
+                            <circle cx={rectLeft + rectWidth / 2} cy={stopY} r="6" fill={stopColor} stroke="white" strokeWidth={2}
+                                style={{ cursor: 'grab', filter: 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.6))' }}
+                                onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'stop'); }}
+                            />
+                            {/* P1 (left edge) */}
+                            <circle cx={rectLeft} cy={entryY} r="6" fill="white" stroke={isLong ? targetColor : stopColor} strokeWidth={2}
+                                style={{ cursor: 'grab', filter: 'drop-shadow(0 0 4px rgba(41, 98, 255, 0.6))' }}
+                                onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p1'); }}
+                            />
+                            {/* P2 (right edge) */}
+                            <circle cx={rectLeft + rectWidth} cy={entryY} r="6" fill="white" stroke={isLong ? targetColor : stopColor} strokeWidth={2}
+                                style={{ cursor: 'grab', filter: 'drop-shadow(0 0 4px rgba(41, 98, 255, 0.6))' }}
+                                onMouseDown={(e) => { e.stopPropagation(); onMouseDownHandle(e, d.id, 'p2'); }}
+                            />
                         </>
                     )}
                 </g>
             );
             break;
+        }
     }
 
     return (
@@ -427,38 +476,22 @@ export const DrawingLayer = React.memo<DrawingLayerProps>(({
         </svg>
     );
 }, (prevProps, nextProps) => {
-    // Custom comparison for React.memo - only re-render when actually needed
-    // This prevents flickering during pan/zoom
-
-    // Always re-render if isSelectBarMode changes, or if it's active and mousePos changes
-    if (prevProps.isSelectBarMode !== nextProps.isSelectBarMode) return false;
-    if (nextProps.isSelectBarMode && prevProps.mousePos !== nextProps.mousePos) return false;
-    
-    if (prevProps.tick !== nextProps.tick) {
-        // Tick changed - but we only need to re-render if we have drawings
-        if (prevProps.drawings.length === 0 && nextProps.drawings.length === 0 &&
-            !prevProps.currentDrawing && !nextProps.currentDrawing && !nextProps.isSelectBarMode) { // Added !nextProps.isSelectBarMode
-            return true; // Skip re-render if no drawings AND not in select bar mode
-        }
-    }
+    // Always re-render when tick changes - this is critical for updating drawing positions
+    if (prevProps.tick !== nextProps.tick) return false;
 
     // Always re-render for these changes
     if (prevProps.drawings !== nextProps.drawings) return false;
     if (prevProps.currentDrawing !== nextProps.currentDrawing) return false;
     if (prevProps.selectedDrawingId !== nextProps.selectedDrawingId) return false;
     if (prevProps.hoveredDrawingId !== nextProps.hoveredDrawingId) return false;
-    // Removed old mousePos check, now handled above
+    if (prevProps.isSelectBarMode !== nextProps.isSelectBarMode) return false;
     if (prevProps.activeTool !== nextProps.activeTool) return false;
-    // isSelectBarMode checked already
     if (prevProps.isLocked !== nextProps.isLocked) return false;
     if (prevProps.isDarkMode !== nextProps.isDarkMode) return false;
     if (prevProps.containerWidth !== nextProps.containerWidth) return false;
     if (prevProps.containerHeight !== nextProps.containerHeight) return false;
     if (prevProps.chart !== nextProps.chart) return false;
     if (prevProps.series !== nextProps.series) return false;
-
-    // For tick changes with drawings, we need to re-render to update positions
-    if (prevProps.tick !== nextProps.tick) return false;
 
     return true;
 });

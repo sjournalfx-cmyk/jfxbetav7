@@ -19,14 +19,14 @@ export const OutcomeDistributionWidget: React.FC<OutcomeDistributionWidgetProps>
     const beRate = (beCount / total) * 100;
 
     return (
-        <div className={`h-full py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col items-center justify-between ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={`h-full py-3 px-0 sm:p-4 rounded-none sm:rounded-[20px] border flex flex-col items-center justify-between ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex items-center gap-2 self-start mb-4">
                 <PieChart size={20} className="text-teal-500" />
                 <h3 className="font-bold text-lg uppercase tracking-wide opacity-80">Outcome Distribution</h3>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center w-full">
-                <div className="relative w-56 h-56 group transition-transform duration-500 hover:scale-105">
+            <div className="flex-1 flex flex-col items-center justify-center w-full py-2">
+                <div className="relative w-40 h-40 group transition-transform duration-500 hover:scale-105">
                     <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                         {/* Background Circle */}
                         <circle cx="18" cy="18" r="15.915" fill="transparent" stroke={isDarkMode ? "#27272a" : "#f1f5f9"} strokeWidth="3.5" />

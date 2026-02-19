@@ -26,12 +26,12 @@ export const ChecklistWidget = ({
     };
 
     return (
-        <div className={`w-full p-5 rounded-xl border flex flex-col gap-4 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-            <div className="flex items-center gap-2 mb-2">
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+        <div className={`w-full p-4 sm:p-5 rounded-xl border flex flex-col gap-3 sm:gap-4 ${isDarkMode ? 'bg-gradient-to-br from-zinc-900/50 to-zinc-800/30 border-white/5' : 'bg-gradient-to-br from-white to-slate-50 border-slate-200 shadow-sm'}`}>
+            <div className="flex items-center gap-2 mb-1">
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10">
                     <List size={16} />
                 </div>
-                <h4 className="text-[11px] font-black uppercase tracking-widest">{title || 'Strategy Checklist'}</h4>
+                <h4 className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest">{title || 'Strategy Checklist'}</h4>
             </div>
             <div className="space-y-2">
                 {localItems.map((item, i) => (

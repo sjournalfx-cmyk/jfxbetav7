@@ -19,7 +19,7 @@ export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [
 
     if (isLoading) {
         return (
-            <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col min-h-[350px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
+            <div className={`py-4 px-0 sm:p-6 rounded-none sm:rounded-[24px] border flex flex-col min-h-[280px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800' : 'bg-white border-slate-200 shadow-md'}`}>
                 <div className="flex justify-between items-start mb-6">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-zinc-500/10 animate-pulse" />
@@ -92,7 +92,7 @@ export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [
         : Array.from({ length: equityData.length }, (_, i) => i);
 
     return (
-        <div className={`py-4 px-0 sm:p-8 rounded-none sm:rounded-[32px] border flex flex-col min-h-[400px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
+        <div className={`py-4 px-0 sm:p-6 rounded-none sm:rounded-[24px] border flex flex-col min-h-[280px] h-full relative ${isDarkMode ? 'bg-[#18181b] border-zinc-800 shadow-2xl' : 'bg-white border-slate-200 shadow-md'}`}>
             <div className="flex justify-between items-start mb-6 relative">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500"><TrendingUp size={20} /></div>
@@ -137,7 +137,7 @@ export const EquityCurveWidget: React.FC<EquityCurveWidgetProps> = ({ trades = [
 
                         <svg 
                             viewBox="0 0 800 240" 
-                            className="w-full h-full overflow-visible cursor-crosshair"
+                            className="w-full h-full overflow-visible cursor-crosshair outline-none"
                             onMouseMove={handleMouseMove}
                             onMouseLeave={() => setHoverIndex(null)}
                         >

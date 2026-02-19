@@ -13,7 +13,7 @@ export interface Point {
     logical?: number;
 }
 
-export type ToolType = 'cursor' | 'trendline' | 'ray' | 'arrow' | 'rect' | 'vertical' | 'horizontal' | 'long' | 'short';
+export type ToolType = 'cursor' | 'trendline' | 'ray' | 'arrow' | 'rect' | 'vertical' | 'horizontal' | 'long' | 'short' | 'fib' | 'channel' | 'text';
 
 export interface Drawing {
     id: string;
@@ -29,6 +29,11 @@ export interface Drawing {
     entry?: number;
     target?: number;
     stop?: number;
+    // Text tool specific
+    text?: string;
+    fontSize?: number;
+    // Fibonacci specific
+    fibLevels?: number[];
 }
 
 export interface UserProfile {

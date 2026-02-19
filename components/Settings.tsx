@@ -7,7 +7,8 @@ import {
   Lock, Mail, Smartphone, ExternalLink,
   Flame, Award, Briefcase, Camera, Palette,
   Sun, Moon, Copy, Check, Crown, HelpCircle,
-  MessageSquare, Youtube, Github, LifeBuoy, Medal
+  MessageSquare, Youtube, Github, LifeBuoy, Medal,
+  Plus, FileText, Send, ChevronDown, Send as Telegram
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { APP_CONSTANTS } from '../lib/constants';
@@ -191,7 +192,7 @@ const Settings: React.FC<SettingsProps> = ({
 
         {/* Content Area */}
         <main className={`flex-1 rounded-3xl border overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-xl'}`}>
-          <div className={`p-10 ${activeTab === 'profile' ? 'max-w-full' : 'max-w-2xl'}`}>
+          <div className={`p-10 ${activeTab === 'profile' || activeTab === 'help' ? 'max-w-full' : 'max-w-2xl'}`}>
             {activeTab === 'profile' && (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
@@ -702,29 +703,87 @@ const Settings: React.FC<SettingsProps> = ({
             {activeTab === 'help' && (
               <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
+                {/* App Version Banner */}
+                <div className={`p-4 rounded-2xl border border-dashed flex items-center justify-between ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-slate-100 border-slate-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-[#FF4F01]/10 text-[#FF4F01] rounded-lg">
+                      <Zap size={16} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold">JournalFX Beta v2.0</p>
+                      <p className="text-[10px] opacity-50">Last updated: February 2026</p>
+                    </div>
+                  </div>
+                  <button className="text-[10px] font-black uppercase text-[#FF4F01] underline">Check for Updates</button>
+                </div>
+
+                {/* Quick Actions */}
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Quick Actions</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'New Trade', icon: Plus, shortcut: 'T' },
+                      { label: 'New Note', icon: FileText, shortcut: 'N' },
+                      { label: 'Screenshot', icon: Camera, shortcut: 'S' },
+                      { label: 'AI Assistant', icon: MessageSquare, shortcut: 'A' },
+                    ].map((action, i) => (
+                      <button
+                        key={i}
+                        className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <action.icon size={14} className="text-[#FF4F01]" />
+                          <span className="text-xs font-bold">{action.label}</span>
+                        </div>
+                        <span className="text-[10px] opacity-40 font-mono bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded">{action.shortcut}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Support Resources */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {[
-                    { title: 'Documentation', icon: HelpCircle, color: 'text-indigo-500', desc: 'Learn how to master JournalFX.', link: '#' },
-                    { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: '#' },
-                    { title: 'Community Discord', icon: MessageSquare, color: 'text-blue-500', desc: 'Join other traders.', link: '#' },
-                    { title: 'Technical Support', icon: LifeBuoy, color: 'text-emerald-500', desc: 'Get help with your account.', link: '#' },
-                  ].map((item, i) => (
-                    <a
-                      key={i}
-                      href={item.link}
-                      className={`p-6 rounded-2xl border transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
-                    >
-                      <div className="flex items-center gap-4 mb-3">
-                        <div className={`p-3 rounded-xl bg-black/5 dark:bg-white/5 ${item.color}`}>
-                          <item.icon size={20} />
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Resources & Support</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      { title: 'Documentation', icon: HelpCircle, color: 'text-indigo-500', desc: 'Complete guides & tutorials.', link: '/DOCUMENTATION.md' },
+                      { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: 'https://youtube.com/@jfxtrading' },
+                      { title: 'Telegram Channel', icon: Telegram, color: 'text-violet-500', desc: 'Join our trading community.', link: 'https://t.me/+w_KvKM5HESYyMTdk' },
+                      { title: 'GitHub Issues', icon: Github, color: 'text-zinc-500', desc: 'Report bugs & feature requests.', link: 'https://github.com/sjournalfx-cmyk/jfxbetav7/issues' },
+                    ].map((item, i) => (
+                      <a
+                        key={i}
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`p-5 rounded-2xl border transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className={`p-2 rounded-lg bg-black/5 dark:bg-white/5 ${item.color}`}>
+                            <item.icon size={16} />
+                          </div>
+                          <h4 className="font-bold text-sm">{item.title}</h4>
+                          <ExternalLink size={12} className="ml-auto opacity-30" />
                         </div>
-                        <h4 className="font-bold text-sm">{item.title}</h4>
-                      </div>
-                      <p className="text-xs opacity-50">{item.desc}</p>
-                    </a>
-                  ))}
+                        <p className="text-xs opacity-50">{item.desc}</p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                {/* FAQ Accordion */}
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Frequently Asked Questions</h3>
+                  <div className="space-y-2">
+                    {[
+                      { q: 'How do I sync trades from MT5?', a: 'Go to Account Config tab and generate a sync key. Enter this key in the JFX Bridge application to start auto-syncing your trades.' },
+                      { q: 'Can I export my trading data?', a: 'Yes! Navigate to Analytics > Reports and click Export to download your data as CSV or PDF.' },
+                      { q: 'How do I upgrade my plan?', a: 'Visit the Plan & Billing tab in Settings to upgrade. Beta testers enjoy free access to all tiers!' },
+                      { q: 'Why are my charts not loading?', a: 'Try disabling "Keep Charts Alive" in Appearance settings, or refresh the page. Make sure your ad blocker isn\'t blocking TradingView.' },
+                    ].map((faq, i) => (
+                      <FAQItem key={i} question={faq.q} answer={faq.a} isDarkMode={isDarkMode} />
+                    ))}
+                  </div>
                 </div>
 
                 {/* Feedback Form Section */}
@@ -743,13 +802,25 @@ const Settings: React.FC<SettingsProps> = ({
                       <p className="text-sm opacity-50 max-w-xs">Thank you for contributing to the JFX Beta. Your input has been logged.</p>
                     </div>
                   ) : (
-                    <div className="space-y-6">
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-4 gap-2">
+                        {['Bug Report', 'Feature Request', 'Improvement', 'Other'].map((type) => (
+                          <button
+                            key={type}
+                            className={`py-2 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${isDarkMode 
+                              ? 'border-zinc-700 hover:border-zinc-600' 
+                              : 'border-slate-200 hover:border-slate-300'}`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
                       <div className="group">
                         <label htmlFor="feedback-subject" className={labelClasses}>Subject</label>
                         <input
                           id="feedback-subject"
                           name="subject"
-                          placeholder="Feature request, bug report, etc."
+                          placeholder="Brief summary of your feedback..."
                           className={inputClasses}
                         />
                       </div>
@@ -758,25 +829,40 @@ const Settings: React.FC<SettingsProps> = ({
                         <textarea
                           id="feedback-message"
                           name="message"
-                          placeholder="Tell us what's on your mind..."
-                          rows={4}
+                          placeholder="The more details you provide, the better we can help! Include steps to reproduce if it's a bug..."
+                          rows={5}
                           className={`w-full bg-transparent border-b-2 py-3 text-sm font-medium outline-none transition-all resize-none ${isDarkMode
                             ? 'border-zinc-800 focus:border-[#FF4F01] text-white'
                             : 'border-zinc-200 focus:border-[#FF4F01] text-zinc-900'
                             }`}
                         />
                       </div>
+                      <div className="flex items-center gap-3">
+                        <button className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${isDarkMode 
+                          ? 'border-zinc-700 hover:border-zinc-600' 
+                          : 'border-slate-200 hover:border-slate-300'}`}
+                        >
+                          <Camera size={14} />
+                          Add Screenshot
+                        </button>
+                        <span className="text-[10px] opacity-40">Optional: Attach a screenshot to help us understand</span>
+                      </div>
                       <button 
                         onClick={handleFeedbackSubmit}
                         disabled={isSubmittingFeedback}
-                        className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2"
+                        className="w-full py-4 bg-[#FF4F01] hover:bg-[#FF4F01]/90 text-white rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#FF4F01]/20"
                       >
                         {isSubmittingFeedback ? (
                           <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             Sending...
                           </>
-                        ) : 'Submit Feedback'}
+                        ) : (
+                          <>
+                            <Send size={16} />
+                            Submit Feedback
+                          </>
+                        )}
                       </button>
                     </div>
                   )}
@@ -803,6 +889,35 @@ const Settings: React.FC<SettingsProps> = ({
             </div>
           </div>
         </main>
+      </div>
+    </div>
+  );
+};
+
+// FAQ Accordion Item Component
+const FAQItem: React.FC<{ question: string; answer: string; isDarkMode: boolean }> = ({ 
+  question, 
+  answer, 
+  isDarkMode 
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  return (
+    <div className={`rounded-xl border overflow-hidden transition-all ${isDarkMode 
+      ? 'bg-zinc-900/30 border-zinc-800' 
+      : 'bg-white border-slate-200'}`}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 text-left"
+      >
+        <span className="text-sm font-bold">{question}</span>
+        <ChevronDown 
+          size={18} 
+          className={`text-zinc-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
+        />
+      </button>
+      <div className={`overflow-hidden transition-all ${isOpen ? 'max-h-40' : 'max-h-0'}`}>
+        <p className="px-4 pb-4 text-xs opacity-60">{answer}</p>
       </div>
     </div>
   );

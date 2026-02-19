@@ -21,9 +21,9 @@ interface CustomChartProps {
 const PADDING_RIGHT = 60;
 const PADDING_BOTTOM = 26;
 
-const CustomChart: React.FC<CustomChartProps> = ({ 
-  data, 
-  trades, 
+const CustomChart: React.FC<CustomChartProps> = ({
+  data,
+  trades,
   drawings,
   isDarkMode,
   onCoordinatesChange,
@@ -37,12 +37,12 @@ const CustomChart: React.FC<CustomChartProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   // Viewport State
-  const viewState = useRef({ 
-    scaleX: initialViewState?.scaleX ?? 10, 
-    offsetX: initialViewState?.offsetX ?? 0, 
-    width: 0, 
+  const viewState = useRef({
+    scaleX: initialViewState?.scaleX ?? 10,
+    offsetX: initialViewState?.offsetX ?? 0,
+    width: 0,
     height: 0,
     minPrice: initialViewState?.minPrice ?? 0,
     maxPrice: initialViewState?.maxPrice ?? 0,
@@ -115,57 +115,57 @@ const CustomChart: React.FC<CustomChartProps> = ({
       chart: {
         timeScale: () => ({
           timeToCoordinate: (time: number) => {
-             const idx = data.findIndex(d => d.time === time);
-             if (idx !== -1) return getX(idx);
-             
-             // If not found, estimate based on last known interval
-             if (data.length < 2) return null;
-             
-             // Use the last interval for extrapolation (more stable than average)
-             const lastTime = data[data.length - 1].time;
-             const prevTime = data[data.length - 2].time;
-             const interval = lastTime - prevTime;
-             
-             if (interval <= 0) return null; // Should not happen on valid data
+            const idx = data.findIndex(d => d.time === time);
+            if (idx !== -1) return getX(idx);
 
-             const logicalOffset = (time - lastTime) / interval;
-             return getX(data.length - 1 + logicalOffset);
+            // If not found, estimate based on last known interval
+            if (data.length < 2) return null;
+
+            // Use the last interval for extrapolation (more stable than average)
+            const lastTime = data[data.length - 1].time;
+            const prevTime = data[data.length - 2].time;
+            const interval = lastTime - prevTime;
+
+            if (interval <= 0) return null; // Should not happen on valid data
+
+            const logicalOffset = (time - lastTime) / interval;
+            return getX(data.length - 1 + logicalOffset);
           },
           logicalToCoordinate: (logical: number) => getX(logical),
           coordinateToLogical: (x: number) => getIndexFromX(x),
           coordinateToTime: (x: number) => {
-             const logical = getIndexFromX(x);
-             const idx = Math.round(logical);
-             if (idx >= 0 && idx < data.length) return data[idx].time;
-             
-             // Estimate future/past time
-             if (data.length < 2) return null;
-             const lastTime = data[data.length - 1].time;
-             const prevTime = data[data.length - 2].time;
-             const interval = lastTime - prevTime;
-             
-             return lastTime + (logical - (data.length - 1)) * interval;
+            const logical = getIndexFromX(x);
+            const idx = Math.round(logical);
+            if (idx >= 0 && idx < data.length) return data[idx].time;
+
+            // Estimate future/past time
+            if (data.length < 2) return null;
+            const lastTime = data[data.length - 1].time;
+            const prevTime = data[data.length - 2].time;
+            const interval = lastTime - prevTime;
+
+            return lastTime + (logical - (data.length - 1)) * interval;
           },
           fitContent: () => {
-             viewState.current.offsetX = 0;
-             viewState.current.scaleX = (viewState.current.width - PADDING_RIGHT) / Math.max(data.length, 1);
-             viewState.current.isManualPriceRange = false;
-             setChartRevision(r => r + 1);
+            viewState.current.offsetX = 0;
+            viewState.current.scaleX = (viewState.current.width - PADDING_RIGHT) / Math.max(data.length, 1);
+            viewState.current.isManualPriceRange = false;
+            setChartRevision(r => r + 1);
           },
           scrollToRealtime: () => {
-             viewState.current.offsetX = 0;
-             setChartRevision(r => r + 1);
+            viewState.current.offsetX = 0;
+            setChartRevision(r => r + 1);
           },
           updateOffsetForNewBar: (isFollowing: boolean) => {
-             // If following is true, we do nothing to offsetX. 
-             // getX is relative to (data.length - 1), so offsetX=constant means latest bar stays at fixed X.
-             
-             // If following is false, we want historical bars to stay at fixed X.
-             // As data.length increases, we must decrease offsetX by scaleX to counteract the shift.
-             if (!isFollowing) {
-                viewState.current.offsetX -= viewState.current.scaleX;
-             }
-             setChartRevision(r => r + 1);
+            // If following is true, we do nothing to offsetX. 
+            // getX is relative to (data.length - 1), so offsetX=constant means latest bar stays at fixed X.
+
+            // If following is false, we want historical bars to stay at fixed X.
+            // As data.length increases, we must decrease offsetX by scaleX to counteract the shift.
+            if (!isFollowing) {
+              viewState.current.offsetX -= viewState.current.scaleX;
+            }
+            setChartRevision(r => r + 1);
           }
         })
       },
@@ -196,41 +196,41 @@ const CustomChart: React.FC<CustomChartProps> = ({
     let dataMin = Infinity;
     let dataMax = -Infinity;
     let hasValidData = false;
-    
+
     for (let i = start; i <= end; i++) {
-        if (data[i].low > 0 && data[i].low < Infinity) {
-            if (data[i].low < dataMin) dataMin = data[i].low;
-            hasValidData = true;
-        }
-        if (data[i].high > 0 && data[i].high < Infinity) {
-            if (data[i].high > dataMax) dataMax = data[i].high;
-            hasValidData = true;
-        }
+      if (data[i].low > 0 && data[i].low < Infinity) {
+        if (data[i].low < dataMin) dataMin = data[i].low;
+        hasValidData = true;
+      }
+      if (data[i].high > 0 && data[i].high < Infinity) {
+        if (data[i].high > dataMax) dataMax = data[i].high;
+        hasValidData = true;
+      }
     }
 
     if (!hasValidData) {
-        // Fallback if no valid data in view
-        dataMin = 0;
-        dataMax = 100;
+      // Fallback if no valid data in view
+      dataMin = 0;
+      dataMax = 100;
     }
 
     if (!isManualPriceRange) {
+      const padding = (dataMax - dataMin) * 0.1 || 0.0001;
+      viewState.current.minPrice = dataMin - padding;
+      viewState.current.maxPrice = dataMax + padding;
+    } else {
+      // Validation: If manual range is completely disjoint from data, reset it
+      // This handles the case where user switches symbols but state persisted (though we fixed keys, this is extra safety)
+      if (dataMax < manualMinPrice || dataMin > manualMaxPrice) {
         const padding = (dataMax - dataMin) * 0.1 || 0.0001;
         viewState.current.minPrice = dataMin - padding;
         viewState.current.maxPrice = dataMax + padding;
-    } else {
-        // Validation: If manual range is completely disjoint from data, reset it
-        // This handles the case where user switches symbols but state persisted (though we fixed keys, this is extra safety)
-        if (dataMax < manualMinPrice || dataMin > manualMaxPrice) {
-             const padding = (dataMax - dataMin) * 0.1 || 0.0001;
-             viewState.current.minPrice = dataMin - padding;
-             viewState.current.maxPrice = dataMax + padding;
-             viewState.current.isManualPriceRange = false;
-             // We don't update manualMin/Max here to avoid loop, just the effective min/max
-        } else {
-             viewState.current.minPrice = manualMinPrice;
-             viewState.current.maxPrice = manualMaxPrice;
-        }
+        viewState.current.isManualPriceRange = false;
+        // We don't update manualMin/Max here to avoid loop, just the effective min/max
+      } else {
+        viewState.current.minPrice = manualMinPrice;
+        viewState.current.maxPrice = manualMaxPrice;
+      }
     }
 
     const { minPrice, maxPrice } = viewState.current;
@@ -258,7 +258,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
     // 4. Candles
     const candleWidth = Math.max(1, scaleX * 0.8);
     const wickWidth = Math.max(1, Math.floor(scaleX * 0.1));
-    
+
     data.slice(start, end + 1).forEach((candle, i) => {
       const idx = start + i;
       const x = Math.round(getX(idx));
@@ -266,117 +266,239 @@ const CustomChart: React.FC<CustomChartProps> = ({
       const yClose = getY(candle.close);
       const yHigh = getY(candle.high);
       const yLow = getY(candle.low);
-      
+
       const isUp = candle.close >= candle.open;
       ctx.fillStyle = isUp ? '#10b981' : '#ef4444';
-      
-      ctx.fillRect(x - wickWidth/2, yHigh, wickWidth, yLow - yHigh);
+
+      ctx.fillRect(x - wickWidth / 2, yHigh, wickWidth, yLow - yHigh);
       const barHeight = Math.max(1, Math.abs(yOpen - yClose));
-      ctx.fillRect(x - candleWidth/2, Math.min(yOpen, yClose), candleWidth, barHeight);
+      ctx.fillRect(x - candleWidth / 2, Math.min(yOpen, yClose), candleWidth, barHeight);
     });
 
-    // 5. Drawings (Canvas Layer)
+    // 5. Drawings (Canvas Layer) — Full visual rendering (SVG is hit-area only)
     drawings.forEach(d => {
-        // Calculate coords
-        let x1, x2;
-        
-        // Use logical mapping for stability
-        if (d.p1.logical !== undefined) x1 = getX(d.p1.logical);
-        else x1 = mockApi.chart.timeScale().timeToCoordinate(d.p1.time) ?? -1000;
+      // Calculate coords
+      let x1: number, x2: number;
 
-        const y1 = getY(d.p1.price);
+      // Use logical mapping for stability
+      if (d.p1.logical !== undefined) x1 = getX(d.p1.logical);
+      else x1 = mockApi.chart.timeScale().timeToCoordinate(d.p1.time) ?? -1000;
 
-        if (d.p2) {
-            if (d.p2.logical !== undefined) x2 = getX(d.p2.logical);
-            else x2 = mockApi.chart.timeScale().timeToCoordinate(d.p2.time) ?? -1000;
-        } else {
-            x2 = x1;
+      const y1 = getY(d.p1.price);
+
+      if (d.p2) {
+        if (d.p2.logical !== undefined) x2 = getX(d.p2.logical);
+        else x2 = mockApi.chart.timeScale().timeToCoordinate(d.p2.time) ?? -1000;
+      } else {
+        x2 = x1;
+      }
+
+      const y2 = d.p2 ? getY(d.p2.price) : y1;
+
+      const drawColor = d.color || (isDarkMode ? '#2962ff' : '#475569');
+      ctx.strokeStyle = drawColor;
+      ctx.lineWidth = d.strokeWidth || 2;
+
+      // Line Styles
+      ctx.setLineDash([]);
+      if (d.strokeStyle === 'dashed') ctx.setLineDash([6, 6]);
+      if (d.strokeStyle === 'dotted') ctx.setLineDash([2, 4]);
+
+      ctx.beginPath();
+
+      if (d.type === 'trendline' || d.type === 'arrow') {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        if (d.type === 'arrow') {
+          ctx.setLineDash([]);
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const headLen = 12;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+          ctx.closePath();
+          ctx.fillStyle = drawColor;
+          ctx.fill();
         }
-        
-        const y2 = d.p2 ? getY(d.p2.price) : y1;
+      }
+      else if (d.type === 'ray') {
+        const ray = getRayCoordinates(x1, y1, x2, y2, width, height);
+        ctx.moveTo(ray.x1, ray.y1);
+        ctx.lineTo(ray.x2, ray.y2);
+        ctx.stroke();
+      }
+      else if (d.type === 'rect') {
+        ctx.fillStyle = drawColor;
+        ctx.globalAlpha = 0.12;
+        ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+        ctx.globalAlpha = 1.0;
+        ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+      }
+      else if (d.type === 'horizontal') {
+        ctx.moveTo(0, y1);
+        ctx.lineTo(chartWidth, y1);
+        ctx.stroke();
 
-        ctx.strokeStyle = d.color || (isDarkMode ? '#2962ff' : '#475569');
-        ctx.lineWidth = d.strokeWidth || 2;
-        
-        // Line Styles
+        // Price label badge
         ctx.setLineDash([]);
-        if (d.strokeStyle === 'dashed') ctx.setLineDash([6, 6]);
-        if (d.strokeStyle === 'dotted') ctx.setLineDash([2, 4]);
+        ctx.fillStyle = drawColor;
+        ctx.fillRect(chartWidth - 68, y1 - 10, 64, 20);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(d.p1.price.toFixed(5), chartWidth - 36, y1);
+      }
+      else if (d.type === 'vertical') {
+        ctx.moveTo(x1, 0);
+        ctx.lineTo(x1, chartHeight);
+        ctx.stroke();
+      }
+      else if (d.type === 'fib') {
+        ctx.setLineDash([]);
+        const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+        const fibColors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444'];
+        const fMinX = Math.min(x1, x2);
+        const fMaxX = Math.max(x1, x2);
+        const fMinY = Math.min(y1, y2);
+        const fMaxY = Math.max(y1, y2);
+        const fDiff = fMaxY - fMinY;
 
+        fibLevels.forEach((level, i) => {
+          const fy = fMinY + fDiff * level;
+          ctx.strokeStyle = fibColors[i];
+          ctx.lineWidth = d.strokeWidth || 1;
+          ctx.beginPath();
+          ctx.moveTo(fMinX, fy);
+          ctx.lineTo(fMaxX, fy);
+          ctx.stroke();
+          // Level label
+          ctx.fillStyle = fibColors[i];
+          ctx.font = 'bold 10px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${(level * 100).toFixed(1)}%`, fMaxX + 5, fy);
+        });
+        // Background tint
+        ctx.fillStyle = drawColor;
+        ctx.globalAlpha = 0.04;
+        ctx.fillRect(fMinX, fMinY, fMaxX - fMinX, fDiff);
+        ctx.globalAlpha = 1.0;
+      }
+      else if (d.type === 'channel') {
+        const channelDx = x2 - x1;
+        const channelDy = y2 - y1;
+        const channelAngle = Math.atan2(channelDy, channelDx);
+        const perpAngle = channelAngle + Math.PI / 2;
+        const channelOffset = 50;
+        const cx3 = x2 + Math.cos(perpAngle) * channelOffset;
+        const cy3 = y2 + Math.sin(perpAngle) * channelOffset;
+        const cx4 = x1 + Math.cos(perpAngle) * channelOffset;
+        const cy4 = y1 + Math.sin(perpAngle) * channelOffset;
+        // Fill
+        ctx.fillStyle = drawColor;
+        ctx.globalAlpha = 0.08;
         ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(cx3, cy3); ctx.lineTo(cx4, cy4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+        // Lines
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx4, cy4); ctx.lineTo(cx3, cy3);
+        ctx.stroke();
+        // Side lines
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(cx4, cy4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x2, y2); ctx.lineTo(cx3, cy3);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      else if (d.type === 'text') {
+        ctx.setLineDash([]);
+        ctx.fillStyle = drawColor;
+        ctx.font = `bold ${d.fontSize || 14}px sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(d.text || 'Text', x1, y1);
+      }
+      else if (d.type === 'long' || d.type === 'short') {
+        ctx.setLineDash([]);
+        const isLong = d.type === 'long';
+        const entryPrice = d.entry ?? d.p1.price;
+        const targetPrice = d.target ?? (isLong ? entryPrice * 1.02 : entryPrice * 0.98);
+        const stopPrice = d.stop ?? (isLong ? entryPrice * 0.99 : entryPrice * 1.01);
 
-        if (d.type === 'trendline' || d.type === 'arrow') {
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-            ctx.stroke();
-            
-            if (d.type === 'arrow') {
-                const angle = Math.atan2(y2 - y1, x2 - x1);
-                const headLen = 10;
-                ctx.moveTo(x2, y2);
-                ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
-                ctx.moveTo(x2, y2);
-                ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
-                ctx.stroke();
-            }
-        } 
-        else if (d.type === 'ray') {
-            const { width, height } = viewState.current;
-            const ray = getRayCoordinates(x1, y1, x2, y2, width, height);
-            ctx.moveTo(ray.x1, ray.y1);
-            ctx.lineTo(ray.x2, ray.y2);
-            ctx.stroke();
-        }
-        else if (d.type === 'rect') {
-            ctx.fillStyle = d.color ? d.color : (isDarkMode ? '#2962ff' : '#475569');
-            ctx.globalAlpha = 0.15;
-            ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
-            ctx.globalAlpha = 1.0;
-            ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
-        }
-        else if (d.type === 'horizontal') {
-            ctx.moveTo(0, y1);
-            ctx.lineTo(chartWidth, y1);
-            ctx.stroke();
-            
-            // Label
-            ctx.fillStyle = isDarkMode ? "#1e222d" : "#f1f5f9";
-            ctx.fillRect(chartWidth - 65, y1 - 10, 60, 20);
-            ctx.strokeStyle = d.color || '#2962ff';
-            ctx.strokeRect(chartWidth - 65, y1 - 10, 60, 20);
-            ctx.fillStyle = isDarkMode ? "white" : "#0f172a";
-            ctx.textAlign = "center";
-            ctx.fillText(d.p1.price.toFixed(5), chartWidth - 35, y1 + 4);
-        }
-        else if (d.type === 'vertical') {
-            ctx.moveTo(x1, 0);
-            ctx.lineTo(x1, chartHeight);
-            ctx.stroke();
-        }
-        else if (d.type === 'long' || d.type === 'short') {
-            const entryY = d.entry ? getY(d.entry) : y1;
-            const targetY = d.target ? getY(d.target) : y1;
-            const stopY = d.stop ? getY(d.stop) : y1;
-            
-            const w = Math.abs(x2 - x1) || 100;
-            const left = Math.min(x1, x2 || x1 + 100);
-            
-            // Target Box
-            ctx.fillStyle = "#10b981";
-            ctx.globalAlpha = 0.25;
-            ctx.fillRect(left, Math.min(entryY, targetY), w, Math.abs(targetY - entryY));
-            
-            // Stop Box
-            ctx.fillStyle = "#ef4444";
-            ctx.fillRect(left, Math.min(entryY, stopY), w, Math.abs(stopY - entryY));
-            ctx.globalAlpha = 1.0;
-            
-            // Lines
-            ctx.strokeStyle = "#ffffff";
-            ctx.beginPath();
-            ctx.moveTo(left, entryY); ctx.lineTo(left + w, entryY);
-            ctx.stroke();
-        }
+        const entryY = getY(entryPrice);
+        const targetY = getY(targetPrice);
+        const stopY = getY(stopPrice);
+
+        const w = Math.max(Math.abs(x2 - x1), 80);
+        const left = Math.min(x1, x2 || x1 + 80);
+        const right = left + w;
+
+        // Calculate R:R, percentages, pips
+        const risk = Math.abs(entryPrice - stopPrice);
+        const reward = Math.abs(targetPrice - entryPrice);
+        const rr = risk > 0 ? (reward / risk) : 0;
+        const targetPct = entryPrice !== 0 ? ((targetPrice - entryPrice) / entryPrice * 100) : 0;
+        const stopPct = entryPrice !== 0 ? ((stopPrice - entryPrice) / entryPrice * 100) : 0;
+        const targetPips = Math.abs(targetPrice - entryPrice);
+        const stopPips = Math.abs(stopPrice - entryPrice);
+
+        // --- Profit zone (green) ---
+        const profitTop = Math.min(entryY, targetY);
+        const profitH = Math.abs(targetY - entryY);
+        ctx.fillStyle = '#26a69a';
+        ctx.globalAlpha = 0.18;
+        ctx.fillRect(left, profitTop, w, profitH);
+        ctx.globalAlpha = 1.0;
+
+        // --- Loss zone (red) ---
+        const lossTop = Math.min(entryY, stopY);
+        const lossH = Math.abs(stopY - entryY);
+        ctx.fillStyle = '#ef5350';
+        ctx.globalAlpha = 0.18;
+        ctx.fillRect(left, lossTop, w, lossH);
+        ctx.globalAlpha = 1.0;
+
+        // --- Entry line (solid, white/neutral) ---
+        ctx.strokeStyle = isDarkMode ? '#b2b5be' : '#555555';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(left, entryY);
+        ctx.lineTo(right, entryY);
+        ctx.stroke();
+
+        // --- Target line (dashed green) ---
+        ctx.strokeStyle = '#26a69a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(left, targetY);
+        ctx.lineTo(right, targetY);
+        ctx.stroke();
+
+        // --- Stop line (dashed red) ---
+        ctx.strokeStyle = '#ef5350';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(left, stopY);
+        ctx.lineTo(right, stopY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     });
     ctx.setLineDash([]); // Reset
 
@@ -398,7 +520,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
     ctx.textBaseline = 'middle';
     const priceRange = maxPrice - minPrice;
     for (let i = 0; i <= 8; i++) {
-      const p = minPrice + (priceRange * (i/8));
+      const p = minPrice + (priceRange * (i / 8));
       ctx.fillText(p.toFixed(5), chartWidth + 5, getY(p));
     }
 
@@ -409,7 +531,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
       const x = getX(i);
       if (x < 0 || x > chartWidth) continue;
       const date = new Date(data[i].time * 1000);
-      const txt = `${date.getHours()}:${date.getMinutes().toString().padStart(2,'0')}`;
+      const txt = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
       ctx.fillText(txt, x, chartHeight + 5);
     }
   }, [data, isDarkMode, getX, getY, getIndexFromX, drawings]); // Added drawings dependency
@@ -417,7 +539,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
   // Sync API with parent only when necessary
   useEffect(() => {
     if (onCoordinatesChange) {
-        onCoordinatesChange(mockApi.chart, mockApi.series);
+      onCoordinatesChange(mockApi.chart, mockApi.series);
     }
   }, [mockApi, onCoordinatesChange]);
 
@@ -433,9 +555,9 @@ const CustomChart: React.FC<CustomChartProps> = ({
     const chartHeight = height - PADDING_BOTTOM;
 
     if (isSelectBarMode && onSelectBar) {
-        const idx = Math.round(getIndexFromX(x));
-        if (idx >= 0 && idx < data.length) onSelectBar(idx);
-        return;
+      const idx = Math.round(getIndexFromX(x));
+      if (idx >= 0 && idx < data.length) onSelectBar(idx);
+      return;
     }
 
     let dragType: 'NONE' | 'PAN' | 'PRICE_SCALE' | 'TIME_SCALE' = 'NONE';
@@ -444,77 +566,77 @@ const CustomChart: React.FC<CustomChartProps> = ({
     else if (!disablePan) dragType = 'PAN';
 
     mouse.current = { ...mouse.current, isDown: true, lastX: x, lastY: y, dragType };
-    
+
     if (containerRef.current) {
-        if (dragType === 'PRICE_SCALE') containerRef.current.style.cursor = 'ns-resize';
-        else if (dragType === 'TIME_SCALE') containerRef.current.style.cursor = 'ew-resize';
-        else if (dragType === 'PAN') containerRef.current.style.cursor = 'grabbing';
-        else containerRef.current.style.cursor = 'crosshair';
+      if (dragType === 'PRICE_SCALE') containerRef.current.style.cursor = 'ns-resize';
+      else if (dragType === 'TIME_SCALE') containerRef.current.style.cursor = 'ew-resize';
+      else if (dragType === 'PAN') containerRef.current.style.cursor = 'grabbing';
+      else containerRef.current.style.cursor = 'crosshair';
     }
   };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
 
-      const rect = canvasRef.current?.getBoundingClientRect();
+    const rect = canvasRef.current?.getBoundingClientRect();
 
-      if (!rect) return;
+    if (!rect) return;
 
-      const x = e.clientX - rect.left;
+    const x = e.clientX - rect.left;
 
-      const y = e.clientY - rect.top;
+    const y = e.clientY - rect.top;
 
-  
 
-      if (mouse.current.isDown) {
 
-        const dx = x - mouse.current.lastX;
+    if (mouse.current.isDown) {
 
-        const dy = y - mouse.current.lastY;
+      const dx = x - mouse.current.lastX;
 
-  
+      const dy = y - mouse.current.lastY;
 
-        if (mouse.current.dragType === 'PAN') {
 
-          viewState.current.offsetX -= dx;
 
-          
+      if (mouse.current.dragType === 'PAN') {
 
-          // Vertical Panning Implemented
+        viewState.current.offsetX -= dx;
 
-          const { height, minPrice, maxPrice } = viewState.current;
 
-          const chartHeight = height - PADDING_BOTTOM;
 
-          if (chartHeight > 0) {
+        // Vertical Panning Implemented
 
-              const priceRange = maxPrice - minPrice;
+        const { height, minPrice, maxPrice } = viewState.current;
 
-              const pricePerPixel = priceRange / chartHeight;
+        const chartHeight = height - PADDING_BOTTOM;
 
-              const dPrice = dy * pricePerPixel;
+        if (chartHeight > 0) {
 
-              
+          const priceRange = maxPrice - minPrice;
 
-              viewState.current.isManualPriceRange = true;
+          const pricePerPixel = priceRange / chartHeight;
 
-              viewState.current.manualMinPrice = minPrice + dPrice;
+          const dPrice = dy * pricePerPixel;
 
-              viewState.current.manualMaxPrice = maxPrice + dPrice;
 
-          }
 
-        } else if (mouse.current.dragType === 'PRICE_SCALE') {
+          viewState.current.isManualPriceRange = true;
 
-  
+          viewState.current.manualMinPrice = minPrice + dPrice;
+
+          viewState.current.manualMaxPrice = maxPrice + dPrice;
+
+        }
+
+      } else if (mouse.current.dragType === 'PRICE_SCALE') {
+
+
         const { minPrice, maxPrice, height } = viewState.current;
         const chartHeight = height - PADDING_BOTTOM;
         const priceRange = maxPrice - minPrice;
-        
+
         // Use a non-linear scaling for better control
         const stretchFactor = Math.pow(1.1, dy / 20);
         const midPrice = (maxPrice + minPrice) / 2;
         const newHalfRange = (priceRange * stretchFactor) / 2;
-        
+
         viewState.current.isManualPriceRange = true;
         viewState.current.manualMinPrice = midPrice - newHalfRange;
         viewState.current.manualMaxPrice = midPrice + newHalfRange;
@@ -524,12 +646,12 @@ const CustomChart: React.FC<CustomChartProps> = ({
         const zoomFactor = Math.pow(0.99, dx);
         const oldScaleX = viewState.current.scaleX;
         const newScaleX = Math.max(0.5, Math.min(200, oldScaleX * zoomFactor));
-        
+
         // To keep it smooth, we adjust offsetX so the right-side doesn't jump too much
         // Or better yet, zoom around the mouse.current.lastX
         const logicalAtMouse = getIndexFromX(x);
         viewState.current.scaleX = newScaleX;
-        
+
         const { width, scaleX } = viewState.current;
         const chartWidth = width - PADDING_RIGHT;
         viewState.current.offsetX = chartWidth - x - (data.length - 1 - logicalAtMouse) * scaleX;
@@ -537,7 +659,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
 
       mouse.current.lastX = x;
       mouse.current.lastY = y;
-      
+
       // Force drawing layer update
       setChartRevision(r => r + 1);
       draw();
@@ -545,10 +667,10 @@ const CustomChart: React.FC<CustomChartProps> = ({
     }
 
     if (onMouseUpdate) {
-        const logical = getIndexFromX(x);
-        const price = getPriceFromY(y);
-        const time = data[Math.round(logical)]?.time || 0;
-        onMouseUpdate(x, y, { time, price, logical });
+      const logical = getIndexFromX(x);
+      const price = getPriceFromY(y);
+      const time = data[Math.round(logical)]?.time || 0;
+      onMouseUpdate(x, y, { time, price, logical });
     }
   };
 
@@ -562,15 +684,15 @@ const CustomChart: React.FC<CustomChartProps> = ({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const x = e.clientX - rect.left;
-    
+
     const logicalBefore = getIndexFromX(x);
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
     viewState.current.scaleX = Math.max(0.5, Math.min(200, viewState.current.scaleX * zoomFactor));
-    
+
     const { width, scaleX } = viewState.current;
     const chartWidth = width - PADDING_RIGHT;
     viewState.current.offsetX = chartWidth - x - (data.length - 1 - logicalBefore) * scaleX;
-    
+
     // Force drawing layer update
     setChartRevision(r => r + 1);
     draw();
@@ -580,40 +702,40 @@ const CustomChart: React.FC<CustomChartProps> = ({
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (container) {
-        container.addEventListener('wheel', handleWheel, { passive: false });
+      container.addEventListener('wheel', handleWheel, { passive: false });
     }
 
     const resizeObserver = new ResizeObserver((entries) => {
-        if (!entries || entries.length === 0) return;
-        
-        if (containerRef.current && canvasRef.current) {
-            const { clientWidth, clientHeight } = containerRef.current;
-            const dpr = window.devicePixelRatio || 1;
-            
-            // Only update if dimensions actually changed to avoid loop
-            if (canvasRef.current.width !== clientWidth * dpr || canvasRef.current.height !== clientHeight * dpr) {
-                canvasRef.current.width = clientWidth * dpr;
-                canvasRef.current.height = clientHeight * dpr;
-                canvasRef.current.style.width = `${clientWidth}px`;
-                canvasRef.current.style.height = `${clientHeight}px`;
-                canvasRef.current.getContext('2d')?.scale(dpr, dpr);
-                viewState.current.width = clientWidth;
-                viewState.current.height = clientHeight;
-                draw();
-            }
+      if (!entries || entries.length === 0) return;
+
+      if (containerRef.current && canvasRef.current) {
+        const { clientWidth, clientHeight } = containerRef.current;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Only update if dimensions actually changed to avoid loop
+        if (canvasRef.current.width !== clientWidth * dpr || canvasRef.current.height !== clientHeight * dpr) {
+          canvasRef.current.width = clientWidth * dpr;
+          canvasRef.current.height = clientHeight * dpr;
+          canvasRef.current.style.width = `${clientWidth}px`;
+          canvasRef.current.style.height = `${clientHeight}px`;
+          canvasRef.current.getContext('2d')?.scale(dpr, dpr);
+          viewState.current.width = clientWidth;
+          viewState.current.height = clientHeight;
+          draw();
         }
+      }
     });
 
     if (container) {
-        resizeObserver.observe(container);
+      resizeObserver.observe(container);
     }
 
     return () => {
-        if (container) {
-            container.removeEventListener('wheel', handleWheel);
-            resizeObserver.unobserve(container);
-        }
-        resizeObserver.disconnect();
+      if (container) {
+        container.removeEventListener('wheel', handleWheel);
+        resizeObserver.unobserve(container);
+      }
+      resizeObserver.disconnect();
     };
   }, [draw, handleWheel]);
 
@@ -621,8 +743,8 @@ const CustomChart: React.FC<CustomChartProps> = ({
 
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-black cursor-crosshair">
-      <canvas 
-        ref={canvasRef} 
+      <canvas
+        ref={canvasRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
