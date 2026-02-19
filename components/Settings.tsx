@@ -749,7 +749,7 @@ const Settings: React.FC<SettingsProps> = ({
                       { title: 'Documentation', icon: HelpCircle, color: 'text-indigo-500', desc: 'Complete guides & tutorials.', link: '/DOCUMENTATION.md' },
                       { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: null },
                       { title: 'Telegram Channel', icon: Telegram, color: 'text-violet-500', desc: 'Join our trading community.', link: 'https://t.me/+w_KvKM5HESYyMTdk' },
-                      { title: 'GitHub Issues', icon: Github, color: 'text-zinc-500', desc: 'Report bugs & feature requests.', link: 'https://github.com/sjournalfx-cmyk/jfxbetav7/issues' },
+                      { title: 'GitHub Issues', icon: Github, color: 'text-zinc-500', desc: 'Report bugs & feature requests.', link: null },
                     ].map((item, i) => {
                       const isDisabled = !item.link;
                       const Tag = isDisabled ? 'div' : 'a';
