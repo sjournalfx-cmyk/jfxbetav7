@@ -4,6 +4,7 @@ import { UserProfile } from '../types';
 import { authService } from '../services/authService';
 import { dataService } from '../services/dataService';
 import { supabase } from '../lib/supabase';
+import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
 
 export const useAuth = () => {
   const [userId, setUserId] = useState<string | null>(null);
@@ -23,6 +24,12 @@ export const useAuth = () => {
           avatarUrl = `${supabaseUrl}/storage/v1/object/public/avatars/${avatarUrl}`;
         }
 
+        // Validate plan string against known plans
+        const rawPlan = profile.plan || APP_CONSTANTS.PLANS.FREE;
+        const validPlan = PLAN_FEATURES[rawPlan as keyof typeof PLAN_FEATURES]
+          ? rawPlan
+          : APP_CONSTANTS.PLANS.FREE;
+
         mappedProfile = {
           name: profile.name || '',
           country: profile.country || '',
@@ -34,7 +41,7 @@ export const useAuth = () => {
           experienceLevel: profile.experience_level || 'Beginner',
           tradingStyle: profile.trading_style || 'Day Trader',
           onboarded: profile.onboarded || false,
-          plan: profile.plan || 'FREE TIER (JOURNALER)',
+          plan: validPlan,
           syncKey: profile.sync_key,
           eaConnected: profile.ea_connected || false,
           autoJournal: profile.auto_journal || false,

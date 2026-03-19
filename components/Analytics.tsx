@@ -48,7 +48,7 @@ import { SortableWidget } from './ui/SortableWidget';
 import { Tooltip } from './ui/Tooltip';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { Select } from './Select';
-import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { APP_CONSTANTS, getPlanFeatures } from '../lib/constants';
 import { calculateStats } from '../lib/statsUtils';
 
 interface AnalyticsProps {
@@ -513,8 +513,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ isDarkMode, trades: rawTrades = [
     const [activeTab, setActiveTab] = useState<'overview' | 'time' | 'growth' | 'discipline' | 'comparison'>('overview');
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
     
-    const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
-    const features = PLAN_FEATURES[currentPlan];
+    const currentPlan = userProfile?.plan;
+    const features = getPlanFeatures(currentPlan);
 
     const handlePrintReport = () => {
         window.print();

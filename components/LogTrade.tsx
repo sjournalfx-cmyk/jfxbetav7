@@ -6,7 +6,7 @@ import { getSASTDateTime } from '../lib/timeUtils';
 import RichTextEditor from './RichTextEditor';
 import { Select } from './Select';
 import ConfirmationModal from './ConfirmationModal';
-import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { APP_CONSTANTS, getPlanFeatures } from '../lib/constants';
 import { useToast } from './ui/Toast';
 
 interface LogTradeProps {
@@ -175,9 +175,9 @@ const LogTrade: React.FC<LogTradeProps> = ({ isDarkMode, onSave, onBatchSave, in
     const [isSaving, setIsSaving] = useState(false);
     const { addToast } = useToast();
     
-    const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
-    const isFreeTier = currentPlan === APP_CONSTANTS.PLANS.FREE;
-    const features = PLAN_FEATURES[currentPlan];
+    const currentPlan = userProfile?.plan;
+    const isFreeTier = !currentPlan || currentPlan === APP_CONSTANTS.PLANS.FREE;
+    const features = getPlanFeatures(currentPlan);
     const canUploadImages = features.allowImageUploads;
     const canImportTrades = features.directBrokerSync || features.allowImageUploads; // Assuming import might be restricted or tied to something else, using image uploads as proxy for now or just allowing it if manual import is allowed on pro. Actually "Import MT4/MT5" is likely manual or drag drop of CSV/HTML or EA. The current code checked isFreeTier. Let's assume PRO+ can import.
     // The previous code checked `isFreeTier` for "Import MT4/MT5" button. In `constants`, Free tier has `allowImageUploads: false`. Pro has `true`. Let's use `!canUploadImages` as the restriction flag for now to match previous logic, or better, strictly check plan level if needed. 
