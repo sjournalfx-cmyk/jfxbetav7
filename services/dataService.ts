@@ -1,7 +1,7 @@
 
 import { supabase } from '../lib/supabase';
 import { Trade, Note, DailyBias, UserProfile, Goal, StrategyDiagram, DBTrade, DBGoal, BacktestSession } from '../types';
-import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { APP_CONSTANTS, getPlanFeatures } from '../lib/constants';
 
 // Helper to map DB Trade to App Trade
 export const mapTradeFromDB = (dbTrade: DBTrade): Trade => ({
@@ -148,8 +148,8 @@ export const uploadNoteImage = async (file: File): Promise<string | null> => {
       .eq('id', user.id)
       .single();
 
-    const currentPlan = profile?.plan || APP_CONSTANTS.PLANS.FREE;
-    if (!PLAN_FEATURES[currentPlan]?.allowImageUploads) {
+    const currentPlan = profile?.plan;
+    if (!getPlanFeatures(currentPlan).allowImageUploads) {
       alert('Image uploads are not available on your current plan. Please upgrade.');
       return null;
     }

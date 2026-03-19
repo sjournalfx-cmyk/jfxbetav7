@@ -74,3 +74,14 @@ export const PLAN_FEATURES = {
     voiceNotes: false, // Excluded for now
   }
 };
+
+/**
+ * Returns the feature set for a given plan name, with a safe fallback to the FREE plan
+ * if the plan name is missing or unrecognized.
+ */
+export const getPlanFeatures = (planName?: string) => {
+  if (!planName || !PLAN_FEATURES[planName as keyof typeof PLAN_FEATURES]) {
+    return PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
+  }
+  return PLAN_FEATURES[planName as keyof typeof PLAN_FEATURES];
+};
