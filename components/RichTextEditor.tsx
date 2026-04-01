@@ -408,7 +408,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       let dom = editor.view.domAtPos(selection.from).node;
 
       // Handle the case where dom is a text node
-      if (dom.nodeType === Node.TEXT_NODE) {
+      if (dom.nodeType === window.Node.TEXT_NODE) {
         dom = dom.parentNode!;
       }
 

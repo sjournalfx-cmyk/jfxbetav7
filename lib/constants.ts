@@ -74,3 +74,15 @@ export const PLAN_FEATURES = {
     voiceNotes: false, // Excluded for now
   }
 };
+
+export const getPlanFeatures = (planName?: string) => {
+  if (!planName) return PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
+
+  // Use the exact string matches from APP_CONSTANTS.PLANS
+  if (planName === APP_CONSTANTS.PLANS.FREE) return PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
+  if (planName === APP_CONSTANTS.PLANS.HOBBY) return PLAN_FEATURES[APP_CONSTANTS.PLANS.HOBBY];
+  if (planName === APP_CONSTANTS.PLANS.STANDARD) return PLAN_FEATURES[APP_CONSTANTS.PLANS.STANDARD];
+
+  // Default to FREE if no match found
+  return PLAN_FEATURES[APP_CONSTANTS.PLANS.FREE];
+};
