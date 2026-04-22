@@ -3,7 +3,9 @@ import { calculateStats } from "../lib/statsUtils";
 import { cleanThinkingTags, isInsideThinkingBlock } from "../lib/thinkingCleaner";
 
 const API_KEY = import.meta.env.VITE_NVIDIA_API_KEY || "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";
-const BASE_URL = "/api/nvidia";
+const BASE_URL = import.meta.env.DEV
+  ? "/api/nvidia"
+  : (import.meta.env.VITE_NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1");
 
 export const NV_MODELS = {
   deepseek: {
