@@ -1,0 +1,3 @@
+
+ALTER TABLE public.notes
+ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;

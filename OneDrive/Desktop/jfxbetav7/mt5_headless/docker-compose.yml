@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  mt5-headless:
+    image: jfx-mt5-headless
+    container_name: jfx-mt5-headless
+    restart: unless-stopped
+    ports:
+      - "8888:8888" # MQL5 Socket Bridge
+    volumes:
+      - mt5-data:"/home/mt5user/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Files"
+      - mt5-logs:"/home/mt5user/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Logs"
+    environment:
+      - WINEDEBUG=-all
+      - WINEDLLOVERRIDES=mscoree,mshtml,winealsa.drv,winepulse.drv,mmdevapi,d3d8,d3d9,d3d11,dxgi=d
+    deploy:
+      resources:
+        limits:
+          memory: 200M # Hard limit to prevent leaks from affecting host
+        reservations:
+          memory: 130M # Soft target
+
+volumes:
+  mt5-data:
+  mt5-logs:

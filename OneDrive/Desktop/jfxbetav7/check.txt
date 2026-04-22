@@ -1,0 +1,17 @@
+     if (onTradeAdded) {
+                    onTradeAdded(saved);
+                }
+            } catch (syncError) {
+                console.warn("Sync failed, queuing offline:", syncError);
+                if (onAddOffline) {
+                    onAddOffline(newTrade);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to process trade:", error);
+        } finally {
+            setIsSavingTrade(null);
+        }
+    };
+
+    // Derived acc

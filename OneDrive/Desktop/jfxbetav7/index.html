@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JFX Journal</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --glass-bg: rgba(20, 20, 22, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-blur: 12px;
+    }
+
+    body {
+      background-color: #000000;
+      /* Darker default */
+      overflow: hidden;
+    }
+
+    /* Professional Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Glass Utilities */
+    .glass-panel {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+    }
+
+    /* --- COMPACT SCALING (Avoid Browser Zoom) --- */
+    :root {
+      font-size: 13px !important;
+      /* Forces everything using rem to shrink */
+    }
+
+    /* Tighten Sidebar horizontal footprint */
+    .w-64 {
+      width: 13rem !important;
+    }
+
+    .w-80 {
+      width: 16rem !important;
+    }
+
+    /* Reduce global padding/gaps */
+    .p-8 {
+      padding: 1.25rem !important;
+    }
+
+    .p-10 {
+      padding: 1.5rem !important;
+    }
+
+    .gap-8 {
+      gap: 1rem !important;
+    }
+
+    .gap-6 {
+      gap: 0.75rem !important;
+    }
+
+    /* Shrink Headers */
+    h1 {
+      font-size: 1.5rem !important;
+      line-height: 2rem !important;
+    }
+
+    h2 {
+      font-size: 1.25rem !important;
+      line-height: 1.75rem !important;
+    }
+
+    /* Scaling the main container as a backup */
+    #root {
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* --- THEME OVERRIDES --- */
+
+    /* Force pure black backgrounds for widgets in Obsidian (Default Dark) */
+    .dark .bg-\[\#050505\],
+    .dark .bg-\[\#09090b\],
+    .dark .bg-\[\#18181b\],
+    .dark .bg-\[\#121215\],
+    .dark .bg-\[\#0d1117\],
+    .dark .bg-\[\#0c0c0e\],
+    .dark .bg-\[\#0a0a0a\],
+    .dark .bg-obsidian {
+      background-color: #000000 !important;
+      border-color: #1a1a1a !important;
+      /* Subtle border for black surfaces */
+      box-shadow: none !important;
+      /* Remove shadows on pure black */
+    }
+
+    /* Contrast Audit: Brighten dimmed text for pure black backgrounds */
+    .dark .opacity-40,
+    .dark .opacity-30 {
+      opacity: 0.55 !important;
+    }
+
+    .dark .opacity-50 {
+      opacity: 0.65 !important;
+    }
+
+    .dark .text-zinc-500,
+    .dark .text-slate-500 {
+      color: #a1a1aa !important;
+      /* zinc-400 for better contrast */
+    }
+
+    /* --- PREMIUM THEMES --- */
+
+    /* Midnight Theme (Deep Blue) */
+    html.theme-midnight body {
+      background-color: #020617 !important;
+      /* slate-950 */
+      --glass-bg: rgba(15, 23, 42, 0.7);
+      --glass-border: rgba(14, 165, 233, 0.1);
+      --glass-blur: 16px;
+    }
+
+    .theme-midnight .bg-\[\#050505\],
+    .theme-midnight .bg-\[\#09090b\],
+    .theme-midnight .bg-\[\#18181b\],
+    .theme-midnight .bg-\[\#121215\],
+    .theme-midnight .bg-\[\#0d1117\],
+    .theme-midnight .bg-\[\#000000\],
+    .theme-midnight .bg-\[\#0a0a0a\],
+    .theme-midnight .bg-\[\#111\],
+    .theme-midnight .bg-\[\#000\],
+    .theme-midnight .bg-zinc-900,
+    .theme-midnight .bg-zinc-950,
+    .theme-midnight .bg-obsidian {
+      background-color: rgba(15, 23, 42, 0.1) !important;
+      /* slate-900 with high transparency */
+      border-color: #1e293b !important;
+      /* slate-800 */
+    }
+
+    .theme-midnight .text-indigo-500,
+    .theme-midnight .text-indigo-400 {
+      color: #0ea5e9 !important;
+      /* sky-500 */
+    }
+
+    .theme-midnight .bg-indigo-500 {
+      background-color: #0ea5e9 !important;
+    }
+
+    .theme-midnight .bg-indigo-600 {
+      background-color: #0284c7 !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
