@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "",
+  "buildCommand": "npm --prefix OneDrive/Desktop/jfxbetav7 install && npm --prefix OneDrive/Desktop/jfxbetav7 run build",
+  "outputDirectory": "OneDrive/Desktop/jfxbetav7/dist"
+}
