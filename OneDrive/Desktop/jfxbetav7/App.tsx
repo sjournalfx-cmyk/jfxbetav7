@@ -25,6 +25,7 @@ import { authService } from './services/authService';
 import { Agentation, type Annotation } from "agentation";
 import { getSafePnL } from './lib/trade-normalization';
 import { normalizeThemePreference } from './lib/theme';
+import { isSupabaseConfigured } from './lib/supabase';
 
 // Lazy load heavy components for performance
 const Analytics = lazy(() => import('./components/Analytics'));
@@ -83,6 +84,29 @@ const {
   const [isQuickLogOpen, setIsQuickLogOpen] = useState(false);
   const [hasSeenBetaAnnouncement, setHasSeenBetaAnnouncement] = useLocalStorage<boolean>('jfx_beta_announcement_shown', false);
   const [showBetaAnnouncement, setShowBetaAnnouncement] = useState(false);
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-black text-zinc-100 px-6">
+        <div className="max-w-2xl rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur">
+          <h1 className="text-3xl font-black tracking-tight">Supabase setup required</h1>
+          <p className="mt-4 text-sm leading-6 text-zinc-300">
+            The app is deployed, but it cannot connect to Supabase until the Vercel environment variables are added.
+            Set the following in the Vercel project settings, then redeploy:
+          </p>
+          <ul className="mt-5 space-y-2 text-sm text-zinc-200">
+            <li><code>VITE_SUPABASE_URL</code></li>
+            <li><code>VITE_SUPABASE_ANON_KEY</code></li>
+            <li><code>VITE_GEMINI_API_KEY</code> if AI features are needed</li>
+            <li><code>VITE_NVIDIA_API_KEY</code> if NVIDIA features are needed</li>
+          </ul>
+          <p className="mt-5 text-xs uppercase tracking-[0.25em] text-zinc-500">
+            Without these values the app can load, but auth and synced data will be disabled.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Show announcement when onboarded but hasn't seen it yet
   useEffect(() => {
