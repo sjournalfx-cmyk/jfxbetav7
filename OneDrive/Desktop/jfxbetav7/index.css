@@ -141,7 +141,7 @@ button.py-4 { padding-top: 0.75rem !important; padding-bottom: 0.75rem !importan
 }
 
 .theme-obsidian {
-  --note-default-bg: #0B0D10;
+  --note-default-bg: #000000;
   --note-default-border: #334155;
   --note-red-bg: #2d0a0a;
   --note-red-border: #450a0a;
