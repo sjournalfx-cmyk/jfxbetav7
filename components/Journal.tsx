@@ -1,29 +1,32 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, List, X, Upload, Image as ImageIcon, TrendingUp, TrendingDown, 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Activity, 
-  Brain, ShieldCheck, ArrowUpRight, ArrowDownRight, Edit3, 
+  Brain, ShieldCheck, ArrowUpRight, ArrowDownRight, Edit3,
   ChevronDown, Clock, CheckCircle2, Trash2, CheckSquare, Square, 
-  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye, Layers, Link, Unlink, RefreshCw
+  Trophy, CheckCircle, LayoutPanelTop, Target, Star, Eye, Layers, Link, Unlink, RefreshCw, Mic
 } from 'lucide-react';
 import { Trade, UserProfile } from '../types';
 import { getSASTDateTime } from '../lib/timeUtils';
+import { JournalSkeleton, EmptyState } from './ui/Skeleton';
 
 interface JournalProps {
   isDarkMode: boolean;
   trades: Trade[];
   onUpdateTrade: (trade: Trade) => void;
-  onBatchUpdateTrades: (trades: Trade[]) => Promise<void>;
+  onBatchUpdateTrades: (trades: Trade[]) => Promise<boolean>;
   onDeleteTrades: (tradeIds: string[]) => void;
   onEditTrade: (trade: Trade) => void;
   userProfile: UserProfile;
   isLoading?: boolean;
   offlineQueue?: Trade[];
+  isDemoMode?: boolean;
 }
 
 interface GroupedTrade {
     type: 'standalone' | 'setup' | 'pending';
     setupId?: string;
+    setupName?: string;
     trades: Trade[];
     date: string; // Latest trade date
     id: string; // for React key
@@ -59,6 +62,32 @@ const formatDuration = (openTime?: string, closeTime?: string) => {
     }
 };
 
+const safePnL = (value: unknown): number => {
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) ? n : 0;
+};
+
+const buildSetupName = (trades: Trade[]) => {
+    const uniquePairs = Array.from(new Set(trades.map(trade => trade.pair).filter(Boolean)));
+    const pairLabel = uniquePairs.length === 0
+        ? 'Linked'
+        : uniquePairs.length === 1
+            ? uniquePairs[0]
+            : uniquePairs.length === 2
+                ? `${uniquePairs[0]} + ${uniquePairs[1]}`
+                : `${uniquePairs[0]} + ${uniquePairs[1]} +${uniquePairs.length - 2}`;
+
+    return `${pairLabel} ${trades.length}-Trade Setup`;
+};
+
+const buildSetupId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `setup-${crypto.randomUUID()}`;
+    }
+
+    return `setup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
 const ReadOnlyStarRating = ({ rating, isDarkMode }: { rating: number, isDarkMode: boolean }) => (
   <div className="flex items-center gap-0.5">
     {[1, 2, 3, 4, 5].map((star) => (
@@ -89,9 +118,14 @@ const MiniCalendar = ({ year, month, trades, isDarkMode, onClick }: any) => {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayTrades = monthTrades.filter((t: Trade) => t.date === dateStr);
         if (dayTrades.length === 0) return { bg: isDarkMode ? 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600', text: '' };
-        const pnl = dayTrades.reduce((acc: number, t: Trade) => acc + t.pnl, 0);
-        if (pnl > 0) return { bg: 'bg-emerald-600 shadow-sm shadow-emerald-600/20', text: 'text-white font-bold' };
-        if (pnl < 0) return { bg: 'bg-rose-500 shadow-sm shadow-rose-500/20', text: 'text-white font-bold' };
+        
+        const pnl = dayTrades.reduce((acc: number, t: Trade) => acc + safePnL(t.pnl), 0);
+        
+        // Match main calendar logic
+        if (Math.abs(pnl) < 5) return { bg: 'bg-zinc-400/80 shadow-sm shadow-zinc-400/10', text: 'text-white font-bold' };
+        if (pnl > 0) return { bg: 'bg-emerald-700/65 shadow-sm shadow-emerald-900/10', text: 'text-white font-bold' };
+        if (pnl < 0) return { bg: 'bg-rose-700/65 shadow-sm shadow-rose-900/10', text: 'text-white font-bold' };
+        
         return { bg: 'bg-zinc-400', text: 'text-white font-bold' };
     };
 
@@ -132,22 +166,22 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     const { monthlyStats, weekdayStats } = useMemo(() => {
         const currentMonthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
         const monthTrades = trades.filter(t => t.date.startsWith(currentMonthStr));
-        const totalPnL = monthTrades.reduce((acc, t) => acc + t.pnl, 0);
+        const totalPnL = monthTrades.reduce((acc, t) => acc + safePnL(t.pnl), 0);
         const winTrades = monthTrades.filter(t => t.result === 'Win').length;
         const totalCount = monthTrades.length;
         const winRateTotal = totalCount > 0 ? (winTrades / totalCount) * 100 : 0;
         
         const dayMap: Record<string, number> = {};
-        monthTrades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + t.pnl; });
+        monthTrades.forEach(t => { dayMap[t.date] = (dayMap[t.date] || 0) + safePnL(t.pnl); });
         const winDays = Object.values(dayMap).filter(p => p > 0).length;
         const lossDays = Object.values(dayMap).filter(p => p < 0).length;
 
         const weekdayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const wdStats = weekdayNames.map((name, index) => {
             const dayTrades = monthTrades.filter(t => new Date(t.date).getDay() === index);
-            const netProfits = dayTrades.reduce((acc, t) => acc + t.pnl, 0);
-            const totalProfits = dayTrades.reduce((acc, t) => t.pnl > 0 ? acc + t.pnl : acc, 0);
-            const totalLoss = dayTrades.reduce((acc, t) => t.pnl < 0 ? acc + t.pnl : acc, 0);
+            const netProfits = dayTrades.reduce((acc, t) => acc + safePnL(t.pnl), 0);
+            const totalProfits = dayTrades.reduce((acc, t) => safePnL(t.pnl) > 0 ? acc + safePnL(t.pnl) : acc, 0);
+            const totalLoss = dayTrades.reduce((acc, t) => safePnL(t.pnl) < 0 ? acc + safePnL(t.pnl) : acc, 0);
             const wCount = dayTrades.filter(t => t.result === 'Win').length;
             const lCount = dayTrades.filter(t => t.result === 'Loss').length;
             const tCount = dayTrades.length;
@@ -295,23 +329,39 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
                             {days.map(day => { 
                                 const dayTrades = getTradesForDay(day); 
                                 const hasTrades = dayTrades.length > 0; 
-                                const dayPnL = dayTrades.reduce((acc, t) => acc + t.pnl, 0); 
-                                const isPositive = dayPnL > 0; 
+                                const dayPnL = dayTrades.reduce((acc, t) => acc + safePnL(t.pnl), 0); 
+                                
+                                // TradeZella style logic: BE/Grey if P&L is very small (e.g. < $5 absolute)
+                                const isBE = hasTrades && Math.abs(dayPnL) < 5;
+                                const isPositive = dayPnL >= 5; 
+                                const isNegative = dayPnL <= -5;
+                                
                                 const isCurrentDay = isToday(day); 
+                                
+                                const getBgColor = () => {
+                                    if (!hasTrades) return isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200';
+                                    if (isBE) return isDarkMode ? 'bg-zinc-500/20 border-zinc-500/30' : 'bg-slate-200 border-slate-300';
+                                    if (isPositive) return isDarkMode ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200';
+                                    if (isNegative) return isDarkMode ? 'bg-rose-500/20 border-rose-500/30' : 'bg-rose-50 border-rose-200';
+                                    return '';
+                                };
+
                                 return (
-                                    <div key={day} className={`relative rounded-xl border p-2.5 flex flex-col justify-between min-h-[115px] transition-all duration-200 overflow-hidden group ${isDarkMode ? 'bg-[#18181b] border-[#27272a] hover:border-zinc-600' : 'bg-white border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5'} ${isCurrentDay ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-[#09090b]' : ''} ${hasTrades ? (isPositive ? (isDarkMode ? 'bg-emerald-900/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-100') : (isDarkMode ? 'bg-rose-900/10 border-rose-500/20' : 'bg-rose-50 border-rose-100')) : ''}`}>
-                                        <div className="flex justify-between items-start relative z-10">
-                                            <span className={`text-sm font-bold ${isCurrentDay ? 'text-indigo-500' : isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>{day}</span>
-                                            {hasTrades && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-zinc-900/50' : 'bg-white/50'}`}>{dayTrades.length}</span>}
+                                    <div key={day} className={`relative rounded-xl border p-2.5 flex flex-col items-center justify-center min-h-[115px] transition-all duration-200 overflow-hidden group ${getBgColor()} ${isDarkMode ? 'hover:border-zinc-600' : 'hover:shadow-md hover:-translate-y-0.5'} ${isCurrentDay ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-[#09090b]' : ''}`}>
+                                        <div className="absolute top-2 right-3 z-10">
+                                            <span className={`text-[10px] font-bold ${isCurrentDay ? 'text-indigo-500' : isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>{day}</span>
                                         </div>
-                                        <div className="flex flex-col items-center justify-center gap-1 my-2 relative z-10">
-                                            {hasTrades ? <div className={`text-lg font-mono font-bold tracking-tight ${isPositive ? 'text-emerald-500' : dayPnL < 0 ? 'text-rose-500' : 'text-zinc-500'}`}>{isPositive ? '+' : dayPnL < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(dayPnL).toLocaleString()}</div> : null}
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5 justify-center relative z-10 h-2">
-                                            {dayTrades.map((t, idx) => (
-                                                <div key={idx} className={`w-1.5 h-1.5 rounded-full ${t.result === 'Win' ? 'bg-emerald-500' : t.result === 'Loss' ? 'bg-rose-500' : 'bg-zinc-400'}`} title={`${t.pair} (${t.result})`} />
-                                            ))}
-                                        </div>
+                                        
+                                        {hasTrades ? (
+                                            <div className="flex flex-col items-center justify-center gap-0.5 relative z-10">
+                                                <div className={`text-base font-mono font-black tracking-tight ${isPositive ? 'text-emerald-500' : isNegative ? 'text-rose-500' : (isDarkMode ? 'text-zinc-400' : 'text-slate-600')}`}>
+                                                    {dayPnL >= 0 ? '+' : '-'}{userProfile.currencySymbol}{Math.abs(dayPnL).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </div>
+                                                <div className={`text-[10px] font-bold uppercase tracking-widest opacity-40 ${isDarkMode ? 'text-white' : 'text-black'}`}>
+                                                    {dayTrades.length} {dayTrades.length === 1 ? 'Trade' : 'Trades'}
+                                                </div>
+                                            </div>
+                                        ) : null}
                                     </div>
                                 )
                             })}
@@ -329,14 +379,76 @@ const CalendarView = ({ isDarkMode, trades, userProfile }: { isDarkMode: boolean
     );
 };
 
-const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile, isLoading = false, offlineQueue = [] }) => {
+const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, onBatchUpdateTrades, onDeleteTrades, onEditTrade, userProfile, isLoading = false, offlineQueue = [], isDemoMode = false }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
     const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
     const [expandedSetupIds, setExpandedSetupIds] = useState<string[]>([]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+    const [draftSetupName, setDraftSetupName] = useState('');
+    const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
+    const [draftDateRange, setDraftDateRange] = useState<{ start: string; end: string } | null>(null);
+    const [showDateFilter, setShowDateFilter] = useState(false);
     
+    // Quick date range presets
+    const quickRanges = [
+        { label: 'Today', days: 0 },
+        { label: 'Last 7 days', days: 7 },
+        { label: 'Last 30 days', days: 30 },
+        { label: 'This Month', days: -1 },
+        { label: 'Last Month', days: -2 },
+        { label: 'All Time', days: -99 },
+    ];
+
+    const getRangeForDays = (days: number) => {
+        const today = new Date();
+        if (days === -99) {
+            return null;
+        }
+        if (days === -1) {
+            // This month
+            const start = new Date(today.getFullYear(), today.getMonth(), 1);
+            return {
+                start: start.toISOString().split('T')[0],
+                end: today.toISOString().split('T')[0]
+            };
+        }
+        if (days === -2) {
+            // Last month
+            const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            const end = new Date(today.getFullYear(), today.getMonth(), 0);
+            return {
+                start: start.toISOString().split('T')[0],
+                end: end.toISOString().split('T')[0]
+            };
+        }
+        const start = new Date(today);
+        start.setDate(start.getDate() - days);
+        return {
+            start: start.toISOString().split('T')[0],
+            end: today.toISOString().split('T')[0]
+        };
+    };
+
+    const applyQuickRange = (days: number) => {
+        setDateRange(getRangeForDays(days));
+    };
+
+    const getCurrentMonthRange = () => {
+        const today = new Date();
+        const start = new Date(today.getFullYear(), today.getMonth(), 1);
+        return {
+            start: start.toISOString().split('T')[0],
+            end: today.toISOString().split('T')[0]
+        };
+    };
+
+    useEffect(() => {
+        if (!showDateFilter) return;
+        setDraftDateRange(dateRange ?? getCurrentMonthRange());
+    }, [showDateFilter, dateRange]);
+
     const selectedTrades = useMemo(() => trades.filter(t => selectedIds.includes(t.id)), [trades, selectedIds]);
     const areAllLinkedToSameSetup = useMemo(() => {
         if (selectedTrades.length < 1) return false;
@@ -345,13 +457,47 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
         return selectedTrades.every(t => t.setupId === firstSetupId);
     }, [selectedTrades]);
 
-    const groupedTrades = useMemo(() => {
-        const filtered = trades.filter(t => 
-            t.pair.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            t.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            t.assetType.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+    useEffect(() => {
+        if (!isLinkModalOpen) return;
+        const nextDraftName = buildSetupName(selectedTrades);
+        setDraftSetupName(nextDraftName);
+    }, [isLinkModalOpen, selectedTrades]);
 
+    const selectedSetupSummary = useMemo(() => {
+        if (selectedTrades.length < 2) return null;
+
+        const setupIds = new Set(selectedTrades.map(trade => trade.setupId).filter(Boolean));
+        const hasExistingSetup = setupIds.size > 0;
+        const mixedSetupState = hasExistingSetup && !areAllLinkedToSameSetup;
+        const setupName = buildSetupName(selectedTrades);
+
+        return {
+            setupName,
+            hasExistingSetup,
+            mixedSetupState,
+            tradeCount: selectedTrades.length,
+            pairCount: new Set(selectedTrades.map(trade => trade.pair)).size
+        };
+    }, [areAllLinkedToSameSetup, selectedTrades]);
+
+    const filteredTrades = useMemo(() => {
+        return trades.filter(t => {
+            // Search filter
+            const matchesSearch = !searchTerm || 
+                t.pair.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                t.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                t.assetType.toLowerCase().includes(searchTerm.toLowerCase());
+            
+            // Date range filter
+            const matchesDateRange = !dateRange || (
+                t.date >= dateRange.start && t.date <= dateRange.end
+            );
+            
+            return matchesSearch && matchesDateRange;
+        });
+    }, [trades, searchTerm, dateRange]);
+
+    const groupedTrades = useMemo(() => {
         const groups: Record<string, GroupedTrade> = {};
         const result: GroupedTrade[] = [];
 
@@ -365,17 +511,21 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             });
         });
 
-        filtered.forEach(trade => {
+        filteredTrades.forEach(trade => {
             if (trade.setupId) {
                 if (!groups[trade.setupId]) {
                     groups[trade.setupId] = {
                         type: 'setup',
                         setupId: trade.setupId,
+                        setupName: trade.setupName,
                         trades: [],
                         date: trade.date,
                         id: trade.setupId
                     };
                     result.push(groups[trade.setupId]);
+                }
+                if (!groups[trade.setupId].setupName && trade.setupName) {
+                    groups[trade.setupId].setupName = trade.setupName;
                 }
                 groups[trade.setupId].trades.push(trade);
                 if (new Date(trade.date) > new Date(groups[trade.setupId].date)) {
@@ -396,7 +546,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             const dateTimeB = new Date(`${b.date}T${b.trades[0].time}`);
             return dateTimeB.getTime() - dateTimeA.getTime();
         });
-    }, [trades, searchTerm]);
+    }, [filteredTrades, offlineQueue]);
 
     const toggleExpand = (id: string) => { setExpandedTradeId(expandedTradeId === id ? null : id); };
     const toggleSetupExpand = (id: string) => {
@@ -408,7 +558,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
     };
 
     const handleSelectAll = () => { 
-        const allTradeIds = trades.map(t => t.id);
+        const allTradeIds = filteredTrades.map(t => t.id);
         if (selectedIds.length === allTradeIds.length) setSelectedIds([]); 
         else setSelectedIds(allTradeIds); 
     };
@@ -427,31 +577,39 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
 
     const handleLinkSelected = async () => {
         if (selectedIds.length < 2) return;
-        
-        const setupId = `setup-${Date.now()}`;
-        const tradesToUpdate = trades
+
+        const cleanSetupName = draftSetupName.trim() || buildSetupName(selectedTrades);
+        const setupId = buildSetupId();
+        const tradesToUpdate = selectedTrades
             .filter(t => selectedIds.includes(t.id))
             .map(t => ({
                 ...t,
-                setupId
+                setupId,
+                setupName: cleanSetupName
             }));
 
-        await onBatchUpdateTrades(tradesToUpdate);
-        setSelectedIds([]);
-        setIsLinkModalOpen(false);
+        const updated = await onBatchUpdateTrades(tradesToUpdate);
+        if (updated) {
+            setSelectedIds([]);
+            setIsLinkModalOpen(false);
+            setDraftSetupName('');
+        }
     };
 
     const handleDetachSelected = async () => {
         if (selectedIds.length === 0) return;
-        const tradesToUpdate = trades
+        const tradesToUpdate = selectedTrades
             .filter(t => selectedIds.includes(t.id))
             .map(t => ({
                 ...t,
-                setupId: ''
+                setupId: undefined,
+                setupName: undefined
             }));
 
-        await onBatchUpdateTrades(tradesToUpdate);
-        setSelectedIds([]);
+        const updated = await onBatchUpdateTrades(tradesToUpdate);
+        if (updated) {
+            setSelectedIds([]);
+        }
     };
 
     const handleBreakCluster = async (setupId: string) => {
@@ -459,11 +617,14 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             .filter(t => t.setupId === setupId)
             .map(t => ({
                 ...t,
-                setupId: ''
+                setupId: undefined,
+                setupName: undefined
             }));
 
-        await onBatchUpdateTrades(tradesToUpdate);
-        setExpandedSetupIds(prev => prev.filter(id => id !== setupId));
+        const updated = await onBatchUpdateTrades(tradesToUpdate);
+        if (updated) {
+            setExpandedSetupIds(prev => prev.filter(id => id !== setupId));
+        }
     };
 
     const handleUpload = (trade: Trade, type: 'before' | 'after', e: React.ChangeEvent<HTMLInputElement>) => { if (!e.target.files || !e.target.files[0]) return; const file = e.target.files[0]; const reader = new FileReader(); reader.onloadend = () => { onUpdateTrade({ ...trade, [type === 'before' ? 'beforeScreenshot' : 'afterScreenshot']: reader.result as string }); }; reader.readAsDataURL(file); };
@@ -475,14 +636,32 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
     };
 
     const [previewImage, setPreviewImage] = useState<{ url: string, title: string } | null>(null);
+    const [editingComment, setEditingComment] = useState<{ tradeId: string; field: 'notes' | 'exitComment'; value: string } | null>(null);
+
+    const beginCommentEdit = (trade: Trade, field: 'notes' | 'exitComment') => {
+        setEditingComment({
+            tradeId: trade.id,
+            field,
+            value: field === 'notes' ? (trade.notes || '') : (trade.exitComment || '')
+        });
+    };
+
+    const saveCommentEdit = (trade: Trade) => {
+        if (!editingComment || editingComment.tradeId !== trade.id) return;
+        onUpdateTrade({
+            ...trade,
+            [editingComment.field]: editingComment.value
+        });
+        setEditingComment(null);
+    };
 
     const renderTradeDetails = (trade: Trade) => (
-        <div key={`details-${trade.id}`} className={`col-span-11 mx-6 mt-1 mb-6 rounded-2xl overflow-hidden border animate-in slide-in-from-top-2 duration-300 shadow-xl relative ${isDarkMode ? 'bg-[#09090b] border-[#27272a] shadow-black' : 'bg-white border-slate-200'}`}>
+        <div key={`details-${trade.id}`} className={`col-span-11 mx-6 mt-1 mb-6 rounded-2xl overflow-hidden border shadow-xl relative ${isDarkMode ? 'bg-[#09090b] border-[#27272a] shadow-black' : 'bg-white border-slate-200'}`}>
             <div className={`relative px-6 py-4 border-b flex flex-wrap items-center justify-between gap-4 ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50/50 border-slate-100'}`}>
                 <div className="flex items-center gap-6">
                     <div>
-                        <div className={`text-4xl font-mono font-black tracking-tighter leading-none ${trade.pnl > 0 ? 'text-emerald-400' : trade.pnl < 0 ? 'text-rose-500' : 'text-zinc-500'}`}>
-                            {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <div className={`text-4xl font-mono font-black tracking-tighter leading-none ${safePnL(trade.pnl) > 0 ? 'text-emerald-400' : safePnL(trade.pnl) < 0 ? 'text-rose-500' : 'text-zinc-500'}`}>
+                            {safePnL(trade.pnl) > 0 ? '+' : safePnL(trade.pnl) < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(safePnL(trade.pnl)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         <div className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mt-1">Net P&L</div>
                     </div>
@@ -526,8 +705,8 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                 </div>
             </div>
             <div className="relative p-6">
-                <div className="grid grid-cols-12 gap-6">
-                    <div className="col-span-12 md:col-span-4 lg:col-span-3 space-y-4">
+                <div className="grid grid-cols-12 gap-6 items-stretch">
+                    <div className="col-span-12 md:col-span-4 lg:col-span-3 space-y-4 pr-1">
                         <div className={`p-4 rounded-xl border ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-slate-50/50 border-slate-200'}`}>
                             <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3">Execution</h4>
                              <div className="space-y-3 text-sm">
@@ -561,64 +740,55 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                 <div className="flex justify-between"><span className="opacity-50">Mistake</span><span className="font-bold text-rose-500">{trade.tradingMistake || 'None'}</span></div>
                             </div>
                         </div>
-                    </div>
-                    <div className="col-span-12 md:col-span-8 lg:col-span-5 space-y-4">
-                        <div className={`p-5 rounded-xl border min-h-[140px] ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800 text-zinc-300' : 'bg-white border-slate-200 text-slate-700'}`}>
-                            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Entry Note</h4>
-                            {trade.notes ? (
-                                <div 
-                                    className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: trade.notes }}
-                                />
+                        <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800 text-zinc-300' : 'bg-white border-slate-200 text-slate-700'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40">Voice Note</h4>
+                                <Mic size={12} className="opacity-40" />
+                            </div>
+                            {trade.voiceNote ? (
+                                <p className="text-[11px] leading-relaxed whitespace-pre-wrap max-h-24 overflow-auto pr-1">
+                                    {trade.voiceNote}
+                                </p>
                             ) : (
-                                <p className="text-sm opacity-50 italic">No entry comments recorded.</p>
-                            )}
-                        </div>
-                        <div className={`p-5 rounded-xl border min-h-[140px] ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800 text-zinc-300' : 'bg-white border-slate-200 text-slate-700'}`}>
-                            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Exit Note</h4>
-                            {trade.exitComment ? (
-                                <div 
-                                    className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: trade.exitComment }}
-                                />
-                            ) : (
-                                <p className="text-sm opacity-50 italic">No exit comments recorded.</p>
+                                <div className="flex items-center gap-2 opacity-40 text-[10px] font-bold uppercase tracking-widest">
+                                    <Mic size={11} />
+                                    No Voice Note
+                                </div>
                             )}
                         </div>
                     </div>
-                    <div className="col-span-12 lg:col-span-4 grid grid-cols-2 gap-3 content-start">
-                        {[{ id: 'before', label: 'Before', data: trade.beforeScreenshot }, { id: 'after', label: 'After', data: trade.afterScreenshot }].map((slot) => (
-                            <div key={slot.id} className="relative group aspect-square rounded-xl border overflow-hidden bg-black/5 dark:bg-white/5 border-dashed border-zinc-300 dark:border-zinc-700">
-                                <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/60 backdrop-blur rounded text-[9px] font-bold text-white uppercase tracking-wider">{slot.label}</div>
-                                {slot.data ? (
-                                    <>
-                                        <img src={slot.data} alt={slot.label} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <div className="col-span-12 lg:col-span-9 grid grid-cols-1 md:grid-cols-2 gap-4 md:h-full md:grid-rows-[308px_minmax(0,1fr)] items-stretch content-start pr-1">
+                        {[{ id: 'before', label: 'Before Canvas', data: trade.beforeScreenshot }, { id: 'after', label: 'After Canvas', data: trade.afterScreenshot }].map((slot) => (
+                            <div key={slot.id} className="group h-[308px] min-h-[308px] rounded-xl border overflow-hidden bg-black/5 dark:bg-white/5 border-dashed border-zinc-300 dark:border-zinc-700 flex flex-col">
+                                <div className="px-3 py-2 border-b border-white/5 dark:border-zinc-700/70 bg-black/5 dark:bg-white/5 flex items-center justify-between">
+                                    <div className="text-[9px] font-bold text-white uppercase tracking-wider px-2 py-0.5 bg-black/60 rounded">{slot.label}</div>
+                                    {slot.data && (
+                                        <div className="flex items-center gap-2">
                                             <button 
                                                 onClick={() => setPreviewImage({ url: slot.data!, title: `${trade.pair} - ${slot.label} Screenshot` })}
-                                                className="p-2 bg-white/20 backdrop-blur-md hover:bg-white/40 text-white rounded-lg transition-all transform scale-90 group-hover:scale-100"
+                                                className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all"
                                                 title="View Full Size"
                                             >
-                                                <Eye size={18} />
+                                                <Eye size={16} />
                                             </button>
                                             <button 
                                                 onClick={() => handleDeleteImage(trade, slot.id as any)}
-                                                className="p-2 bg-rose-500/80 backdrop-blur-md hover:bg-rose-500 text-white rounded-lg transition-all transform scale-90 group-hover:scale-100"
+                                                className="p-2 bg-rose-500/80 hover:bg-rose-500 text-white rounded-lg transition-all"
                                                 title="Delete Image"
                                             >
-                                                <Trash2 size={18} />
+                                                <Trash2 size={16} />
                                             </button>
                                         </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center opacity-30">
-                                            <ImageIcon size={20} className="mb-2" />
-                                            <span className="text-[9px] font-bold">No Image</span>
-                                        </div>
-                                        <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[2px]">
-                                            <div className="p-2 bg-white text-black rounded-lg shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                                                <Upload size={16} />
+                                    )}
+                                </div>
+                                <div className="relative flex-1 min-h-0 overflow-hidden">
+                                    {slot.data ? (
+                                        <img src={slot.data} alt={slot.label} className="absolute inset-0 w-full h-full object-cover" />
+                                    ) : (
+                                        <label className="absolute inset-0 cursor-pointer flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors">
+                                            <div className="flex flex-col items-center justify-center opacity-35 text-center">
+                                                <ImageIcon size={20} className="mb-2" />
+                                                <span className="text-[9px] font-bold uppercase tracking-wider">No Image</span>
                                             </div>
                                             <input 
                                                 type="file" 
@@ -628,10 +798,112 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 onChange={(e) => handleUpload(trade, slot.id as any, e)} 
                                             />
                                         </label>
-                                    </>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         ))}
+                        <div className={`h-full p-5 rounded-xl border flex flex-col ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800 text-zinc-300' : 'bg-white border-slate-200 text-slate-700'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40">Entry Note</h4>
+                                {!(editingComment?.tradeId === trade.id && editingComment.field === 'notes') && (
+                                    <button
+                                        onClick={() => beginCommentEdit(trade, 'notes')}
+                                        className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-500' : 'hover:bg-slate-100 text-slate-400'}`}
+                                        title="Edit Entry Comment"
+                                    >
+                                        <Edit3 size={12} />
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-auto pr-1">
+                                {editingComment?.tradeId === trade.id && editingComment.field === 'notes' ? (
+                                    <div className="space-y-3">
+                                        <textarea
+                                            value={editingComment.value}
+                                            onChange={(e) => setEditingComment(prev => prev ? { ...prev, value: e.target.value } : prev)}
+                                            className={`w-full min-h-28 resize-none rounded-xl border px-3 py-2 text-sm outline-none ${isDarkMode ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                                            placeholder="Edit entry comment..."
+                                        />
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button
+                                                onClick={() => setEditingComment(null)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-slate-100 text-slate-600'}`}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={() => saveCommentEdit(trade)}
+                                                className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-brand text-white"
+                                            >
+                                                Save
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : trade.notes ? (
+                                    <div
+                                        className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: trade.notes }}
+                                    />
+                                ) : (
+                                    <p className="text-sm opacity-50 italic">No entry comments recorded.</p>
+                                )}
+                            </div>
+                            {trade.voiceNote && (
+                                <div className="mt-4 pt-4 border-t border-dashed border-current/10">
+                                    <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Voice Note</h5>
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap opacity-90">
+                                        {trade.voiceNote}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                        <div className={`h-full p-5 rounded-xl border flex flex-col ${isDarkMode ? 'bg-zinc-900/20 border-zinc-800 text-zinc-300' : 'bg-white border-slate-200 text-slate-700'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40">Exit Note</h4>
+                                {!(editingComment?.tradeId === trade.id && editingComment.field === 'exitComment') && (
+                                    <button
+                                        onClick={() => beginCommentEdit(trade, 'exitComment')}
+                                        className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-500' : 'hover:bg-slate-100 text-slate-400'}`}
+                                        title="Edit Exit Comment"
+                                    >
+                                        <Edit3 size={12} />
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-auto pr-1">
+                                {editingComment?.tradeId === trade.id && editingComment.field === 'exitComment' ? (
+                                    <div className="space-y-3">
+                                        <textarea
+                                            value={editingComment.value}
+                                            onChange={(e) => setEditingComment(prev => prev ? { ...prev, value: e.target.value } : prev)}
+                                            className={`w-full min-h-28 resize-none rounded-xl border px-3 py-2 text-sm outline-none ${isDarkMode ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                                            placeholder="Edit exit comment..."
+                                        />
+                                        <div className="flex items-center justify-end gap-2">
+                                            <button
+                                                onClick={() => setEditingComment(null)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-slate-100 text-slate-600'}`}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={() => saveCommentEdit(trade)}
+                                                className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-brand text-white"
+                                            >
+                                                Save
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : trade.exitComment ? (
+                                    <div
+                                        className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: trade.exitComment }}
+                                    />
+                                ) : (
+                                    <p className="text-sm opacity-50 italic">No exit comments recorded.</p>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -679,18 +951,18 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                 <div className="col-span-1 text-xs font-mono font-bold opacity-60 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
                     {formatDuration(trade.openTime, trade.closeTime) || '---'}
                 </div>
-                <div className="col-span-1 flex flex-wrap gap-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                    {trade.tags.slice(0, 2).map((tag, i) => (
-                        <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
-                    ))}
-                    {trade.tags.length > 2 && <span className="text-[10px] opacity-50">+{trade.tags.length - 2}</span>}
-                </div>
+        <div className="col-span-1 flex flex-wrap gap-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
+          {(trade.tags || []).slice(0, 2).map((tag, i) => (
+            <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
+          ))}
+          {(trade.tags || []).length > 2 && <span className="text-[10px] opacity-50">+{(trade.tags || []).length - 2}</span>}
+        </div>
                 <div className="col-span-1 cursor-pointer" onClick={() => toggleExpand(trade.id)}>
                     <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
                 </div>
                 <div className="col-span-1 text-right cursor-pointer" onClick={() => toggleExpand(trade.id)}>
-                    <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
-                        {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <p className={`font-mono font-bold ${safePnL(trade.pnl) > 0 ? 'text-emerald-500' : safePnL(trade.pnl) < 0 ? 'text-rose-500' : ''}`}>
+                        {safePnL(trade.pnl) > 0 ? '+' : safePnL(trade.pnl) < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(safePnL(trade.pnl)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className={`text-[10px] font-bold uppercase ${trade.result === 'Win' ? 'text-emerald-500' : trade.result === 'Loss' ? 'text-rose-500' : 'text-zinc-500'}`}>
                         {trade.result} {trade.rr > 0 ? `(${trade.rr}R)` : ''}
@@ -729,8 +1001,17 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
             )}
             <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight mb-2">Trade Journal</h1>
-                    <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Detailed history of your market execution.</p>
+                    <div className="flex items-center gap-3 mb-2">
+                        <h1 className="text-3xl font-bold tracking-tight">Trade Journal</h1>
+                        {isDemoMode && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                Demo Mode
+                            </span>
+                        )}
+                    </div>
+                    <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>
+                        {isDemoMode ? 'Sample trades from January to March are loaded for review.' : 'Detailed history of your market execution.'}
+                    </p>
                 </div>
                 {selectedIds.length > 0 ? (
                     <div className="flex items-center gap-3 animate-in slide-in-from-right-4">
@@ -750,6 +1031,15 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                     <><Link size={16} /> Link to Setup</>
                                 )}
                             </button>
+                        )}
+                        {selectedSetupSummary && (
+                            <div className={`hidden lg:flex flex-col gap-0.5 px-4 py-2 rounded-xl border text-left ${selectedSetupSummary.mixedSetupState ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : isDarkMode ? 'border-[#27272a] bg-[#18181b] text-zinc-300' : 'border-slate-200 bg-white text-slate-700'}`}>
+                                <span className="text-[9px] font-black uppercase tracking-widest opacity-60">Setup Preview</span>
+                                <span className="text-xs font-bold leading-tight">{selectedSetupSummary.setupName}</span>
+                                <span className="text-[10px] opacity-50">
+                                    {selectedSetupSummary.tradeCount} trades · {selectedSetupSummary.pairCount} pair{selectedSetupSummary.pairCount === 1 ? '' : 's'}
+                                </span>
+                            </div>
                         )}
                         <button onClick={() => setSelectedIds([])} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>Cancel</button>
                         <button onClick={handleBulkDelete} className="p-2 rounded flex items-center gap-2 text-xs font-bold transition-all bg-rose-500 text-white hover:bg-rose-600 shadow-lg shadow-rose-500/20"><Trash2 size={16} /> Delete Selected</button>
@@ -784,6 +1074,115 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                 className={`pl-10 pr-4 py-2 rounded-lg border text-sm outline-none w-64 ${isDarkMode ? 'bg-[#18181b] border-[#27272a] focus:border-blue-500' : 'bg-white border-slate-200'}`} 
                             />
                         </div>
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowDateFilter(!showDateFilter)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${dateRange ? 'border-indigo-500 bg-indigo-500/10 text-indigo-500' : isDarkMode ? 'border-[#27272a] hover:border-[#3a3a3e]' : 'border-slate-200 hover:border-slate-300'}`}
+                            >
+                                <CalendarIcon size={16} />
+                                <span className="hidden sm:inline">
+                                    {dateRange ? `${dateRange.start} - ${dateRange.end}` : 'Date Range'}
+                                </span>
+                                {dateRange && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setDateRange(null); }}
+                                        className="ml-1 p-0.5 rounded hover:bg-indigo-500/20"
+                                        aria-label="Clear date range"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </button>
+                            {showDateFilter && (
+                                <div className={`absolute right-0 top-full mt-2 p-4 rounded-xl border shadow-xl z-50 min-w-[320px] ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-200'}`}>
+                                    <p className="text-xs font-bold mb-3 uppercase tracking-wider opacity-60">Quick Select</p>
+                                    <div className="flex flex-wrap gap-2 mb-4">
+                                        {quickRanges.map((range) => (
+                                            <button
+                                                key={range.label}
+                                                onClick={() => { applyQuickRange(range.days); setShowDateFilter(false); }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${range.days === -99 ? (!dateRange ? 'bg-indigo-500 text-white' : isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-slate-100 hover:bg-slate-200') : isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-slate-100 hover:bg-slate-200'}`}
+                                                >
+                                                    {range.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs font-bold mb-3 uppercase tracking-wider opacity-60">Custom Range</p>
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {[
+                                                { label: 'Last 7', days: 7 },
+                                                { label: 'Last 30', days: 30 },
+                                                { label: 'This Month', days: -1 },
+                                                { label: 'Last Month', days: -2 },
+                                                { label: 'Clear', days: -99 },
+                                            ].map((preset) => (
+                                                <button
+                                                    key={preset.label}
+                                                    onClick={() => {
+                                                        if (preset.days === -99) {
+                                                            setDraftDateRange(null);
+                                                            return;
+                                                        }
+                                                        setDraftDateRange(getRangeForDays(preset.days));
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-slate-100 hover:bg-slate-200'}`}
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold uppercase tracking-wider opacity-50 block mb-1">Start Date</label>
+                                            <input
+                                                type="date"
+                                                value={draftDateRange?.start || ''}
+                                                max={draftDateRange?.end || undefined}
+                                                onChange={(e) => setDraftDateRange(prev => ({ start: e.target.value, end: prev?.end || e.target.value }))}
+                                                className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-white border-slate-200'}`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold uppercase tracking-wider opacity-50 block mb-1">End Date</label>
+                                            <input
+                                                type="date"
+                                                value={draftDateRange?.end || ''}
+                                                min={draftDateRange?.start || undefined}
+                                                onChange={(e) => setDraftDateRange(prev => ({ start: prev?.start || e.target.value, end: e.target.value }))}
+                                                className={`w-full px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-[#09090b] border-[#27272a]' : 'bg-white border-slate-200'}`}
+                                            />
+                                        </div>
+                                        <div className="flex gap-2 pt-1">
+                                            <button
+                                                onClick={() => {
+                                                    setDraftDateRange(dateRange ?? getCurrentMonthRange());
+                                                }}
+                                                className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                                            >
+                                                Reset
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setDateRange(draftDateRange);
+                                                    setShowDateFilter(false);
+                                                }}
+                                                disabled={!draftDateRange?.start || !draftDateRange?.end}
+                                                className="flex-1 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                                Apply Range
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {dateRange && (
+                    <div className="mb-4 flex items-center gap-2">
+                        <span className="text-xs font-medium opacity-60">Showing {filteredTrades.length} of {trades.length} trades</span>
+                        <span className="text-xs opacity-40">|</span>
+                        <span className="text-xs font-medium text-indigo-500">{dateRange.start} to {dateRange.end}</span>
                     </div>
                 )}
             </header>
@@ -796,7 +1195,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                         <div className={`grid grid-cols-[40px_1.5fr_1fr_1fr_1.2fr_1.2fr_1fr_1.5fr_0.8fr_1.2fr_40px] px-6 py-4 border-b text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'border-[#27272a] text-zinc-500' : 'border-slate-100 text-slate-400'}`}>
                             <div className="col-span-1 flex items-center justify-center">
                                 <button onClick={handleSelectAll} className="opacity-50 hover:opacity-100">
-                                    {selectedIds.length > 0 && selectedIds.length === trades.length ? <CheckSquare size={16} /> : <Square size={16} />}
+                                    {selectedIds.length > 0 && selectedIds.length === filteredTrades.length ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                             </div>
                             <div className="col-span-1 pl-2">Date/Time</div>
@@ -805,21 +1204,25 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             <div className="col-span-1">Direction</div>
                             <div className="col-span-1">Session</div>
                             <div className="col-span-1">Duration</div>
-                            <div className="col-span-1">Tags</div>
+                            <div className="col-span-1">Strategy</div>
                             <div className="col-span-1">Rating</div>
                             <div className="col-span-1 text-right">PnL / Result</div>
                             <div className="col-span-1"></div>
                         </div>
                         <div className="overflow-y-auto custom-scrollbar flex-1 px-4">
                             {isLoading ? (
-                                <div className="flex flex-col items-center justify-center h-full gap-4">
-                                    <RefreshCw size={32} className="animate-spin text-indigo-500 opacity-50" />
-                                    <p className="text-xs font-black uppercase tracking-widest opacity-40">Fetching trade history...</p>
-                                </div>
+                                <JournalSkeleton isDarkMode={isDarkMode} />
                             ) : groupedTrades.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full opacity-30">
-                                    <h3 className="text-xl font-bold">No Trades Found</h3>
-                                </div>
+                                <EmptyState
+                                    isDarkMode={isDarkMode}
+                                    type="trades"
+                                    title={searchTerm || dateRange ? "No Trades Match Your Filter" : "Your Journal is Empty"}
+                                    description={searchTerm || dateRange ? "Try adjusting your search or date range to find trades." : "Start logging your trades to track your trading performance and build your trading journal."}
+                                    action={!searchTerm && !dateRange ? {
+                                        label: "Log Your First Trade",
+                                        onClick: () => {/* Navigate to log trade - handled by parent */}
+                                    } : undefined}
+                                />
                             ) : (
                                 groupedTrades.map(group => {
                                     if (group.type === 'pending') {
@@ -849,8 +1252,8 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                     <ReadOnlyStarRating rating={trade.rating || 0} isDarkMode={isDarkMode} />
                                                 </div>
                                                 <div className="col-span-1 text-right">
-                                                    <p className={`font-mono font-bold ${trade.pnl > 0 ? 'text-emerald-500' : trade.pnl < 0 ? 'text-rose-500' : ''}`}>
-                                                        {trade.pnl > 0 ? '+' : trade.pnl < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <p className={`font-mono font-bold ${safePnL(trade.pnl) > 0 ? 'text-emerald-500' : safePnL(trade.pnl) < 0 ? 'text-rose-500' : ''}`}>
+                                                        {safePnL(trade.pnl) > 0 ? '+' : safePnL(trade.pnl) < 0 ? '-' : ''}{userProfile.currencySymbol}{Math.abs(safePnL(trade.pnl)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </p>
                                                 </div>
                                                 <div className="col-span-1"></div>
@@ -863,7 +1266,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                     }
 
                                     const isExpanded = expandedSetupIds.includes(group.setupId!);
-                                    const totalPnL = group.trades.reduce((acc, t) => acc + t.pnl, 0);
+                                    const totalPnL = group.trades.reduce((acc, t) => acc + safePnL(t.pnl), 0);
                                     const tradeIds = group.trades.map(t => t.id);
                                     const allSelected = tradeIds.every(id => selectedIds.includes(id));
 
@@ -877,7 +1280,12 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 </div>
                                                 <div className="col-span-1 pl-2 cursor-pointer flex flex-col justify-center" onClick={() => toggleSetupExpand(group.setupId!)}>
                                                     <p className="font-bold text-sm">{group.date}</p>
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 leading-none mt-1">Setup Cluster</p>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 leading-none mt-1 truncate">
+                                                        {group.setupName || 'Linked Setup'}
+                                                    </p>
+                                                    <p className="text-[9px] opacity-40 leading-none mt-1">
+                                                        {group.trades.length} trade{group.trades.length === 1 ? '' : 's'}
+                                                    </p>
                                                 </div>
                                                 <div className="col-span-1 font-bold text-sm">{group.trades[0].pair}</div>
                                                 <div className="col-span-1 text-xs opacity-70">{group.trades[0].assetType}</div>
@@ -888,11 +1296,11 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 </div>
                                                 <div className="col-span-1 text-xs opacity-80">{group.trades[0].session}</div>
                                                 <div className="col-span-1 text-xs opacity-50">---</div>
-                                                <div className="col-span-1 flex flex-wrap gap-1">
-                                                    {group.trades[0].tags.slice(0, 1).map((tag, i) => (
-                                                        <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
-                                                    ))}
-                                                </div>
+        <div className="col-span-1 flex flex-wrap gap-1">
+          {(group.trades[0].tags || []).slice(0, 1).map((tag, i) => (
+            <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded border ${isDarkMode ? 'border-zinc-700 bg-zinc-800' : 'border-slate-200 bg-slate-100'}`}>{tag}</span>
+          ))}
+        </div>
                                                 <div className="col-span-1">
                                                     <ReadOnlyStarRating rating={group.trades[0].rating || 0} isDarkMode={isDarkMode} />
                                                 </div>
@@ -921,7 +1329,7 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                                                 </div>
                                             </div>
                                             {isExpanded && (
-                                                <div className="animate-in slide-in-from-top-2 duration-300 space-y-0 py-0.5">
+                                                <div className="space-y-0 py-0.5">
                                                     {group.trades.map((trade, idx) => renderTradeRow(trade, true, idx === 0, idx === group.trades.length - 1))}
                                                 </div>
                                             )}
@@ -936,9 +1344,9 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
 
             {/* Link Setup Modal */}
             {isLinkModalOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsLinkModalOpen(false)} />
-                    <div className={`relative w-full max-w-md p-8 rounded-[32px] border shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-8 duration-300 ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200'}`}>
+                    <div className={`relative w-full max-w-md p-8 rounded-[32px] border shadow-2xl ${isDarkMode ? 'bg-[#0d1117] border-zinc-800' : 'bg-white border-slate-200'}`}>
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-2.5 rounded-2xl bg-violet-500/10 text-violet-500">
                                 <Link size={24} />
@@ -948,6 +1356,34 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                         <p className={`text-sm mb-8 leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
                             These {selectedIds.length} trades will be linked together into a strategic cluster in your journal.
                         </p>
+                        <div className="space-y-4 mb-8">
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest opacity-50 block mb-2">
+                                    Setup Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={draftSetupName}
+                                    onChange={(e) => setDraftSetupName(e.target.value)}
+                                    placeholder={selectedSetupSummary?.setupName || 'EURUSD 3-Trade Setup'}
+                                    maxLength={80}
+                                    className={`w-full px-4 py-3 rounded-2xl border text-sm outline-none ${isDarkMode ? 'bg-[#09090b] border-[#27272a] text-zinc-100 focus:border-violet-500' : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-violet-500'}`}
+                                />
+                                <p className={`mt-2 text-[11px] ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>
+                                    A readable name makes the setup easier to find later in both Journal and Desktop Bridge.
+                                </p>
+                            </div>
+                            {selectedSetupSummary?.mixedSetupState && (
+                                <div className="p-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-100 text-sm leading-relaxed">
+                                    Some selected trades are already linked to different setups. Linking will replace those existing links with this new setup name.
+                                </div>
+                            )}
+                            {selectedSetupSummary?.hasExistingSetup && !selectedSetupSummary.mixedSetupState && (
+                                <div className="p-4 rounded-2xl border border-violet-500/20 bg-violet-500/10 text-violet-100 text-sm leading-relaxed">
+                                    These trades are already linked together. Linking again will create a fresh setup cluster.
+                                </div>
+                            )}
+                        </div>
                         <div className="flex gap-3">
                             <button 
                                 onClick={() => setIsLinkModalOpen(false)}
@@ -957,7 +1393,8 @@ const Journal: React.FC<JournalProps> = ({ isDarkMode, trades, onUpdateTrade, on
                             </button>
                             <button 
                                 onClick={handleLinkSelected}
-                                className="flex-1 py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-violet-500/20"
+                                disabled={!draftSetupName.trim() || selectedIds.length < 2}
+                                className="flex-1 py-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-violet-500/20"
                             >
                                 Link Now
                             </button>

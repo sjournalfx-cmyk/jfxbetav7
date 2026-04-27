@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import {
     Download, Copy, Check, Info, AlertCircle,
     Terminal, Shield, Cpu, ArrowRight, Loader2,
@@ -14,6 +14,7 @@ import { UserProfile, Trade, EASession, EADeal, EAPosition } from '../types';
 import OpenPositions from './OpenPositions';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { getSASTDateTime } from '../lib/timeUtils';
+import { normalizeTrade } from '../lib/trade-normalization';
 
 interface BridgeProps {
     isDarkMode: boolean;
@@ -145,23 +146,33 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
     const [isSavingTrade, setIsSavingTrade] = useState<string | null>(null); // Track specific trade being saved
     const [copied, setCopied] = useState(false);
 
+    // Headless local proxy state
+    const [localHeadlessData, setLocalHeadlessData] = useState<any>(null);
+    const [localLastHeartbeat, setLocalLastHeartbeat] = useState<Date | null>(null);
+
+    // Ã¢Å“â€¦ SUGGESTION 3: Equity Sparkline History (last 20 points)
+    const [equityHistory, setEquityHistory] = useState<number[]>([]);
+
     // Derive unique setups for the selector
     const recentSetups = useMemo(() => {
-        const setups: { id: string, pair: string }[] = [];
+        const setups: { id: string, pair: string, name: string }[] = [];
         const seenIds = new Set();
         [...trades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).forEach(t => {
             if (t.setupId && !seenIds.has(t.setupId)) {
-                setups.push({ id: t.setupId, pair: t.pair });
+                setups.push({
+                    id: t.setupId,
+                    pair: t.pair,
+                    name: t.setupName || `${t.pair} Cluster`
+                });
                 seenIds.add(t.setupId);
             }
         });
         return setups.slice(0, 8);
     }, [trades]);
 
-    const cardBg = isDarkMode ? 'bg-[#111] border-zinc-800' : 'bg-white border-zinc-100 shadow-sm';
-    const subTextColor = isDarkMode ? 'text-zinc-500' : 'text-[#666666]';
-    const backendUrl = `${(import.meta as any).env.VITE_SUPABASE_URL}/functions/v1/sync-trades`;
-    const apiKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+    // Ã¢Å“â€¦ FIX: cardStyle defined here Ã¢â‚¬â€ used throughout the component
+    // Obsidian Black theme: deeper blacks and subtle borders
+    const cardStyle = 'bg-[#000000]/80 border border-white/5 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)]';
 
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text);
@@ -175,12 +186,60 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
         return () => clearInterval(timer);
     }, []);
 
-    const timeAgo = lastHeartbeat ? Math.floor((now.getTime() - lastHeartbeat.getTime()) / 1000) : null;
-    const isOnline = isHeartbeat && timeAgo !== null && timeAgo < 15; // 15s threshold for 'offline'
+    // Local Headless MT5 Polling directly from Docker instance 
+    useEffect(() => {
+        let isActive = true;
+        const fetchHeadlessData = async () => {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000); // Fast timeout
+                
+                const [accountRes, positionsRes, historyRes] = await Promise.all([
+                    fetch('http://localhost:8888/api/account', { signal: controller.signal }),
+                    fetch('http://localhost:8888/api/positions', { signal: controller.signal }),
+                    fetch('http://localhost:8888/api/history', { signal: controller.signal })
+                ]);
+                clearTimeout(timeoutId);
+
+                if (accountRes.ok && positionsRes.ok && historyRes.ok) {
+                    const accData = await accountRes.json();
+                    const posData = await positionsRes.json();
+                    const histData = await historyRes.json();
+                    
+                    if (isActive) {
+                        setLocalHeadlessData({
+                           isHeartbeat: true,
+                           account: accData.account,
+                           openPositions: posData.openPositions,
+                           trades: histData.trades
+                        });
+                        setLocalLastHeartbeat(new Date());
+                    }
+                }
+            } catch (e) {
+                // Ignore, fallback to standard stream if offline or not using local headless mode
+            }
+        };
+
+        const interval = setInterval(fetchHeadlessData, 2000);
+        fetchHeadlessData(); // Fire immediately
+        return () => {
+            isActive = false;
+            clearInterval(interval);
+        };
+    }, []);
+
+    // Master Display Logic (Prefer local 8888 if active, fallback to remote Supabase event push)
+    const effectiveLiveData = localHeadlessData || liveData;
+    const effectiveLastHeartbeat = localLastHeartbeat || lastHeartbeat;
+    const effectiveIsHeartbeat = localHeadlessData ? true : isHeartbeat;
+
+    const timeAgo = effectiveLastHeartbeat ? Math.floor((now.getTime() - effectiveLastHeartbeat.getTime()) / 1000) : null;
+    const isOnline = effectiveIsHeartbeat && timeAgo !== null && timeAgo < 15; // 15s threshold for 'offline'
 
     // Filter "Pending" trades (from bridge but not in DB)
     // Only show "Exit" deals (entry=1 or 2) as candidates for Journal
-    const incomingTrades = (liveData?.trades || []).filter((t: EADeal) => t.entry === 1 || t.entry === 2);
+    const incomingTrades = (effectiveLiveData?.trades || []).filter((t: EADeal) => t.entry === 1 || t.entry === 2);
     const pendingTrades = incomingTrades.filter((t: EADeal) => !trades.some(st => st.ticketId === String(t.ticket)));
 
     // Auto-Log Logic
@@ -194,6 +253,33 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
             autoSave();
         }
     }, [pendingTrades, autoLog]);
+
+    // Ã¢Å“â€¦ Capture Equity history for sparkline
+    useEffect(() => {
+        const currentEquity = effectiveLiveData?.account?.equity;
+        if (currentEquity !== undefined && currentEquity !== null) {
+            setEquityHistory(prev => {
+                const next = [...prev, currentEquity];
+                return next.slice(-20); // Keep last 20 points
+            });
+        }
+    }, [effectiveLiveData?.account?.equity]);
+
+    // Ã¢Å“â€¦ SUGGESTION 2: High-Performance Sparkline Calculation
+    const sparklineData = useMemo(() => {
+        if (equityHistory.length < 2) return { path: '', points: [] };
+        const min = Math.min(...equityHistory);
+        const max = Math.max(...equityHistory);
+        const range = max - min || 1;
+        const width = 140;
+        const height = 40;
+        const points = equityHistory.map((v, i) => ({
+            x: (i / (equityHistory.length - 1)) * width,
+            y: height - ((v - min) / range) * height
+        }));
+        const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+        return { path, points };
+    }, [equityHistory]);
 
 
     const handleAddTrade = async (mt5Trade: EADeal) => {
@@ -218,7 +304,7 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
             const sast = getSASTDateTime(tradeDate);
             const sastEntry = getSASTDateTime(entryDate);
 
-            const newTrade: Trade = {
+            const newTrade = normalizeTrade({
                 id: '', // Generated by DB
                 ticketId: String(mt5Trade.ticket),
                 pair: mt5Trade.symbol,
@@ -227,22 +313,23 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
                 time: sast.fullTime, // Use full time for accuracy
                 openTime: entryDate.toISOString(),
                 closeTime: tradeDate.toISOString(),
-                session: 'New York',
                 direction: mt5Trade.type === 'BUY' ? 'Long' : 'Short',
                 entryPrice: mt5Trade.entry_price || mt5Trade.price,
                 exitPrice: mt5Trade.price,
-                stopLoss: 0,
-                takeProfit: 0,
+                stopLoss: mt5Trade.sl || 0,
+                takeProfit: mt5Trade.tp || 0,
                 lots: mt5Trade.volume,
-                result: netPnL >= 0 ? 'Win' : 'Loss',
+                result: netPnL > 0 ? 'Win' : netPnL < 0 ? 'Loss' : 'BE',
                 pnl: netPnL,
                 rr: 0,
                 rating: 0,
-                tags: ['MT5_Sync'],
+                tags: ['Others'],
                 notes: `Synced from MT5. Deal #${mt5Trade.ticket} | Order #${mt5Trade.order}`,
                 planAdherence: 'No Plan',
+                tradingMistake: 'None',
+                mindset: 'Neutral',
                 setupId: activeSetup?.id
-            };
+            });
 
             if (!autoLog && onEditTrade) {
                 onEditTrade(newTrade);
@@ -268,466 +355,387 @@ const BridgeMonitor: React.FC<BridgeMonitorProps> = ({ isDarkMode, userProfile, 
         }
     };
 
+    // Derived account values for bento cells
+    const equity      = effectiveLiveData?.account?.equity   || 0;
+    const balance     = effectiveLiveData?.account?.balance  || 0;
+    const profit      = effectiveLiveData?.account?.profit   || 0;
+    const margin      = effectiveLiveData?.account?.margin   || 0;
+    const openCount   = effectiveLiveData?.openPositions?.length || 0;
+    const freeMargin  = equity - margin;
+    const marginLevelPct = margin > 0 ? ((equity / margin) * 100).toFixed(0) : 'âˆž';
+
     return (
-        <div className="w-full h-full overflow-y-auto custom-scrollbar">
-            <div className="animate-in fade-in duration-500 max-w-6xl w-full mx-auto p-8">
+        <div className="w-full h-full overflow-y-auto custom-scrollbar" style={{ background: `linear-gradient(135deg,#000000 0%,#000000 60%,#000000 100%)` }}>
+            <div className="w-full p-4 lg:p-5 flex flex-col gap-4">
 
-                {/* Header Section */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                    <div className="flex items-start gap-6">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isOnline ? 'bg-emerald-500/10' : 'bg-rose-500/10'} shrink-0`}>
-                            {isOnline ? (
-                                <Wifi size={28} className="text-emerald-500" />
-                            ) : (
-                                <WifiOff size={28} className="text-rose-500" />
-                            )}
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <h1 className="text-3xl font-black tracking-tight">Desktop Bridge</h1>
-                                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border ${isOnline ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
-                                    <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                                    {isOnline ? 'Active' : 'Offline'}
-                                </div>
-                            </div>
-                            <p className={subTextColor}>
-                                {isOnline 
-                                    ? `Connected to ${liveData?.account?.server || 'MT5 Terminal'} • Last sync ${timeAgo !== null ? `${timeAgo}s ago` : 'just now'}`
-                                    : 'Connection lost. Please check your bridge application.'}
-                            </p>
-                        </div>
-                    </div>
+        {/* TOP NAV */}
+      <div className="flex items-center justify-between gap-4 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center relative shrink-0 overflow-hidden bg-slate-800/50">
+            <img src="/mt5-logo.png" alt="MetaTrader 5" className="w-9 h-9 object-contain" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-black tracking-tight text-white">Desktop Bridge</h1>
+              {localHeadlessData && (
+                <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 text-[9px] font-black tracking-widest uppercase border border-indigo-500/20">Headless</span>
+              )}
+              <div className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 border ${isOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                {isOnline ? `Live Â· ${timeAgo}s ago` : 'Offline'}
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">{effectiveLiveData?.account?.server || 'MetaTrader 5 Terminal'}</p>
+          </div>
+        </div>
+      </div>
 
-                    <div className={`p-1 rounded-xl flex items-center border ${isDarkMode ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
-                        <button
-                            onClick={() => setActiveTab('monitor')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'monitor'
-                                ? (isDarkMode ? 'bg-zinc-800 text-white shadow-sm' : 'bg-white text-black shadow-sm')
-                                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-                                }`}
-                        >
-                            <LayoutDashboard size={16} /> Monitor
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('settings')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'settings'
-                                ? (isDarkMode ? 'bg-zinc-800 text-white shadow-sm' : 'bg-white text-black shadow-sm')
-                                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-                                }`}
-                        >
-                            <Settings size={16} /> Settings
+      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="p-1 rounded-xl flex items-center border border-white/5 bg-slate-900/40 backdrop-blur-md">
+                            <button onClick={() => setActiveTab('monitor')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${activeTab === 'monitor' ? 'bg-amber-500 text-slate-900 shadow-lg shadow-amber-500/20' : 'text-slate-500 hover:text-slate-300'}`}>
+                                <LayoutDashboard size={12} strokeWidth={2.5} /> Monitor
+                            </button>
+                            <button onClick={() => setActiveTab('settings')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${activeTab === 'settings' ? 'bg-amber-500 text-slate-900 shadow-lg shadow-amber-500/20' : 'text-slate-500 hover:text-slate-300'}`}>
+                                <Settings size={12} strokeWidth={2.5} /> Settings
+                            </button>
+                        </div>
+                        <button onClick={onDisconnect} className="h-10 px-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all flex items-center gap-2">
+                            <Power size={12} strokeWidth={3} /> Disconnect
                         </button>
                     </div>
                 </div>
 
                 {activeTab === 'monitor' ? (
-                    <div className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-12 gap-4">
 
-                        {/* Setup Linker Strip */}
-                        <div className={`p-6 rounded-[32px] border-2 border-dashed flex flex-col md:flex-row items-center justify-between gap-6 transition-all ${activeSetup ? 'bg-violet-500/10 border-violet-500/30' : 'bg-zinc-500/5 border-zinc-500/10'}`}>
-                            <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${activeSetup ? 'bg-violet-500 text-white shadow-violet-500/20' : 'bg-zinc-500/20 text-zinc-500'}`}>
-                                    <Link size={24} />
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black uppercase tracking-widest leading-none mb-1">Active Setup Linker</h3>
-                                    <p className="text-[10px] font-bold opacity-50">Automatically group all incoming MT5 trades.</p>
-                                </div>
+                        {/* Ã¢â€¢ÂÃ¢â€¢Â ROW 1 Ã¢â‚¬â€ Hero Metric Bento Cells Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â Ã¢â€¢Â */}
+
+                        {/* Equity Ã¢â‚¬â€ wide hero cell */}
+                        <div className={`col-span-12 lg:col-span-5 ${cardStyle} rounded-3xl p-6 relative overflow-hidden`}>
+                            <div className="absolute top-0 right-0 w-56 h-56 bg-amber-500/5 blur-[70px] -mr-28 -mt-28 rounded-full pointer-events-none" />
+                            
+
+                            {/* Ã¢Å“â€¦ SUGGESTION 1: Pulse Animated Sparkline */}
+                            <div className="absolute bottom-6 right-6 opacity-40">
+                                <svg width="140" height="40" viewBox="0 0 140 40" className="overflow-visible">
+                                    <path 
+                                        d={sparklineData.path} 
+                                        fill="none" 
+                                        stroke="url(#sparkline-grad)" 
+                                        strokeWidth="2.5" 
+                                        strokeLinecap="round" 
+                                        strokeLinejoin="round" 
+                                    />
+                                    <defs>
+                                        <linearGradient id="sparkline-grad" x1="0" y1="0" x2="1" y2="0">
+                                            <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.2" />
+                                            <stop offset="100%" stopColor="#f59e0b" />
+                                        </linearGradient>
+                                    </defs>
+                                    {sparklineData.points.length > 0 && (
+                                        <g>
+                                            <circle 
+                                                cx={sparklineData.points[sparklineData.points.length - 1].x} 
+                                                cy={sparklineData.points[sparklineData.points.length - 1].y} 
+                                                r="4" 
+                                                fill="#f59e0b" 
+                                                className="animate-pulse"
+                                            />
+                                            <circle 
+                                                cx={sparklineData.points[sparklineData.points.length - 1].x} 
+                                                cy={sparklineData.points[sparklineData.points.length - 1].y} 
+                                                r="8" 
+                                                fill="none"
+                                                stroke="#f59e0b"
+                                                strokeWidth="1"
+                                                className="animate-ping opacity-40"
+                                            />
+                                        </g>
+                                    )}
+                                </svg>
                             </div>
 
-                            <div className="flex items-center gap-3 w-full md:w-auto">
-                                <div className="flex-1 md:w-64">
-                                    <select 
+                            <div className="relative z-10">
+                                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-1">Portfolio Net Equity</div>
+                                <div className="text-4xl font-mono font-black tracking-tighter text-white flex items-baseline gap-1 mb-3">
+                                    <span className="text-amber-500 text-2xl font-sans mr-1">{userProfile.currencySymbol}</span>
+                                    {equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${profit >= 0 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(251,113,133,0.8)]'}`} />
+                                    <span className={`text-sm font-mono font-black ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                        {profit >= 0 ? '+' : ''}{userProfile.currencySymbol}{profit.toLocaleString(undefined, { minimumFractionDigits: 2 })} Live P&amp;L
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Balance */}
+                        <div className={`col-span-6 lg:col-span-2 ${cardStyle} rounded-3xl p-5 group transition-all duration-200`}>
+                            <div className="p-2 rounded-xl bg-slate-800/70 w-fit mb-3"><DollarSign size={15} className="text-slate-400" /></div>
+                            <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Balance</div>
+                            <div className="text-lg font-mono font-black text-white">{userProfile.currencySymbol}{balance.toLocaleString()}</div>
+                        </div>
+
+                        {/* Used Margin */}
+                        <div className={`col-span-6 lg:col-span-2 ${cardStyle} rounded-3xl p-5 group transition-all duration-200`}>
+                            <div className="p-2 rounded-xl bg-amber-500/10 w-fit mb-3"><BarChart3 size={15} className="text-amber-500" /></div>
+                            <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Used Margin</div>
+                            <div className="text-lg font-mono font-black text-amber-400">{userProfile.currencySymbol}{margin.toLocaleString()}</div>
+                        </div>
+
+                        {/* Free Margin */}
+                        <div className={`col-span-6 lg:col-span-2 ${cardStyle} rounded-3xl p-5 group transition-all duration-200`}>
+                            <div className="p-2 rounded-xl bg-indigo-500/10 w-fit mb-3"><Activity size={15} className="text-indigo-400" /></div>
+                            <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">Free Margin</div>
+                            <div className="text-lg font-mono font-black text-indigo-400">{userProfile.currencySymbol}{freeMargin.toLocaleString()}</div>
+                        </div>
+
+                        {/* Open Trades + Leverage stacked */}
+                        <div className="col-span-6 lg:col-span-1 flex flex-col gap-4">
+                            <div className={`${cardStyle} rounded-3xl p-4 flex flex-col items-center justify-center text-center group transition-all duration-200 flex-1`}>
+                                <div className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-500 mb-1">Active</div>
+                                <div className="text-2xl font-mono font-black text-indigo-400">{openCount}</div>
+                                <div className="text-[8px] font-black text-slate-600 uppercase tracking-wider mt-0.5">Trades</div>
+                            </div>
+                            <div className={`${cardStyle} rounded-3xl p-4 flex flex-col items-center justify-center text-center group transition-all duration-200 flex-1`}>
+                                <div className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-500 mb-1">Leverage</div>
+                                <div className="text-lg font-mono font-black text-violet-400">1:{effectiveLiveData?.account?.leverage || 'â€”'}</div>
+                            </div>
+                        </div>
+
+                        {/* Ã¢â€¢ÂÃ¢â€¢Â ROW 2 Ã¢â‚¬â€ Main Dashboard Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */}
+
+                        {/* Live Positions Ã¢â‚¬â€ large bento cell */}
+                        <div className={`col-span-12 lg:col-span-8 ${cardStyle} rounded-3xl p-6 flex flex-col`} style={{ minHeight: '340px' }}>
+                            <div className="flex items-center justify-between mb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                                        <Activity size={17} className="text-emerald-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-sm text-white uppercase tracking-wider leading-none">Terminal Pipeline</h3>
+                                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Real-time Â· MetaTrader 5</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-[9px] font-black uppercase tracking-widest text-slate-500">MT5 CORE</div>
+                                    {isOnline && <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
+                                </div>
+                            </div>
+                            <div className="flex-1 -mx-2 overflow-auto custom-scrollbar">
+                                <OpenPositions
+                                    positions={(effectiveLiveData?.openPositions || []).map((p: any) => ({
+                                        ...p,
+                                        lots: p.volume,
+                                        openTime: p.time ? new Date(p.time * 1000).toISOString() : '',
+                                        openPrice: p.open_price,
+                                        currentPrice: p.current_price,
+                                        profit: p.profit
+                                    }))}
+                                    isDarkMode={isDarkMode}
+                                    currencySymbol={userProfile.currencySymbol}
+                                    lastUpdated={lastHeartbeat?.toISOString()}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Right column Ã¢â‚¬â€ Setup Linker + Journal Queue */}
+                        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+
+                            {/* Setup Intelligence */}
+                            <div className={`${cardStyle} rounded-3xl p-5`}>
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${activeSetup ? 'bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-500'}`}>
+                                        <Link size={17} strokeWidth={2.5} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[11px] font-black uppercase tracking-widest text-white leading-none">Setup Linker</h3>
+                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Cluster Engine</p>
+                                    </div>
+                                </div>
+                                <div className="relative">
+                                    <select
                                         id="setup-linker"
-                                        name="setup-linker"
-                                        aria-label="Select active setup to link trades"
-                                        className={`w-full px-4 py-3 rounded-xl border text-xs font-bold outline-none appearance-none cursor-pointer transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 focus:border-violet-500' : 'bg-white border-zinc-200 text-zinc-700 focus:border-violet-500'}`}
+                                        className="w-full pl-4 pr-9 py-3 rounded-2xl border border-slate-800 text-[10px] font-black uppercase tracking-wider outline-none appearance-none cursor-pointer transition-all bg-slate-900 text-slate-300 focus:border-amber-500/50"
                                         value={activeSetup?.id || ''}
                                         onChange={(e) => {
                                             const id = e.target.value;
-                                            if (!id) {
-                                                setActiveSetup(null);
-                                            } else {
+                                            if (!id) setActiveSetup(null);
+                                            else {
                                                 const s = recentSetups.find(rs => rs.id === id);
-                                                if (s) setActiveSetup({ id: s.id, name: `Setup Cluster (${s.pair})` });
+                                                if (s) setActiveSetup({ id: s.id, name: s.name || `Setup Cluster (${s.pair})` });
                                             }
                                         }}
                                     >
-                                        <option value="">No Active Setup (Standalone Mode)</option>
+                                        <option value="">Standalone Mode</option>
                                         {recentSetups.map(s => (
-                                            <option key={s.id} value={s.id}>Setup Cluster ({s.pair})</option>
+                                            <option key={s.id} value={s.id}>{s.name}</option>
                                         ))}
                                     </select>
+                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                                 </div>
+                                {recentSetups.length === 0 && (
+                                    <p className="mt-3 text-[10px] font-medium text-slate-500 leading-relaxed">
+                                        Link trades in Trade History to create reusable setup clusters here.
+                                    </p>
+                                )}
                                 {activeSetup && (
-                                    <button 
-                                        onClick={() => setActiveSetup(null)}
-                                        className="px-4 py-2 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                                        title="Unlink Setup"
-                                    >
-                                        <X size={14} /> Unlink Setup
+                                    <button onClick={() => setActiveSetup(null)} className="mt-3 w-full py-2.5 rounded-2xl bg-rose-500/10 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center gap-2 border border-rose-500/20">
+                                        <X size={12} strokeWidth={3} /> Clear Link
                                     </button>
                                 )}
                             </div>
-                        </div>
 
-                        {/* Primary Metrics Strip (Immediate Visibility) */}
-                        <div className={`p-6 rounded-[32px] border-2 flex flex-wrap items-center justify-between gap-8 ${cardBg}`}>
-                            <div className="flex items-center gap-8">
-                                <div>
-                                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Total Equity</div>
-                                    <div className="text-3xl font-mono font-black text-[#FF4F01]">
-                                        {userProfile.currencySymbol}{liveData?.account?.equity?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '---'}
-                                    </div>
-                                </div>
-                                <div className="w-px h-10 bg-zinc-500/10 hidden md:block" />
-                                <div>
-                                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Floating P/L</div>
-                                    <div className={`text-xl font-mono font-black flex items-center gap-2 ${liveData?.account?.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                        {liveData?.account?.profit >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
-                                        {liveData?.account?.profit >= 0 ? '+' : ''}{userProfile.currencySymbol}{liveData?.account?.profit?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '---'}
-                                    </div>
-                                </div>
-                                <div className="w-px h-10 bg-zinc-500/10 hidden md:block" />
-                                <div>
-                                    <div className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Open Trades</div>
-                                    <div className="text-xl font-mono font-black text-indigo-500">
-                                        {liveData?.openPositions?.length || 0}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${showTechnicalDetails ? 'bg-zinc-800 text-white' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border border-zinc-500/10'}`}
-                            >
-                                <Cpu size={14} /> {showTechnicalDetails ? 'Hide Details' : 'Account Details'}
-                                <ChevronDown size={14} className={`transition-transform duration-300 ${showTechnicalDetails ? 'rotate-180' : ''}`} />
-                            </button>
-                        </div>
-
-                        {/* Quick Stats Summary */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {[
-                                { label: 'Balance', value: userProfile.currencySymbol + (liveData?.account?.balance?.toLocaleString() || '---'), icon: DollarSign, color: 'text-zinc-500' },
-                                { label: 'Margin Used', value: userProfile.currencySymbol + (liveData?.account?.margin?.toLocaleString() || '---'), icon: BarChart3, color: 'text-amber-500' },
-                                { label: 'Free Margin', value: userProfile.currencySymbol + ((liveData?.account?.equity || 0) - (liveData?.account?.margin || 0)).toLocaleString(), icon: Activity, color: 'text-blue-500' },
-                                { label: 'Leverage', value: `1:${liveData?.account?.leverage || '---'}`, icon: TrendingUp, color: 'text-purple-500' },
-                            ].map((stat, idx) => (
-                                <div key={idx} className={`p-4 rounded-2xl border-2 ${cardBg} hover:border-zinc-500/20 transition-colors`}>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <stat.icon size={14} className={stat.color} />
-                                        <div className="text-[9px] font-black uppercase tracking-widest opacity-40">{stat.label}</div>
-                                    </div>
-                                    <div className="text-lg font-mono font-bold">{stat.value}</div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Collapsible Technical Details */}
-                        {showTechnicalDetails && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-4 duration-300">
-                                <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4">Broker & Identity</h4>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold opacity-60">Company:</span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-black">{liveData?.account?.company || '---'}</span>
-                                                {liveData?.account?.is_demo !== undefined && (
-                                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${liveData.account.is_demo ? 'bg-blue-500/10 text-blue-500 border-blue-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'}`}>
-                                                        {liveData.account.is_demo ? 'Demo' : 'Real'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold opacity-60">Login ID:</span>
-                                            <span className="text-xs font-mono font-bold">{liveData?.account?.login || '---'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold opacity-60">Server:</span>
-                                            <span className="text-xs font-bold truncate max-w-[150px]">{liveData?.account?.server || '---'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                    <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-4">Margin & Risk</h4>
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold opacity-60">Balance:</span>
-                                            <span className="text-xs font-bold">{userProfile.currencySymbol}{liveData?.account?.balance?.toLocaleString() || '---'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold opacity-60">Used Margin:</span>
-                                            <span className="text-xs font-bold">{userProfile.currencySymbol}{liveData?.account?.margin?.toLocaleString() || '---'}</span>
+                            {/* Journal Queue */}
+                            <div className={`${cardStyle} rounded-3xl p-5 flex-1 flex flex-col`} style={{ minHeight: '220px' }}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-14 h-14 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                                            <Download size={15} strokeWidth={2.5} />
                                         </div>
                                         <div>
-                                            <div className="flex justify-between items-center mb-2">
-                                                <span className="text-xs font-bold opacity-60">Margin Level:</span>
-                                                <span className={`text-xs font-black ${liveData?.account?.margin_level > 200 ? 'text-emerald-500' : liveData?.account?.margin_level > 100 ? 'text-amber-500' : 'text-rose-500'}`}>
-                                                    {liveData?.account?.margin_level?.toFixed(2) || '0.00'}%
-                                                </span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-zinc-500/10 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full transition-all duration-500 ${liveData?.account?.margin_level > 200 ? 'bg-emerald-500' :
-                                                        liveData?.account?.margin_level > 100 ? 'bg-amber-500' : 'bg-rose-500'
-                                                        }`}
-                                                    style={{ width: `${Math.min(100, (liveData?.account?.margin_level || 0) / 5)}%` }} // Visual scaling
-                                                />
-                                            </div>
+                                            <h3 className="font-black text-[11px] uppercase tracking-widest text-white leading-none">Journal Queue</h3>
+                                            {pendingTrades.length > 0 && (
+                                                <p className="text-[9px] text-amber-400 font-bold mt-0.5">{pendingTrades.length} pending</p>
+                                            )}
                                         </div>
                                     </div>
+                                    {pendingTrades.length > 0 && (
+                                        <button
+                                            onClick={async () => {
+                                                setIsSavingTrade('bulk_all');
+                                                try { for (const t of pendingTrades) await handleAddTrade(t); }
+                                                finally { setIsSavingTrade(null); }
+                                            }}
+                                            disabled={isSavingTrade !== null}
+                                            className="px-3 py-1.5 rounded-lg bg-indigo-500 text-white text-[9px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20"
+                                        >
+                                            {isSavingTrade === 'bulk_all' ? '...' : 'Sync All'}
+                                        </button>
+                                    )}
                                 </div>
-                            </div>
-                        )}
 
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Main Content: Live Positions */}
-                            <div className={`lg:col-span-2 p-6 rounded-[24px] border-2 min-h-[400px] flex flex-col ${cardBg}`}>
-                                <div className="flex items-center justify-between mb-6">
-                                    <h3 className="font-bold flex items-center gap-2">
-                                        <Activity size={18} className="text-emerald-500" /> Live Positions
-                                    </h3>
-                                    <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
-                                        MT5 Terminal Active
-                                    </div>
-                                </div>
-                                <div className="flex-1 -mx-2 px-2">
-                                    <OpenPositions
-                                        positions={(liveData?.openPositions || []).map((p: any) => ({
-                                            ...p,
-                                            lots: p.volume,
-                                            openTime: p.time ? new Date(p.time * 1000).toISOString() : '',
-                                            openPrice: p.open_price,
-                                            currentPrice: p.current_price,
-                                            profit: p.profit
-                                        }))}
-                                        isDarkMode={isDarkMode}
-                                        currencySymbol={userProfile.currencySymbol}
-                                        lastUpdated={lastHeartbeat?.toISOString()}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Sidebar Column: Pending Trades & Logs */}
-                            <div className="space-y-6">
-                                {/* Pending Trades */}
-                                <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div className="flex items-center gap-2">
-                                            <Download size={16} className="text-indigo-500" />
-                                            <h3 className="font-bold text-sm">Pending Journal</h3>
-                                        </div>
-                                        {pendingTrades.length > 0 && (
-                                            <button
-                                                onClick={async () => {
-                                                    setIsSavingTrade('bulk_all');
-                                                    try {
-                                                        for (const trade of pendingTrades) {
-                                                            await handleAddTrade(trade);
-                                                        }
-                                                    } catch (err) {
-                                                        console.error("Bulk save error:", err);
-                                                    } finally {
-                                                        setIsSavingTrade(null);
-                                                    }
-                                                }}
-                                                disabled={isSavingTrade !== null}
-                                                className="text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-600 hover:underline disabled:opacity-50"
-                                            >
-                                                {isSavingTrade === 'bulk_all' ? 'Saving...' : 'Add All'}
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2 max-h-[250px] overflow-y-auto custom-scrollbar pr-1">
-                                        {pendingTrades.length > 0 ? (
-                                            pendingTrades.map((trade: any) => {
-                                                const pipSize = trade.symbol.includes('JPY') ? 0.01 : 0.0001;
-                                                const pipMovement = trade.entry_price ? (trade.type === 'BUY' ? trade.price - trade.entry_price : trade.entry_price - trade.price) / pipSize : 0;
-                                                return (
-                                                    <div key={trade.ticket} className="p-3 rounded-xl border border-dashed border-zinc-500/20 hover:border-indigo-500/50 transition-colors">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-black text-xs">{trade.symbol}</span>
-                                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${trade.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                                                                    {trade.type}
-                                                                </span>
-                                                            </div>
-                                                            <div className={`text-xs font-black font-mono ${trade.profit >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                {trade.profit >= 0 ? '+' : ''}{trade.profit.toFixed(2)}
-                                                            </div>
+                                <div className="space-y-2 overflow-y-auto custom-scrollbar flex-1 pr-1 -mr-1">
+                                    {pendingTrades.length > 0 ? (
+                                        pendingTrades.map((trade: any) => {
+                                            const pipSize = trade.symbol?.includes('JPY') ? 0.01 : 0.0001;
+                                            const pipMov = trade.entry_price ? (trade.type === 'BUY' ? trade.price - trade.entry_price : trade.entry_price - trade.price) / pipSize : 0;
+                                            return (
+                                                <div key={trade.ticket} className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 hover:border-amber-500/30 transition-all group">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-black text-xs text-white">{trade.symbol}</span>
+                                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${trade.type === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{trade.type}</span>
                                                         </div>
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <div className="text-[10px] opacity-50 font-mono">
-                                                                #{trade.ticket} • {trade.volume} Lots
-                                                            </div>
-                                                            <div className={`text-[10px] font-mono ${pipMovement >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                {pipMovement >= 0 ? '+' : ''}{pipMovement.toFixed(2)} pip
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <div></div>
-                                                            {trades.some(st => st.ticketId === String(trade.ticket)) ? (
-                                                                <CheckCircle2 size={14} className="text-emerald-500" />
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleAddTrade(trade)}
-                                                                    disabled={isSavingTrade !== null}
-                                                                    className="text-[10px] font-bold text-indigo-500 hover:underline disabled:opacity-50"
-                                                                >
-                                                                    {isSavingTrade === String(trade.ticket) ? 'Saving...' : 'Add'}
-                                                                </button>
-                                                            )}
-                                                        </div>
+                                                        <span className={`text-xs font-mono font-black ${trade.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{trade.profit >= 0 ? '+' : ''}{trade.profit?.toFixed(2)}</span>
                                                     </div>
-                                                );
-                                            })
-                                        ) : (
-                                            <div className="text-center py-8 px-4 border-2 border-dashed border-zinc-500/10 rounded-xl">
-                                                <div className="text-xs font-black uppercase tracking-widest opacity-40 mb-2">No new trades detected</div>
-                                                <p className="text-[10px] opacity-30 leading-relaxed">
-                                                    Ensure you've closed trades in MT5. The bridge will detect and display them here automatically for journaling.
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Sync Feed (Scrollable Feed) */}
-                                <div className={`p-6 rounded-[24px] border-2 ${cardBg} max-h-[300px] flex flex-col`}>
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <Clock size={16} className="text-amber-500" />
-                                        <h3 className="font-bold text-sm">Sync Feed</h3>
-                                    </div>
-                                    <div className="space-y-3 overflow-y-auto custom-scrollbar pr-1 flex-1">
-                                        {syncLog?.length > 0 ? (
-                                            syncLog.map((log: any, i: number) => (
-                                                <div key={i} className="flex items-start gap-3 text-[11px] font-mono leading-tight">
-                                                    <div className="opacity-30 whitespace-nowrap">
-                                                        {new Date(log.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[9px] font-mono text-slate-500">#{trade.ticket} Â· {trade.volume}L Â· {pipMov >= 0 ? '+' : ''}{pipMov.toFixed(1)}p</span>
+                                                        {trades.some(st => st.ticketId === String(trade.ticket)) ? (
+                                                            <div className="flex items-center gap-1 text-[8px] font-black text-emerald-500 uppercase tracking-widest"><CheckCircle2 size={10} strokeWidth={3} /> Logged</div>
+                                                        ) : (
+                                                            <button onClick={() => handleAddTrade(trade)} disabled={isSavingTrade !== null} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-[9px] font-black uppercase tracking-widest hover:bg-amber-500 hover:text-slate-900 transition-all border border-slate-700 disabled:opacity-50">
+                                                                {isSavingTrade === String(trade.ticket) ? '...' : 'Log'}
+                                                            </button>
+                                                        )}
                                                     </div>
-                                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${log.type === 'success' ? 'bg-emerald-500' :
-                                                        log.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
-                                                        }`} />
-                                                    <div className={`break-words ${isDarkMode ? 'text-zinc-300' : 'text-zinc-600'}`}>{log.message}</div>
                                                 </div>
-                                            ))
-                                        ) : (
-                                            <div className="text-xs opacity-30 font-mono italic">Waiting for events...</div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="space-y-8 animate-in slide-in-from-bottom-2 duration-300">
-                        {/* Settings Tab Content */}
-
-                        {/* Connection Diagnostic */}
-                        <div className={`p-8 rounded-[32px] border-2 ${cardBg} relative overflow-hidden`}>
-                            <div className="flex flex-col md:flex-row items-start justify-between relative z-10 gap-8">
-                                <div className="space-y-6 flex-1">
-                                    <div>
-                                        <h3 className="text-xl font-black mb-2">Connection Diagnostics</h3>
-                                        <p className="text-sm opacity-60 max-w-md">Technical details about your current bridge session. Ensure the JournalFX Bridge app is running.</p>
-                                    </div>
-
-                                    <div className="flex flex-wrap gap-4">
-                                        <div className="px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-dashed border-zinc-500/30">
-                                            <div className="text-[9px] font-black uppercase tracking-tighter opacity-40 mb-1">Last Heartbeat</div>
-                                            <div className="text-sm font-mono font-bold">
-                                                {lastHeartbeat ? lastHeartbeat.toLocaleTimeString() : 'Never'}
-                                                <span className="ml-2 text-[10px] opacity-40">({timeAgo}s ago)</span>
-                                            </div>
-                                        </div>
-                                        <div className="px-4 py-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-dashed border-zinc-500/30">
-                                            <div className="text-[9px] font-black uppercase tracking-tighter opacity-40 mb-1">Session ID</div>
-                                            <div className="text-sm font-mono font-bold opacity-60">
-                                                {syncKey.substring(0, 8)}...
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className={`hidden md:flex w-32 h-32 rounded-full border-8 ${isOnline ? 'border-emerald-500/30' : 'border-rose-500/30'} items-center justify-center relative transition-colors duration-500 shrink-0`}>
-                                    {isOnline ? (
-                                        <div className="relative flex items-center justify-center">
-                                            <Activity size={40} className="text-emerald-500 animate-pulse" />
-                                        </div>
+                                            );
+                                        })
                                     ) : (
-                                        <div className="relative flex items-center justify-center">
-                                            <Activity size={40} className="text-rose-500" />
+                                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                                            <div className="w-10 h-10 rounded-full bg-slate-800/60 flex items-center justify-center mb-3">
+                                                <RefreshCw size={18} className="text-slate-600" />
+                                            </div>
+                                            <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">Awaiting Activity</div>
+                                            <p className="text-[9px] text-slate-700 font-bold mt-1 uppercase tracking-wider">Bridge active. Listening...</p>
                                         </div>
                                     )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Configuration */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Workflow Settings */}
-                            <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                <h3 className="font-bold mb-4 flex items-center gap-2"><Zap size={18} className="text-amber-500" /> Automation</h3>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="font-bold text-sm">Auto-Log Trades</div>
-                                        <div className="text-[10px] opacity-60 max-w-[200px] leading-tight mt-1">
-                                            Automatically add closed trades to your journal without manual confirmation.
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setAutoLog(!autoLog)}
-                                        className={`w-12 h-6 rounded-full transition-colors relative ${autoLog ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'}`}
-                                    >
-                                        <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${autoLog ? 'left-7' : 'left-1'}`} />
-                                    </button>
-                                </div>
-                            </div>
+                        {/* Ã¢â€¢ÂÃ¢â€¢Â ROW 3 Ã¢â‚¬â€ Telemetry + Margin Level Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */}
 
-                            <div className={`p-6 rounded-[24px] border-2 ${cardBg}`}>
-                                <h3 className="font-bold mb-4 flex items-center gap-2"><Shield size={18} /> Bridge Configuration</h3>
-                                <div className="space-y-4">
+                    </div>
+                ) : (
+                    /* Ã¢â€â‚¬Ã¢â€â‚¬ SETTINGS TAB Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+                    <div className="grid grid-cols-12 gap-4">
+
+                        {/* Connection Diagnostics */}
+                        <div className={`col-span-12 ${cardStyle} rounded-3xl p-6 relative overflow-hidden`}>
+                            <div className="flex flex-col md:flex-row items-start justify-between gap-6 relative z-10">
+                                <div className="space-y-4 flex-1">
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2 block">Your Sync Key</label>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1 p-3 rounded-xl bg-black/5 dark:bg-white/5 font-mono text-sm font-bold tracking-wider text-[#FF4F01]">
-                                                {syncKey}
+                                        <h3 className="text-lg font-black mb-1 text-white uppercase tracking-wider">Connection Diagnostics</h3>
+                                        <p className="text-sm text-slate-400 max-w-md">Technical details about your current bridge session. Ensure the JournalFX Bridge app is running.</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-3">
+                                        <div className="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800">
+                                            <div className="text-[9px] font-black uppercase tracking-tighter text-slate-500 mb-1">Last Heartbeat</div>
+                                            <div className="text-sm font-mono font-bold text-white">
+                                                {effectiveLastHeartbeat ? effectiveLastHeartbeat.toLocaleTimeString() : 'Never'}
+                                                <span className="ml-2 text-[10px] text-slate-500">({timeAgo !== null ? `${timeAgo}s ago` : 'â€”'})</span>
                                             </div>
-                                            <button
-                                                onClick={() => handleCopy(syncKey)}
-                                                className={`p-3 rounded-xl transition-all ${copied ? 'bg-emerald-500 text-white' : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'}`}
-                                            >
-                                                {copied ? <Check size={18} /> : <Copy size={18} />}
-                                            </button>
+                                        </div>
+                                        <div className="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800">
+                                            <div className="text-[9px] font-black uppercase tracking-tighter text-slate-500 mb-1">Session ID</div>
+                                        <div className="text-sm font-mono font-bold text-slate-300">{(syncKey || 'real-sync-key').substring(0, 8)}...</div>
+                                        </div>
+                                        <div className="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800">
+                                            <div className="text-[9px] font-black uppercase tracking-tighter text-slate-500 mb-1">Stream Source</div>
+                                            <div className="text-sm font-mono font-bold text-indigo-400">{localHeadlessData ? 'Local :8888' : 'Supabase Cloud'}</div>
                                         </div>
                                     </div>
                                 </div>
+                                <div className={`hidden md:flex w-24 h-24 rounded-full border-8 items-center justify-center shrink-0 transition-colors duration-500 ${isOnline ? 'border-emerald-500/30' : 'border-rose-500/30'}`}>
+                                    <Activity size={36} className={isOnline ? 'text-emerald-500 animate-pulse' : 'text-rose-500'} />
+                                </div>
                             </div>
+                        </div>
 
-                            <div className={`p-6 rounded-[24px] border-2 border-rose-500/20 bg-rose-500/5`}>
-                                <h3 className="font-bold mb-4 flex items-center gap-2 text-rose-500"><AlertCircle size={18} /> Danger Zone</h3>
-                                <p className="text-sm opacity-60 mb-6 leading-relaxed">
-                                    Disconnecting the bridge will stop all real-time data streaming. You will need to re-run the setup wizard to reconnect.
-                                </p>
-                                <button
-                                    onClick={onDisconnect}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl bg-rose-500 text-white font-bold text-sm hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
-                                >
-                                    <Power size={18} /> Disconnect Bridge
+                        {/* Automation */}
+                        <div className={`col-span-12 md:col-span-4 ${cardStyle} rounded-3xl p-6`}>
+                            <h3 className="font-black mb-5 flex items-center gap-2 text-white uppercase tracking-widest text-sm"><Zap size={16} className="text-amber-500" /> Automation</h3>
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <div className="font-bold text-sm text-slate-200">Auto-Log Trades</div>
+                                    <div className="text-[10px] text-slate-500 max-w-[200px] leading-tight mt-1">Automatically add closed trades without manual confirmation.</div>
+                                </div>
+                                <button onClick={() => setAutoLog(!autoLog)} className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${autoLog ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-slate-800'}`}>
+                                    <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${autoLog ? 'left-7' : 'left-1'}`} />
                                 </button>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
+
+                        {/* Bridge Security */}
+                        <div className={`col-span-12 md:col-span-4 ${cardStyle} rounded-3xl p-6`}>
+                            <h3 className="font-black mb-5 flex items-center gap-2 text-white uppercase tracking-widest text-sm"><Shield size={16} className="text-indigo-400" /> Bridge Security</h3>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 block">Active Sync Key</label>
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1 p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-sm font-bold text-amber-500 truncate">{syncKey || 'real-sync-key'}</div>
+                                <button onClick={() => handleCopy(syncKey || 'real-sync-key')} className={`p-3 rounded-xl transition-all shrink-0 ${copied ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}>
+                                    {copied ? <Check size={16} strokeWidth={3} /> : <Copy size={16} />}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Danger Zone */}
+                        <div className="col-span-12 md:col-span-4 p-6 rounded-3xl border border-rose-500/20 bg-rose-500/5">
+                            <h3 className="font-black mb-3 flex items-center gap-2 text-rose-400 uppercase tracking-widest text-sm"><AlertCircle size={16} /> Danger Zone</h3>
+                            <p className="text-sm text-slate-400 mb-5 leading-relaxed">Disconnecting stops all real-time streaming. You'll need the setup wizard to reconnect.</p>
+                            <button onClick={onDisconnect} className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-black uppercase tracking-widest text-xs hover:bg-rose-500 hover:text-white transition-all">
+          <Power size={16} strokeWidth={3} /> Disconnect System
+        </button>
+      </div>
+    </div>
+  )}
+</div>
+);
 };
 
-/* --- SUB-COMPONENT: BRIDGE WIZARD (The "Connected" Page) --- */
+/* --- SUB-COMPONENT: BRIDGE WIZARD --- */
 interface BridgeWizardProps {
     isDarkMode: boolean;
     onComplete: (syncKey: string) => void;
@@ -738,14 +746,75 @@ interface BridgeWizardProps {
 const BridgeWizard: React.FC<BridgeWizardProps> = ({ isDarkMode, onComplete, userProfile, onUpdateProfile }) => {
     const [step, setStep] = useState(0);
     const [syncKey, setSyncKey] = useState(userProfile.syncKey || '');
-    const [copied, setCopied] = useState(false);
     const [connectionStatus, setConnectionStatus] = useState<'waiting' | 'success' | 'error'>('waiting');
+
+    const bridgeSteps = useMemo(() => [
+        {
+            id: 0,
+            title: 'Download the bridge',
+            subtitle: 'Get the Windows app that connects MT5 to JournalFX.',
+            icon: Download,
+            panelIcon: WindowsLogoIcon,
+            requirements: [
+                'Windows 10 or 11',
+                'Internet connection',
+                'Browser downloads allowed',
+            ],
+            actions: [
+                'Download the .exe file',
+                'Save it somewhere easy to find',
+                'Keep the file ready for the next step',
+            ],
+            note: 'No Python setup. No manual install.',
+            ctaLabel: 'Download JournalFX_Bridge.exe',
+        },
+        {
+            id: 1,
+            title: 'Open and sign in',
+            subtitle: 'Launch the app, then sign in with your JournalFX account.',
+            icon: Play,
+            requirements: [
+                'JournalFX email and password',
+                'MetaTrader 5 open and logged in',
+                'The bridge file downloaded',
+            ],
+            actions: [
+                'Run JournalFX_Bridge.exe',
+                'Sign in to your JournalFX account',
+                'Click Start Bridge in the app',
+            ],
+            note: 'The app prepares your sync key automatically.',
+        },
+        {
+            id: 2,
+            title: 'Wait for connection',
+            subtitle: 'Keep the page open until the bridge turns active.',
+            icon: Cpu,
+            requirements: [
+                'MT5 stays logged in',
+                'Bridge app stays open',
+                'This page stays open while connecting',
+            ],
+            actions: [
+                'Watch for the status to turn green',
+                'Do not close the bridge window',
+                'Open the command monitor once connected',
+            ],
+            note: 'When the bridge connects, your trade data starts streaming automatically.',
+        },
+    ], []);
+
+    const globalRequirements = [
+        'Windows device',
+        'JournalFX account',
+        'MetaTrader 5 terminal',
+        'Internet connection',
+    ];
 
     useEffect(() => {
         if (!syncKey) {
             const newKey = `JFX-${Math.floor(1000 + Math.random() * 9000)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
             setSyncKey(newKey);
-            // Auto-save the key immediately so the bridge can connect
             if (onUpdateProfile) {
                 onUpdateProfile({ ...userProfile, syncKey: newKey });
             }
@@ -769,185 +838,262 @@ const BridgeWizard: React.FC<BridgeWizardProps> = ({ isDarkMode, onComplete, use
         }
     }, [step, connectionStatus, syncKey]);
 
-    const handleCopy = (text: string) => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const cardBg = isDarkMode ? 'bg-[#111] border-zinc-800' : 'bg-white border-zinc-100 shadow-sm';
-    const subTextColor = isDarkMode ? 'text-zinc-500' : 'text-[#666666]';
+    const cardBg = isDarkMode ? 'bg-[#0f0f0f] border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm';
+    const textPrimary = isDarkMode ? 'text-white' : 'text-slate-900';
+    const textSecondary = isDarkMode ? 'text-zinc-300' : 'text-slate-700';
+    const subTextColor = isDarkMode ? 'text-zinc-500' : 'text-slate-500';
+    const insetPanel = isDarkMode ? 'border-zinc-800 bg-black/30' : 'border-slate-200 bg-white';
+    const activeStep = bridgeSteps[step];
+    const ActiveIcon = activeStep.panelIcon ?? activeStep.icon;
 
     return (
-        <div className="w-full h-full overflow-y-auto custom-scrollbar">
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl w-full mx-auto p-8">
-                <div className="mb-12">
-                    <h1 className="text-5xl font-black tracking-tight mb-4 italic">Desktop Bridge</h1>
-                    <div className="flex items-center gap-4">
-                        <p className={`text-lg ${subTextColor}`}>Connect MT5 to JournalFX using our secure Desktop App.</p>
-                        <div className="px-3 py-1 rounded bg-blue-500/10 text-blue-500 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
-                            Windows Only
+        <div className="w-full h-full overflow-y-auto custom-scrollbar bg-black">
+            <div className="max-w-6xl w-full mx-auto px-6 py-8 md:px-8 md:py-10">
+                <div className="mb-8 md:mb-10">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#FF4F01]/20 bg-[#FF4F01]/8 text-[10px] font-black uppercase tracking-[0.28em] text-[#FF4F01]">
+                        Desktop Bridge Setup
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h1 className={`text-4xl md:text-5xl font-black tracking-tight ${textPrimary}`}>Bridge onboarding</h1>
                         </div>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-                    <div className="lg:col-span-4 space-y-3">
-                        {[
-                            { id: 0, label: 'Download Bridge', icon: Download },
-                            { id: 1, label: 'Launch & Login', icon: Play },
-                            { id: 2, label: 'Live Connection', icon: Cpu },
-                        ].map((s) => (
-                            <div
-                                key={s.id}
-                                onClick={() => step >= s.id && setStep(s.id)}
-                                className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${step === s.id
-                                    ? 'border-[#FF4F01] bg-[#FF4F01]/5 text-[#FF4F01]'
-                                    : step > s.id ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-500' : `border-transparent opacity-40 ${subTextColor}`
-                                    }`}
-                            >
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${step === s.id ? 'bg-[#FF4F01] text-white' : step > s.id ? 'bg-emerald-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800'
-                                    }`}>
-                                    {step > s.id ? <Check size={16} /> : <s.icon size={16} />}
-                                </div>
-                                <span className="font-bold text-xs uppercase tracking-widest">{s.label}</span>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                    <aside className="lg:col-span-4 space-y-3">
+                        {bridgeSteps.map((s) => {
+                            const StepIcon = s.icon;
+                            const isCurrent = step === s.id;
+                            const isDone = step > s.id || (step === 2 && connectionStatus === 'success' && s.id < 2);
+                            return (
+                                <button
+                                    key={s.id}
+                                    onClick={() => step >= s.id && setStep(s.id)}
+                                    className={`w-full text-left rounded-2xl border p-4 transition-all ${isCurrent
+                                        ? 'border-[#FF4F01]/40 bg-[#FF4F01]/8'
+                                        : isDone
+                                            ? 'border-emerald-500/20 bg-emerald-500/6'
+                                            : `${cardBg} opacity-75 hover:border-zinc-700`
+                                        } ${step >= s.id ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                                >
+                                    <div className="flex items-start gap-4">
+                                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${isCurrent
+                                            ? 'bg-[#FF4F01] text-white'
+                                            : isDone
+                                                ? 'bg-emerald-500 text-white'
+                                                : 'bg-zinc-900 text-zinc-400'
+                                            }`}>
+                                            {isDone ? <Check size={16} strokeWidth={3} /> : <StepIcon size={16} />}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Step {s.id + 1}</p>
+                                            <h3 className={`mt-1 text-sm font-bold ${textPrimary}`}>{s.title}</h3>
+                                            <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">{s.subtitle}</p>
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+
+                        <div className={`rounded-2xl border p-4 ${cardBg}`}>
+                            <div className="flex items-center gap-2">
+                                <Info size={14} className="text-[#FF4F01]" />
+                                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-400">What to expect</p>
                             </div>
-                        ))}
-                    </div>
+                            <ul className="mt-3 space-y-2 text-sm text-zinc-400">
+                                <li>1. Download the app.</li>
+                                <li>2. Sign in and start the bridge.</li>
+                                <li>3. Wait for the connection to turn green.</li>
+                            </ul>
+                        </div>
+                    </aside>
 
-                    <div className="lg:col-span-8">
-                        <div className={`p-10 rounded-[32px] border-2 h-full flex flex-col min-h-[500px] ${cardBg}`}>
-
-                            {step === 0 && (
-                                <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-8">
-                                        <Download size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Step 1: Download the Bridge</h3>
-                                    <p className={`mb-8 leading-relaxed ${subTextColor}`}>
-                                        Download the <b>Standalone App</b> for the easiest experience. It's self-contained and doesn't require Python or any manual setup.
-                                    </p>
-
-                                    <a
-                                        href="/JournalFX_Bridge.exe"
-                                        download="JournalFX_Bridge.exe"
-                                        className="flex items-center justify-center gap-4 p-6 bg-[#FF4F01] text-white rounded-xl font-bold hover:bg-[#e64601] transition-all shadow-lg shadow-orange-500/20 hover:scale-[1.02] mb-6"
-                                    >
-                                        <LayoutDashboard size={28} />
-                                        <div className="text-left">
-                                            <div className="text-lg">Download Standalone App</div>
-                                            <div className="text-xs opacity-70 font-normal">Windows • v2.1.0 • Recommended</div>
-                                        </div>
-                                    </a>
-
-                                    <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/10 flex gap-3">
-                                        <Info className="text-blue-500 shrink-0" size={18} />
-                                        <p className="text-xs text-blue-500/80 font-medium">
-                                            The app is portable. You can run it from any folder on your computer.
-                                        </p>
-                                    </div>
+                    <main className="lg:col-span-8">
+                        <div className={`rounded-[28px] border p-6 md:p-8 ${cardBg} min-h-[560px] flex flex-col`}>
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.28em] text-zinc-500">Step {activeStep.id + 1} of 3</p>
+                                    <h2 className={`mt-2 text-2xl md:text-3xl font-black tracking-tight ${textPrimary}`}>{activeStep.title}</h2>
+                                    <p className={`mt-3 max-w-2xl text-sm md:text-base ${subTextColor}`}>{activeStep.subtitle}</p>
                                 </div>
-                            )}
-
-                            {step === 1 && (
-                                <div className="animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 rounded-2xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-8">
-                                        <Play size={32} />
-                                    </div>
-                                    <h3 className="text-2xl font-black mb-4">Step 2: Launch & Login</h3>
-                                    <p className={`mb-6 leading-relaxed ${subTextColor}`}>
-                                        Run the <b>JournalFX_Bridge.exe</b> file you just downloaded.
-                                    </p>
-
-                                    <div className="space-y-4 mb-8">
-                                        <div className="flex items-start gap-3">
-                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</div>
-                                            <p className="text-sm">Sign in using your <b>JournalFX Email & Password</b>.</p>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</div>
-                                            <p className="text-sm">Ensure your <b>MetaTrader 5</b> terminal is open and logged in.</p>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</div>
-                                            <p className="text-sm">Click <b>"Start Bridge"</b> in the app.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex gap-4 items-start">
-                                        <AlertCircle className="text-amber-500 shrink-0" size={20} />
-                                        <p className="text-xs text-amber-500/80 leading-relaxed font-medium">
-                                            The app will automatically fetch your Sync Key. You don't need to copy or paste anything.
-                                        </p>
-                                    </div>
+                                <div className="flex items-center justify-center text-[#FF4F01]">
+                                    <ActiveIcon size={40} className="w-10 h-10 md:w-12 md:h-12" />
                                 </div>
-                            )}
+                            </div>
 
-                            {step === 2 && (
-                                <div className="animate-in fade-in duration-300 flex flex-col items-center justify-center text-center py-10">
-                                    {connectionStatus === 'waiting' ? (
-                                        <>
-                                            <div className="relative mb-12">
-                                                <div className="w-24 h-24 rounded-full border-4 border-[#FF4F01]/20 border-t-[#FF4F01] animate-spin" />
-                                                <div className="absolute inset-0 flex items-center justify-center text-[#FF4F01]">
-                                                    <Cpu size={32} />
-                                                </div>
+                            <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                                <div className={`rounded-2xl border p-5 ${insetPanel}`}>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Requirements</p>
+                                    <ul className={`mt-3 space-y-2 text-sm ${textSecondary}`}>
+                                        {activeStep.requirements.map((item) => (
+                                            <li key={item} className="flex items-start gap-3">
+                                                <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
+                                                <span>{item}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                <div className={`rounded-2xl border p-5 ${insetPanel}`}>
+                                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Simple steps</p>
+                                    <ol className={`mt-3 space-y-3 text-sm ${textSecondary}`}>
+                                        {activeStep.actions.map((item, index) => (
+                                            <li key={item} className="flex items-start gap-3">
+                                                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#FF4F01] text-[10px] font-black text-white">
+                                                    {index + 1}
+                                                </span>
+                                                <span>{item}</span>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-white/5 bg-white/5 p-4 md:p-5">
+                                {step === 0 && (
+                                    <div className="space-y-4">
+                                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                            <div>
+                                                <p className={`text-sm font-bold ${textPrimary}`}>Download the standalone app</p>
+                                                <p className={`mt-1 text-sm ${subTextColor}`}>{bridgeSteps[0].note}</p>
                                             </div>
-                                            <h3 className="text-2xl font-black mb-4">Waiting for Connection...</h3>
-                                            <p className={`max-w-md mx-auto mb-8 ${subTextColor}`}>
-                                                Once you click "Start Bridge" in the desktop app, this screen will update automatically.
-                                            </p>
-                                            <div className="text-[10px] font-bold opacity-40 uppercase tracking-widest space-y-2">
-                                                <p>• Check if MT5 is logged in</p>
-                                                <p>• Ensure "Start Bridge" is clicked in the app</p>
-                                                <p>• Keep this page open while connecting</p>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="animate-in zoom-in duration-500">
-                                            <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mb-8 mx-auto shadow-2xl shadow-emerald-500/20">
-                                                <Check size={48} strokeWidth={3} />
-                                            </div>
-                                            <h3 className="text-3xl font-black mb-4">Bridge Connected!</h3>
-                                            <p className={`max-w-md mx-auto mb-12 ${subTextColor}`}>
-                                                Connection established. Your terminal data is now streaming to JournalFX.
-                                            </p>
-                                            <button
-                                                onClick={() => onComplete(syncKey)}
-                                                className="px-12 py-5 bg-emerald-500 text-white rounded-2xl font-black text-lg shadow-2xl shadow-emerald-500/30 hover:scale-105 transition-all"
+                                            <a
+                                                href="/JournalFX_Bridge.exe"
+                                                download="JournalFX_Bridge.exe"
+                                                className="inline-flex items-center justify-center gap-3 rounded-2xl bg-[#FF4F01] px-5 py-4 text-sm font-black uppercase tracking-[0.18em] text-white transition-transform hover:scale-[1.01]"
                                             >
-                                                Go to Live Monitor
-                                            </button>
+                                                <WindowsLogoIcon className="w-7 h-7 md:w-8 md:h-8" />
+                                                {bridgeSteps[0].ctaLabel}
+                                            </a>
                                         </div>
-                                    )}
-                                </div>
-                            )}
+                                        <div className="rounded-2xl border border-[#FF4F01]/10 bg-[#FF4F01]/6 p-4">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#FF4F01]">Why this version</p>
+                                            <p className={`mt-2 text-sm ${subTextColor}`}>
+                                                It is a single Windows executable, so you do not need Python or any extra installer steps.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
-                            <div className="mt-auto pt-10 flex items-center justify-between">
-                                {step < 2 && (
-                                    <>
-                                        <button
-                                            onClick={() => setStep(s => Math.max(0, s - 1))}
-                                            disabled={step === 0}
-                                            className={`text-sm font-bold uppercase tracking-widest ${step === 0 ? 'opacity-0' : 'opacity-40 hover:opacity-100'}`}
-                                        >
-                                            Previous Step
-                                        </button>
-                                        <button
-                                            onClick={() => setStep(s => Math.min(2, s + 1))}
-                                            className="flex items-center gap-3 px-8 py-4 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-xl font-black text-sm hover:translate-x-1 transition-all"
-                                        >
-                                            Next Step <ArrowRight size={18} />
-                                        </button>
-                                    </>
+                                {step === 1 && (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <p className={`text-sm font-bold ${textPrimary}`}>Open the app and start the bridge</p>
+                                            <p className={`mt-1 text-sm ${subTextColor}`}>{bridgeSteps[1].note}</p>
+                                        </div>
+                                        <div className="grid gap-3 sm:grid-cols-3">
+                                            {[
+                                                'Run the app',
+                                                'Sign in',
+                                                'Start Bridge',
+                                            ].map((item, index) => (
+                                                <div key={item} className={`min-h-[92px] rounded-2xl border p-4 ${insetPanel}`}>
+                                                    <div className="flex h-full items-center gap-3">
+                                                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#FF4F01] text-[10px] font-black text-white">
+                                                            {index + 1}
+                                                        </div>
+                                                        <p className={`text-sm font-bold leading-tight ${textPrimary}`}>{item}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {step === 2 && (
+                                    <div className="space-y-4">
+                                        {connectionStatus === 'waiting' ? (
+                                            <>
+                                                <div className="flex flex-col items-center text-center">
+                                                    <div className="relative mb-5">
+                                                        <div className="h-20 w-20 rounded-full border-4 border-[#FF4F01]/20 border-t-[#FF4F01] animate-spin" />
+                                                        <div className="absolute inset-0 flex items-center justify-center text-[#FF4F01]">
+                                                            <Cpu size={26} />
+                                                        </div>
+                                                    </div>
+                                                    <h3 className={`text-xl font-black ${textPrimary}`}>Waiting for connection</h3>
+                                                    <p className={`mt-2 max-w-lg text-sm ${subTextColor}`}>
+                                                        Keep the bridge app open. Once you start it, this screen will switch automatically.
+                                                    </p>
+                                                </div>
+                                                <div className={`rounded-2xl border p-4 ${insetPanel}`}>
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-500">Keep in mind</p>
+                                                    <ul className={`mt-3 space-y-2 text-sm ${textSecondary}`}>
+                                                        <li>MT5 must stay logged in.</li>
+                                                        <li>The bridge app must stay open.</li>
+                                                        <li>Leave this page open while connecting.</li>
+                                                    </ul>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="flex flex-col items-center text-center py-2">
+                                                <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-slate-900">
+                                                    <Check size={40} strokeWidth={4} />
+                                                </div>
+                                                <h3 className={`text-2xl font-black ${textPrimary}`}>Bridge connected</h3>
+                                                <p className={`mt-2 max-w-lg text-sm ${subTextColor}`}>
+                                                    Your terminal data is now streaming to JournalFX.
+                                                </p>
+                                                <button
+                                                    onClick={() => onComplete(syncKey)}
+                                                    className="mt-6 inline-flex items-center gap-3 rounded-2xl bg-emerald-500 px-6 py-4 text-sm font-black uppercase tracking-[0.18em] text-slate-950 transition-transform hover:scale-[1.01]"
+                                                >
+                                                    Open Command Monitor
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-auto pt-6 flex items-center justify-between gap-4">
+                                <button
+                                    onClick={() => setStep(s => Math.max(0, s - 1))}
+                                    disabled={step === 0}
+                                    className={`text-[10px] font-black uppercase tracking-[0.28em] ${step === 0 ? 'opacity-0 pointer-events-none' : 'text-zinc-500 hover:text-white'}`}
+                                >
+                                    Previous
+                                </button>
+                                {step < 2 ? (
+                                    <button
+                                        onClick={() => setStep(s => Math.min(2, s + 1))}
+                                        className="inline-flex items-center gap-2 rounded-2xl bg-[#FF4F01] px-6 py-4 text-xs font-black uppercase tracking-[0.2em] text-white transition-transform hover:translate-x-0.5"
+                                    >
+                                        Continue
+                                        <ArrowRight size={16} />
+                                    </button>
+                                ) : (
+                                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">
+                                        Final step
+                                    </div>
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </main>
                 </div>
             </div>
         </div>
     );
 };
 
+const WindowsLogoIcon: React.FC<{ className?: string; size?: number }> = ({ className = 'w-5 h-5 md:w-6 md:h-6', size }) => (
+    <svg
+        viewBox="0 0 64 64"
+        className={className}
+        width={size}
+        height={size}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+    >
+        <path d="M6 12.5L28 9v21.5H6V12.5Z" fill="#00ADEF" />
+        <path d="M30 8.5 58 4v26H30V8.5Z" fill="#1B9AF7" />
+        <path d="M6 34h22.5v21.5L6 52V34Z" fill="#0089D6" />
+        <path d="M30 36h28v24L30 56V36Z" fill="#0078D4" />
+    </svg>
+);
+
 export default Bridge;
+
+

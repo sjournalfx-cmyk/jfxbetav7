@@ -75,7 +75,7 @@ const OpenPositions: React.FC<OpenPositionsProps> = ({ positions, isDarkMode, cu
                     return (
                         <div
                             key={pos.ticket}
-                            className={`p-4 rounded-2xl border-2 transition-all hover:scale-[1.01] ${isRefreshing ? 'data-refresh' : ''} ${isDarkMode
+                            className={`p-4 rounded-2xl border-2 transition-all ${isRefreshing ? 'data-refresh' : ''} ${isDarkMode
                                 ? 'bg-[#18181b] border-[#27272a] hover:border-zinc-700'
                                 : 'bg-white border-slate-100 shadow-sm hover:shadow-md'
                                 }`}

@@ -2,9 +2,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, PlusCircle, History, BarChart2,
-  Target, StickyNote, Calculator,
+  Target, StickyNote,
   Workflow, ChevronRight, CandlestickChart, LogOut,
-  Settings, Sun, Moon, Link, Activity, Lock, Bell, X, CheckCircle2, AlertCircle, AlertTriangle, Info, Trash2, Globe, Medal
+  Settings, Link, Activity, Lock, Bell, X, CheckCircle2, AlertCircle, AlertTriangle, Info, Trash2, Globe, Medal, UserCircle
 } from 'lucide-react';
 import {
   IconPower,
@@ -22,7 +22,6 @@ import {
   IconChartCandle,
   IconGitMerge,
   IconTargetArrow,
-  IconCalculator,
   IconMessage,
   IconTerminal2,
   IconFlask
@@ -38,14 +37,14 @@ interface SidebarProps {
   onViewChange: (view: string) => void;
   onSettingsTabChange?: (tab: 'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help') => void;
   isDarkMode: boolean;
-  onToggleTheme: () => void;
-  onOpenCalculator: () => void;
   onOpenQuickLog: () => void;
   onLogout: () => void;
   userProfile?: UserProfile | null;
   trades?: Trade[];
   eaSession?: EASession | null;
   offlineQueueCount?: number;
+  isDemoMode?: boolean;
+  onToggleDemoMode?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -53,14 +52,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   onViewChange,
   onSettingsTabChange,
   isDarkMode,
-  onToggleTheme,
-  onOpenCalculator,
   onOpenQuickLog,
   onLogout,
   userProfile,
   trades = [],
   eaSession,
-  offlineQueueCount = 0
+  offlineQueueCount = 0,
+  isDemoMode = false,
+  onToggleDemoMode,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -69,7 +68,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const currentPlan = userProfile?.plan || APP_CONSTANTS.PLANS.FREE;
   const isBasicTier = !PLAN_FEATURES[currentPlan].advancedAnalytics;
 
-  const { notifications, clearNotifications } = useToast();
+  const { notifications, unreadCount, clearNotifications, markNotificationsRead } = useToast();
 
   const tradeCount = trades.length;
 
@@ -117,30 +116,35 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [showNotifications]);
 
+  useEffect(() => {
+    if (showNotifications) {
+      markNotificationsRead();
+    }
+  }, [markNotificationsRead, showNotifications]);
+
   const menuItems = [
-    { id: 'dashboard', icon: IconLayoutDashboard, label: 'Dashboard' },
-    { id: 'log-trade', icon: IconPlus, label: 'Log Trade' },
+    { id: 'dashboard', icon: <IconLayoutDashboard size={18} />, label: 'Dashboard', description: 'Overview of your trading performance' },
+    { id: 'log-trade', icon: <IconPlus size={18} />, label: 'Log Trade', description: 'Record a new trade entry' },
     { 
       id: 'history', 
-      icon: (props: any) => (
+      icon: (
         <div className="relative">
-          <IconNotebook {...props} />
+          <IconNotebook size={18} />
           {offlineQueueCount > 0 && (
             <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-indigo-500 rounded-full border border-white dark:border-[#050505] animate-pulse" />
           )}
         </div>
       ), 
-      label: 'Journal' 
+      label: 'Journal',
+      description: 'View and manage trade history'
     },
-    { id: 'analytics', icon: IconChartBar, label: 'Analytics' },
-    { id: 'notes', icon: IconFileText, label: 'Notebook' },
-    { id: 'broker', icon: IconWorld, label: 'Broker' },
-    { id: 'ea-setup', icon: IconLink, label: 'Desktop Bridge', restricted: true },
-    { id: 'charts', icon: IconChartCandle, label: 'Market Grid', restricted: true },
-    { id: 'goals', icon: IconTargetArrow, label: 'Goals', restricted: true },
-    { id: 'calculators', icon: IconCalculator, label: 'Calculators', restricted: true },
-    { id: 'backtest-lab', icon: IconFlask, label: 'Backtest Lab', restricted: true },
-    { id: 'ai-chat', icon: IconMessage, label: 'AI Assistant' },
+    { id: 'analytics', icon: <IconChartBar size={18} />, label: 'Analytics', description: 'Deep dive into your statistics' },
+    { id: 'notes', icon: <IconFileText size={18} />, label: 'Notebook', description: 'Trading notes and strategies' },
+    { id: 'ea-setup', icon: <IconLink size={18} />, label: 'Desktop Bridge', restricted: true, description: 'Connect MetaTrader EA' },
+    { id: 'charts', icon: <IconChartCandle size={18} />, label: 'Market Grid', restricted: true, description: 'Multi-chart analysis view' },
+    { id: 'backtest-lab', icon: <IconFlask size={18} />, label: 'Backtest Lab', restricted: true, description: 'Test strategies historically' },
+    { id: 'ai-chat', icon: <IconMessage size={18} />, label: 'AI Assistant', description: 'Get AI trading insights' },
+    { id: 'broker', icon: <IconWorld size={18} />, label: 'Broker', description: 'Connect your broker account' },
   ];
 
   const filteredMenuItems = menuItems.filter(item => {
@@ -151,38 +155,38 @@ const Sidebar: React.FC<SidebarProps> = ({
   const systemItems = [
     {
       id: 'notifications',
-      icon: IconBell,
+      icon: <IconBell size={18} />,
       label: 'Notifications',
-      onClick: () => setShowNotifications(!showNotifications),
-      badge: notifications.length > 0,
+      description: unreadCount > 0 ? `${unreadCount} unread alerts` : 'No new notifications',
+      onClick: () => setShowNotifications((prev) => !prev),
+      badge: unreadCount > 0,
       isActive: showNotifications,
       secondaryAction: notifications.length > 0 ? {
         label: 'Clear All',
         onClick: clearNotifications
       } : undefined
     },
-    { id: 'theme', icon: isDarkMode ? IconSun : IconMoon, label: isDarkMode ? 'Light Mode' : 'Dark Mode', onClick: onToggleTheme },
     {
       id: 'settings',
-      icon: IconSettings,
+      icon: <IconSettings size={18} />,
       label: 'Settings',
+      description: 'Manage your account & preferences',
       onClick: () => {
         onSettingsTabChange?.('profile');
         onViewChange('settings');
       },
       isActive: currentView === 'settings'
     },
-    { id: 'logout', icon: IconPower, label: 'Log Out', onClick: onLogout, variant: 'danger' },
   ];
 
   return (
     <motion.div 
-      className={`h-full flex flex-col py-4 border-r z-[100] relative ${isDarkMode
+      layout="position"
+      className={`h-full flex flex-col py-4 border-r z-[100] relative transition-colors duration-300 ${isDarkMode
         ? 'bg-[#050505] border-zinc-800 shadow-[4px_0_24px_rgba(0,0,0,0.5)]'
         : 'bg-white border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]'
         }`}
-      animate={{ width: isExpanded ? 240 : 72 }}
-      transition={{ duration: 0.3, ease: "easeInOut" }}
+      style={{ width: isExpanded ? 240 : 72 }}
     >
       <style>{`
         @keyframes heartbeat {
@@ -202,15 +206,17 @@ const Sidebar: React.FC<SidebarProps> = ({
       `}</style>
 
       {/* Notification Menu */}
-      <AnimatePresence>
+      <div
+        ref={notificationRef}
+        aria-hidden={!showNotifications}
+        className={`absolute left-full ml-4 bottom-24 w-80 max-h-[500px] flex flex-col rounded-3xl border shadow-2xl z-[200] overflow-hidden transition-all duration-200 origin-bottom-left ${
+          showNotifications
+            ? 'opacity-100 translate-x-0 scale-100 pointer-events-auto'
+            : 'opacity-0 -translate-x-2 scale-95 pointer-events-none'
+        } ${isDarkMode ? 'bg-[#0d1117] border-zinc-800 shadow-black/50' : 'bg-white border-slate-200 shadow-slate-200/50'}`}
+      >
         {showNotifications && (
-          <motion.div
-            ref={notificationRef}
-            initial={{ opacity: 0, x: -20, scale: 0.95 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -20, scale: 0.95 }}
-            className={`absolute left-full ml-4 bottom-24 w-80 max-h-[500px] flex flex-col rounded-3xl border shadow-2xl z-[200] overflow-hidden ${isDarkMode ? 'bg-[#0d1117] border-zinc-800 shadow-black/50' : 'bg-white border-slate-200 shadow-slate-200/50'}`}
-          >
+          <>
             <div className={`p-5 border-b flex items-center justify-between ${isDarkMode ? 'border-zinc-800 bg-zinc-900/50' : 'border-slate-100 bg-slate-50/50'}`}>
               <div>
                 <h3 className="text-sm font-black uppercase tracking-widest">Notifications</h3>
@@ -264,68 +270,68 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
             </div>
-          </motion.div>
+          </>
         )}
-      </AnimatePresence>
+      </div>
 
       {/* Toggle Button */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className={`absolute -right-3 top-12 w-6 h-6 rounded-full border flex items-center justify-center transition-all z-50 ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 shadow-sm'}`}
       >
-        <ChevronRight size={14} className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+        <ChevronRight size={14} className={`${isExpanded ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Live Pulse Animation (Top Fixed) */}
-      <div className={`flex items-center w-full mb-4 px-3 shrink-0 ${isExpanded ? 'justify-start' : 'justify-center'}`}>
-        <div className={`w-9 h-9 rounded-full border flex items-center justify-center relative transition-colors duration-500 ${isBridgeOnline ? 'border-emerald-500/30' : 'border-rose-500/30'}`}>
-          {isBridgeOnline ? (
-            <div className="relative flex items-center justify-center" style={{ animation: 'heartbeat 2s infinite ease-in-out' }}>
-              <svg width="20" height="12" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M0 20H15L18 28L24 8L30 35L34 20H60"
-                  stroke="#10b981"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{
-                    strokeDasharray: '100',
-                    animation: 'pulse-line 2s infinite linear',
-                    filter: 'drop-shadow(0 0 8px rgba(16, 185, 129, 0.8))'
-                  }}
-                />
-              </svg>
-            </div>
+      <div className="flex items-center w-full mb-4 px-[18px] shrink-0 justify-start">
+        <button
+          type="button"
+          onClick={() => {
+            onToggleDemoMode?.();
+          }}
+          className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-xl overflow-hidden relative shrink-0"
+          title={isDemoMode ? 'Exit demo mode' : 'Enter demo mode'}
+        >
+          {userProfile?.avatarUrl ? (
+            <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
           ) : (
-            <Activity size={16} className="text-rose-500" />
+            <UserCircle size={28} />
           )}
-
-          {isBridgeOnline ? (
-            <div className="absolute inset-0 rounded-full border-4 border-emerald-500/60 animate-ping" />
-          ) : (
-            <div className="absolute inset-0 rounded-full border-4 border-rose-500/60" />
+        </button>
+        <AnimatePresence mode="popLayout">
+          {isExpanded && (
+            <motion.div 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              className="ml-3 flex flex-col gap-1 overflow-hidden whitespace-nowrap"
+            >
+              <div className="flex flex-col">
+                <div className={`text-[9px] font-black uppercase tracking-widest leading-none ${isDemoMode ? 'text-amber-500' : isBridgeOnline ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {isDemoMode ? 'Demo Mode' : 'Live Status'}
+                </div>
+                <div className="text-[11px] font-bold mt-0.5">
+                  {isDemoMode ? 'Sample data active' : (isBridgeOnline ? 'Bridge Active' : (userProfile?.eaConnected ? 'Bridge Offline' : 'Disconnected'))}
+                </div>
+              </div>
+            </motion.div>
           )}
-        </div>
-        {isExpanded && (
-          <div className="ml-2 flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
-            <div className="flex flex-col">
-              <div className={`text-[9px] font-black uppercase tracking-widest leading-none ${isBridgeOnline ? 'text-emerald-500' : 'text-rose-500'}`}>Live Status</div>
-              <div className="text-[11px] font-bold mt-0.5">{isBridgeOnline ? 'Bridge Active' : (userProfile?.eaConnected ? 'Bridge Offline' : 'Disconnected')}</div>
-            </div>
-
-          </div>
-        )}
+        </AnimatePresence>
       </div>
 
       {/* Main Navigation */}
-      <nav className={`flex-1 flex flex-col justify-center w-full overflow-y-visible ${!isExpanded ? 'items-center px-0' : 'px-3'}`}>
+      <motion.nav 
+        layout="position"
+        className="flex-1 flex flex-col justify-center w-full overflow-y-visible px-[18px]"
+      >
         <div className="w-full">
           <FloatingDock
             items={filteredMenuItems.map(item => ({
               title: item.label,
+              description: item.description,
               icon: (
                 <div className="relative">
-                  <item.icon size={18} />
+                  {item.icon}
                   {isBasicTier && item.restricted && (
                     <div className="absolute -top-1.5 -right-1.5 bg-[#FF4F01] rounded-full p-0.5 shadow-sm">
                       <Lock size={8} fill="white" className="text-white" />
@@ -345,14 +351,18 @@ const Sidebar: React.FC<SidebarProps> = ({
             showLabels={isExpanded}
           />
         </div>
-      </nav>
+      </motion.nav>
 
       {/* System Actions (Bottom Fixed) */}
-      <div className={`mt-auto w-full px-3 pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-800/50 ${!isExpanded ? 'flex flex-col items-center px-0' : ''}`}>
+      <motion.div 
+        layout="position"
+        className="mt-auto w-full px-[18px] pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-800/50"
+      >
         <FloatingDock
           items={systemItems.map(item => ({
             title: item.label,
-            icon: <item.icon size={18} className={item.variant === 'danger' ? 'text-rose-500' : ''} />,
+            description: item.description,
+            icon: item.icon,
             onClick: item.onClick,
             isActive: item.isActive,
             badge: item.badge,
@@ -363,7 +373,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           showLabels={isExpanded}
         />
 
-      </div>
+      </motion.div>
     </motion.div>
   );
 };

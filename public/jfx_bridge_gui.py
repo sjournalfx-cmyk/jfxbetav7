@@ -12,10 +12,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
 # --- Constants ---
-APP_NAME = "JournalFX Bridge"
-VERSION = "2.1.0"
+APP_NAME = "JFXJOURNAL Bridge"
+VERSION = "2.2.0"
 CONFIG_FILE = "bridge_session.json"
 BACKTEST_PORT = 5001
+
+
+def resource_path(relative_path):
+    """Return the absolute path to a bundled asset or a source-file sibling."""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
 
 # HARDCODED CONFIGURATION (Hidden from User)
 SUPABASE_URL = "https://lwlikhjgwazyrahucatl.supabase.co"
@@ -75,16 +81,16 @@ class MT5DataHandler(BaseHTTPRequestHandler):
 
 # --- Theme & Styling ---
 THEME = {
-    "bg_dark": "#0f172a",      # Main Background (Slate-900)
-    "bg_card": "#1e293b",      # Card Background (Slate-800)
-    "primary": "#FF4F01",      # Brand Orange
+    "bg_dark": "#000000",
+    "bg_card": "#0a0a0a",
+    "primary": "#FF4F01",
     "primary_hover": "#e64600",
-    "text_main": "#f8fafc",    # Slate-50
-    "text_dim": "#94a3b8",     # Slate-400
-    "success": "#10b981",      # Emerald-500
-    "error": "#ef4444",        # Red-500
-    "border": "#334155",       # Slate-700
-    "input_bg": "#020617"      # Slate-950
+    "text_main": "#f8fafc",
+    "text_dim": "#94a3b8",
+    "success": "#10b981",
+    "error": "#ef4444",
+    "border": "#27272a",
+    "input_bg": "#000000"
 }
 
 class SupabaseClient:
@@ -96,16 +102,29 @@ class SupabaseClient:
         url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
         headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
         payload = {"email": email, "password": password}
-        
-        try:
-            response = requests.post(url, json=payload, headers=headers)
-            if response.status_code == 200:
-                self.session = response.json()
-                return True, None
-            else:
-                return False, response.json().get("error_description", "Login failed")
-        except Exception as e:
-            return False, str(e)
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=15)
+                if response.status_code == 200:
+                    self.session = response.json()
+                    return True, None
+                else:
+                    try:
+                        error_msg = response.json().get("error_description", "Login failed")
+                    except:
+                        error_msg = f"Server error: {response.status_code}"
+                    return False, error_msg
+            except requests.exceptions.ConnectionError:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return False, "Connection failed. Check your internet connection."
+            except requests.exceptions.Timeout:
+                return False, "Connection timed out. Please try again."
+            except Exception as e:
+                return False, f"Error: {str(e)}"
 
     def get_user_profile(self):
         if not self.session: return None
@@ -143,13 +162,14 @@ class ModernEntry(tk.Entry):
         super().__init__(master, bg=THEME["input_bg"], fg=THEME["text_main"], insertbackground="white", borderwidth=0, relief="flat", font=("Segoe UI", 11), **kwargs)
         self.configure(highlightthickness=1, highlightbackground=THEME["border"], highlightcolor=THEME["primary"])
 
-class JournalFXApp(tk.Tk):
+class JFXJournalApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} v{VERSION}")
         self.geometry("450x650")
         self.configure(bg=THEME["bg_dark"])
         self.resizable(False, False)
+        self._set_window_icon()
         
         # Initialize Logic
         self.client = SupabaseClient()
@@ -164,6 +184,15 @@ class JournalFXApp(tk.Tk):
         
         self.show_login_screen()
         self.check_saved_session()
+
+    def _set_window_icon(self):
+        icon_path = resource_path("JournalFX_Bridge.ico")
+        if not os.path.exists(icon_path):
+            return
+        try:
+            self.iconbitmap(icon_path)
+        except tk.TclError:
+            pass
 
     def clear_screen(self):
         for widget in self.container.winfo_children():
@@ -182,7 +211,10 @@ class JournalFXApp(tk.Tk):
         frame.pack(fill="both", expand=True)
         
         # Logo / Title
-        tk.Label(frame, text="JOURNALFX", font=("Segoe UI", 28, "bold italic"), fg=THEME["primary"], bg=THEME["bg_dark"]).pack(pady=(20, 5))
+        title_frame = tk.Frame(frame, bg=THEME["bg_dark"])
+        title_frame.pack(pady=(20, 5))
+        tk.Label(title_frame, text="JFX", font=("Segoe UI", 28, "bold italic"), fg="white", bg=THEME["bg_dark"]).pack(side="left")
+        tk.Label(title_frame, text="JOURNAL", font=("Segoe UI", 28, "bold italic"), fg=THEME["primary"], bg=THEME["bg_dark"]).pack(side="left")
         tk.Label(frame, text="Desktop Bridge", font=("Segoe UI", 12), fg=THEME["text_dim"], bg=THEME["bg_dark"]).pack(pady=(0, 40))
         
         # Form
@@ -555,5 +587,5 @@ class JournalFXApp(tk.Tk):
         return result
 
 if __name__ == "__main__":
-    app = JournalFXApp()
+    app = JFXJournalApp()
     app.mainloop()
