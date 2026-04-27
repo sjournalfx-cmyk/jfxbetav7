@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowUpRight, ArrowDownRight, Activity, TrendingUp, DollarSign, BarChart2, Zap, Coins, GripVertical, UserCircle, Wallet, Layout, Cpu, ArrowRight, Lock, Info, X, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Activity, TrendingUp, DollarSign, BarChart2, Zap, Coins, GripVertical, UserCircle, Wallet, Layout, Cpu, ArrowRight, Lock, Info, X, ChevronDown, CheckCircle2, Gauge, HelpCircle } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -30,8 +30,12 @@ import { PerformanceBySession } from './analytics/PerformanceBySession';
 import { Skeleton } from './ui/Skeleton';
 import { Tooltip } from './ui/Tooltip';
 import { getSASTDateTime } from '../lib/timeUtils';
+import { sortTradesChronologically } from '../lib/analyticsUtils';
 
-
+const safePnL = (value: unknown): number => {
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) ? n : 0;
+};
 interface DashboardProps {
     isDarkMode: boolean;
     trades: Trade[];
@@ -42,6 +46,7 @@ interface DashboardProps {
     eaSession?: EASession | null;
     isLoading?: boolean;
     offlineQueue?: Trade[];
+    isDemoMode?: boolean;
 }
 
 // --- WIDGET COMPONENTS ---
@@ -124,13 +129,13 @@ const StatCard = ({ label, value, subtext, trend, isDarkMode, icon: Icon, colorC
         <h3 className={`text-2xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{value}</h3>
         <div className="flex items-center gap-2">
             <p className={`text-xs font-medium uppercase tracking-wider opacity-50 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{label}</p>
-            {tooltip && (
                 <Tooltip content={tooltip} isDarkMode={isDarkMode}>
-                    <svg 
+                    <HelpCircle 
+                        size={14} 
                         onClick={onInfoClick}
-                        xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-question-mark opacity-40 cursor-help hover:opacity-100 transition-opacity" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        className="opacity-40 cursor-help hover:opacity-100 transition-opacity" 
+                    />
                 </Tooltip>
-            )}
         </div>
         {subtext && <p className="text-xs text-zinc-500 mt-2">{subtext}</p>}
     </div>
@@ -150,7 +155,7 @@ const RecentTrades = ({ isDarkMode, trades, symbol, offlineQueue = [] }: { isDar
                         </div>
                     </div>
                     <span className="font-mono text-xs font-bold opacity-50">
-                        {symbol}{Number(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {symbol}{safePnL(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                 </div>
             ))}
@@ -163,8 +168,8 @@ const RecentTrades = ({ isDarkMode, trades, symbol, offlineQueue = [] }: { isDar
                             <p className="text-[10px] opacity-60 uppercase">{trade.direction}</p>
                         </div>
                     </div>
-                    <span className={`font-mono text-xs font-bold ${trade.pnl > 0 ? 'text-teal-500' : trade.pnl < 0 ? 'text-rose-500' : 'text-gray-500'}`}>
-                        {trade.pnl > 0 ? '+' : ''}{symbol}{Number(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className={`font-mono text-xs font-bold ${safePnL(trade.pnl) > 0 ? 'text-teal-500' : safePnL(trade.pnl) < 0 ? 'text-rose-500' : 'text-gray-500'}`}>
+                        {safePnL(trade.pnl) > 0 ? '+' : ''}{symbol}{safePnL(trade.pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                 </div>
             ))}
@@ -175,8 +180,11 @@ const RecentTrades = ({ isDarkMode, trades, symbol, offlineQueue = [] }: { isDar
     </div>
 );
 
-const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInfoClick }: { isDarkMode: boolean, dailyBias: DailyBias[], onUpdateBias: (b: DailyBias) => void, onInfoClick?: () => void }) => {
+const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInfoClick, isDemoMode = false }: { isDarkMode: boolean, dailyBias: DailyBias[], onUpdateBias: (b: DailyBias) => void, onInfoClick?: () => void, isDemoMode?: boolean }) => {
     const days = useMemo(() => {
+        if (isDemoMode) {
+            return [...new Set(dailyBias.map((item) => item.date))].sort().slice(-7);
+        }
         const now = new Date();
         const day = now.getDay(); // 0 (Sun) to 6 (Sat)
         // Adjust to make Monday the first day (1). If today is Sunday (0), we go back 6 days.
@@ -188,7 +196,7 @@ const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInf
             d.setDate(monday.getDate() + i);
             return getSASTDateTime(d).date;
         });
-    }, []);
+    }, [dailyBias, isDemoMode]);
 
     const today = useMemo(() => getSASTDateTime().date, []);
 
@@ -220,9 +228,11 @@ const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInf
                 <div className="flex items-center gap-2">
                     <h3 className="font-bold flex items-center gap-2"><Zap size={18} className="text-yellow-500" /> Daily Bias</h3>
                     <Tooltip content="Track your daily market outlook to stay aligned with higher time-frame direction." isDarkMode={isDarkMode}>
-                        <svg 
+                        <HelpCircle 
+                            size={14} 
                             onClick={onInfoClick}
-                            xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-question-mark opacity-40 cursor-help hover:opacity-100 transition-opacity" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                            className="opacity-40 cursor-help hover:opacity-100 transition-opacity" 
+                        />
                     </Tooltip>
                 </div>
             </div>
@@ -233,7 +243,7 @@ const DailyBiasWidget = React.memo(({ isDarkMode, dailyBias, onUpdateBias, onInf
                     const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
                     const dayIdx = dateObj.getDay(); // 0 is Sun, 6 is Sat
                     const isWeekend = dayIdx === 0 || dayIdx === 6;
-                    const isToday = date === today;
+                    const isToday = !isDemoMode && date === today;
 
                     return (
                         <button
@@ -267,7 +277,7 @@ const DASHBOARD_PRESETS = {
     ANALYTICS: ['equityCurve', 'recentTrades', 'dailyBias', 'openPositions']
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading, offlineQueue = [] }) => {
+const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, onUpdateBias, userProfile, onViewChange, eaSession, isLoading, offlineQueue = [], isDemoMode = false }) => {
     // Robust free tier check
     const isFreeTier = !userProfile || userProfile.plan === 'FREE TIER (JOURNALER)';
     const [activeInfo, setActiveInfo] = useState<{ title: string, content: string } | null>(null);
@@ -307,10 +317,9 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const equityData = useMemo(() => {
         let cumulative = 0;
         const data = [0];
-        [...trades]
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        sortTradesChronologically(trades)
             .forEach(t => {
-                cumulative += t.pnl;
+                cumulative += Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : 0;
                 data.push(cumulative);
             });
         return data;
@@ -392,11 +401,12 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     };
 
     // Calculate Stats
-    const totalPnL = trades.reduce((acc, t) => acc + t.pnl, 0);
+  const totalPnL = trades.reduce((acc, t) => acc + (Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : 0), 0);
     const isPro = userProfile.plan === 'PRO TIER (ANALYSTS)';
     
-    // If EA Session exists, use bridge balance as the source of truth for current balance
-    const currentBalance = eaSession?.data?.account?.balance !== undefined
+    // Determine the source of truth for current balance
+    // If user is on EA Connect, the bridge balance is the absolute source of truth
+    const currentBalance = (userProfile.syncMethod === 'EA_CONNECT' && eaSession?.data?.account?.balance !== undefined)
         ? eaSession.data.account.balance
         : (userProfile.initialBalance + totalPnL);
 
@@ -404,8 +414,8 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
     const losses = trades.filter(t => t.result === 'Loss');
     const winRate = trades.length > 0 ? ((wins.length / trades.length) * 100).toFixed(1) : 0;
 
-    const grossProfit = wins.reduce((acc, t) => acc + t.pnl, 0);
-    const grossLoss = Math.abs(losses.reduce((acc, t) => acc + t.pnl, 0));
+    const grossProfit = wins.reduce((acc, t) => acc + safePnL(t.pnl), 0);
+    const grossLoss = Math.abs(losses.reduce((acc, t) => acc + safePnL(t.pnl), 0));
     const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? "9.9" : "0.00");
 
     const LockedView = ({ title, subtitle }: { title: string, subtitle: string }) => (
@@ -445,6 +455,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     isDarkMode={isDarkMode} 
                     dailyBias={dailyBias} 
                     onUpdateBias={onUpdateBias} 
+                    isDemoMode={isDemoMode}
                     onInfoClick={() => setActiveInfo({
                         title: "Daily Bias",
                         content: "Daily Bias tracks your overarching market sentiment for the day. By recording whether you are Bullish, Bearish, or Neutral before you trade, you can later analyze if your trades were aligned with your higher-time-frame outlook.\n\nSuccessful traders often find that their best performance comes when they trade in the direction of their pre-defined bias."
@@ -512,8 +523,15 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                         <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${isDarkMode ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border-indigo-200'}`}>
                             {userProfile.experienceLevel}
                         </span>
+                        {isDemoMode && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                Demo Mode
+                            </span>
+                        )}
                     </div>
-                    <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Welcome back, {userProfile.name}. Analyzing markets from {userProfile.country}.</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>
+                        {isDemoMode ? 'Sample journal loaded with believable January to March trades, notes, and analytics.' : `Welcome back, ${userProfile.name}. Analyzing markets from ${userProfile.country}.`}
+                    </p>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -642,7 +660,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     value={`${winRate}%`} 
                     subtext={`${wins.length}W - ${losses.length}L`} 
                     isDarkMode={isDarkMode} 
-                    icon={Activity} 
+                    icon={Gauge} 
                     colorClass="text-purple-500" 
                     tooltip="The percentage of closed trades that resulted in a profit."
                     onInfoClick={() => setActiveInfo({
@@ -654,7 +672,7 @@ const Dashboard: React.FC<DashboardProps> = ({ isDarkMode, trades, dailyBias, on
                     label="Profit Factor" 
                     value={profitFactor} 
                     isDarkMode={isDarkMode} 
-                    icon={TrendingUp} 
+                    icon={Zap} 
                     colorClass="text-teal-500" 
                     tooltip="Gross Profit divided by Gross Loss. A value above 1.0 means profitability."
                     onInfoClick={() => setActiveInfo({

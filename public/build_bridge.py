@@ -5,6 +5,11 @@ import subprocess
 import sys
 import os
 
+def resource_path(relative_path):
+    """Return an absolute path to a bundled resource."""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 def install_pyinstaller():
     """Install PyInstaller if not present"""
     try:
@@ -40,6 +45,8 @@ def build_executable():
         "--onefile",
         "--windowed",
         "--name", "JournalFX_Bridge",
+        "--icon", resource_path("JournalFX_Bridge.ico"),
+        "--add-data", f"{resource_path('JournalFX_Bridge.ico')};.",
         "--distpath", os.path.join(script_dir, "dist"),
         "--workpath", os.path.join(script_dir, "build"),
         "--specpath", os.path.join(script_dir, "build"),
@@ -70,6 +77,10 @@ def build_executable():
         exe_path = os.path.join(script_dir, "dist", "JournalFX_Bridge.exe")
         
         if os.path.exists(exe_path):
+            target_path = os.path.join(script_dir, "JournalFX_Bridge.exe")
+            import shutil
+            shutil.copy2(exe_path, target_path)
+
             print("\n" + "="*50)
             print("  BUILD SUCCESSFUL!")
             print("="*50)
@@ -89,4 +100,5 @@ def build_executable():
 
 if __name__ == "__main__":
     build_executable()
-    input("\nPress Enter to exit...")
+    if sys.stdin.isatty():
+        input("\nPress Enter to exit...")

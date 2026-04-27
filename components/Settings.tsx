@@ -1,20 +1,34 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  User, Globe, Wallet, DollarSign, Zap,
-  Shield, Bell, Save, Trash2, CreditCard,
-  ChevronRight, ArrowRight, CheckCircle2,
-  Lock, Mail, Smartphone, ExternalLink,
-  Flame, Award, Briefcase, Camera, Palette,
-  Sun, Moon, Copy, Check, Crown, HelpCircle,
-  MessageSquare, Youtube, Github, LifeBuoy, Medal,
-  Plus, FileText, Send, ChevronDown, Send as Telegram
+  User,
+  Globe,
+  Shield,
+  Save,
+  Trash2,
+  CreditCard,
+  Lock,
+  Mail,
+  CheckCircle2,
+  Copy,
+  Check,
+  Crown,
+  HelpCircle,
+  MessageSquare,
+  Video,
+  Send,
+  ChevronDown,
+  LogOut,
+  Briefcase,
+  Palette,
+  Moon,
+  Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { APP_CONSTANTS } from '../lib/constants';
 import { Select } from './Select';
+import { normalizeThemePreference } from '../lib/theme';
 
-// Journaler Bots (Free Tier)
 const freeAvatars = [
   'https://api.dicebear.com/7.x/bottts/svg?seed=1&backgroundColor=f1f5f9',
   'https://api.dicebear.com/7.x/bottts/svg?seed=2&backgroundColor=f1f5f9',
@@ -24,7 +38,6 @@ const freeAvatars = [
   'https://api.dicebear.com/7.x/bottts/svg?seed=6&backgroundColor=f1f5f9',
 ];
 
-// AI Analysts (Pro Tier)
 const proAvatars = [
   'https://api.dicebear.com/8.x/bottts-neutral/svg?seed=1&backgroundColor=e9d5ff&primaryColor=a855f7,c026d3,d8b4fe&backgroundType=gradientLinear',
   'https://api.dicebear.com/8.x/bottts-neutral/svg?seed=2&backgroundColor=e9d5ff&primaryColor=a855f7,c026d3,d8b4fe&backgroundType=gradientLinear',
@@ -34,7 +47,6 @@ const proAvatars = [
   'https://api.dicebear.com/8.x/identicon/svg?seed=3&backgroundColor=fefce8,fef9c3,fef08a&backgroundType=gradientLinear',
 ];
 
-// Elite AI Masters (Premium Tier)
 const premiumAvatars = [
   'https://api.dicebear.com/7.x/lorelei/svg?seed=1&backgroundColor=c7d2fe',
   'https://api.dicebear.com/7.x/lorelei/svg?seed=2&backgroundColor=c7d2fe',
@@ -44,890 +56,1073 @@ const premiumAvatars = [
   'https://api.dicebear.com/7.x/adventurer/svg?seed=3&backgroundColor=c7d2fe',
 ];
 
+type SettingsTab = 'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help';
+
 interface SettingsProps {
   isDarkMode: boolean;
   userProfile: UserProfile;
   userEmail?: string;
   onUpdateProfile: (profile: UserProfile) => Promise<void>;
   onLogout: () => void;
-  onToggleTheme: () => void;
   tradesThisMonth?: number;
   totalNotes?: number;
   totalImages?: number;
   tradesCount?: number;
   onDeduplicate?: () => Promise<void>;
-  initialTab?: 'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help';
+  initialTab?: SettingsTab;
+  migrationVersion?: string;
 }
 
-const Settings: React.FC<SettingsProps> = ({ 
-  isDarkMode, 
-  userProfile, 
+const tabs: Array<{ id: SettingsTab; label: string; icon: React.ElementType; desc: string }> = [
+  { id: 'profile', label: 'Trading Persona', icon: User, desc: 'Identity and style' },
+  { id: 'account', label: 'Account Config', icon: Briefcase, desc: 'Sync and balance' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, desc: 'Theme and motion' },
+  { id: 'billing', label: 'Plan & Billing', icon: CreditCard, desc: 'Usage and plan' },
+  { id: 'security', label: 'Security', icon: Shield, desc: 'Access and session' },
+  { id: 'help', label: 'Help & Feedback', icon: HelpCircle, desc: 'Docs and support' },
+];
+
+const profileOptions = {
+  tradingStyle: ['Scalper', 'Day Trader', 'Swing Trader', 'Investor'],
+  experienceLevel: ['Beginner', 'Intermediate', 'Advanced', 'Pro'],
+} as const;
+
+const supportLinks = [
+  { title: 'Documentation', icon: HelpCircle, desc: 'Setup guides, workflows, and feature notes.', href: '/DOCUMENTATION.md' },
+  { title: 'Telegram Community', icon: MessageSquare, desc: 'Share feedback and get release updates.', href: 'https://t.me/+w_KvKM5HESYyMTdk' },
+  { title: 'Video Tutorials', icon: Video, desc: 'Short walkthroughs for common setup tasks.', href: null },
+];
+
+const faqItems = [
+  { q: 'How do I sync trades from MT5?', a: 'Go to Account Config, generate a sync key, and enter it in the JFX Bridge app.' },
+  { q: 'How do I upgrade my plan?', a: 'Open Plan & Billing and switch to the tier you want.' },
+  { q: 'Why are my charts not loading?', a: 'Try turning off Keep Charts Alive in Appearance, then refresh the page.' },
+  { q: 'Where do I report bugs?', a: 'Use Help & Feedback to send a direct message from inside the app.' },
+];
+
+const Settings: React.FC<SettingsProps> = ({
+  isDarkMode,
+  userProfile,
   userEmail,
-  onUpdateProfile, 
-  onLogout, 
-  onToggleTheme,
+  migrationVersion,
+  onUpdateProfile,
+  onLogout,
   tradesThisMonth = 0,
   totalNotes = 0,
   totalImages = 0,
   tradesCount = 0,
   onDeduplicate,
-  initialTab = 'profile'
+  initialTab = 'profile',
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'appearance' | 'billing' | 'security' | 'help'>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [formData, setFormData] = useState<UserProfile>({ ...userProfile });
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveStatus] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState('Bug Report');
+  const [feedbackSubject, setFeedbackSubject] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
 
-
-
-  const handleFeedbackSubmit = async () => {
-    setIsSubmittingFeedback(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Mark feedback as sent in profile
-    const updatedProfile = { ...formData, feedbackSent: true };
-    await onUpdateProfile(updatedProfile);
-    setFormData(updatedProfile);
-    
-    setIsSubmittingFeedback(false);
-    setFeedbackSuccess(true);
-    setTimeout(() => setFeedbackSuccess(false), 5000);
-  };
-
-  // Update active tab when initialTab prop changes
-  React.useEffect(() => {
+  useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  // Live Theme Preview
-  React.useEffect(() => {
+  useEffect(() => {
+    setFormData({ ...userProfile });
+  }, [userProfile]);
+
+  useEffect(() => {
+    const activeTheme = normalizeThemePreference(formData.themePreference);
+
     if (activeTab === 'appearance' && formData.plan === 'PREMIUM (MASTERS)') {
-      document.body.classList.remove('theme-midnight');
-      if (formData.themePreference && formData.themePreference !== 'default') {
-        document.body.classList.add(`theme-${formData.themePreference}`);
-      }
+      document.body.classList.remove('theme-obsidian', 'theme-cosmic');
+      document.body.classList.add(`theme-${activeTheme}`);
     }
-    
-    // Restore original theme when leaving tab or unmounting
+
     return () => {
-      document.body.classList.remove('theme-midnight');
-      if (userProfile?.themePreference && userProfile.themePreference !== 'default') {
-        document.body.classList.add(`theme-${userProfile.themePreference}`);
-      }
+      document.body.classList.remove('theme-obsidian', 'theme-cosmic');
+      document.body.classList.add(`theme-${normalizeThemePreference(userProfile?.themePreference)}`);
     };
-  }, [formData.themePreference, activeTab, userProfile?.themePreference, formData.plan]);
+  }, [activeTab, formData.plan, formData.themePreference, userProfile?.themePreference]);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       await onUpdateProfile(formData);
-      setSaveStatus('Profile updated successfully!');
-      setTimeout(() => setSaveStatus(null), 3000);
-    } catch (error) {
-      setSaveStatus('Failed to update profile.');
+      setSaveStatus('Saved');
+      setTimeout(() => setSaveStatus(null), 2500);
+    } catch {
+      setSaveStatus('Save failed');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCopyKey = () => {
-    if (formData.syncKey) {
-      navigator.clipboard.writeText(formData.syncKey);
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), 2000);
-    }
+  const handleCopyKey = async () => {
+    if (!formData.syncKey) return;
+    await navigator.clipboard.writeText(formData.syncKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 1800);
   };
 
-  const inputClasses = `w-full bg-transparent border-b-2 py-3 text-lg font-bold outline-none transition-all ${isDarkMode
-    ? 'border-zinc-800 focus:border-[#FF4F01] text-white'
-    : 'border-zinc-200 focus:border-[#FF4F01] text-zinc-900'
-    }`;
+  const handleFeedbackSubmit = async () => {
+    setIsSubmittingFeedback(true);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const updatedProfile = { ...formData, feedbackSent: true };
+    await onUpdateProfile(updatedProfile);
+    setFormData(updatedProfile);
+    setIsSubmittingFeedback(false);
+    setFeedbackSuccess(true);
+    setFeedbackSubject('');
+    setFeedbackMessage('');
+    setTimeout(() => setFeedbackSuccess(false), 4000);
+  };
 
-  const labelClasses = "text-[10px] font-black uppercase tracking-[0.2em] opacity-50 block mb-1";
+  const containerBg = 'bg-[#000000] text-zinc-100';
+
+  const shellCard = isDarkMode
+    ? 'bg-white/[0.03] border-white/[0.08] shadow-[0_20px_60px_rgba(0,0,0,0.25)]'
+    : 'bg-white border-slate-200 shadow-[0_24px_80px_rgba(15,23,42,0.08)]';
+
+  const inputClass = `w-full rounded-2xl border px-4 py-3.5 text-sm outline-none transition-all ${
+    isDarkMode
+      ? 'bg-white/[0.03] border-white/[0.08] text-zinc-100 placeholder:text-zinc-500 focus:border-[#FF4F01]'
+      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-[#FF4F01] focus:bg-white'
+  }`;
+
+  const labelClass = 'text-[10px] font-black uppercase tracking-[0.22em] opacity-50 block mb-2';
+
+  const currentTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+
+  const renderPlanProgress = (value: number, limit: number) => (
+    <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-white/[0.08]' : 'bg-slate-200'}`}>
+      <div className="h-full rounded-full bg-[#FF4F01]" style={{ width: `${Math.min(100, (value / limit) * 100)}%` }} />
+    </div>
+  );
+
+  const renderAvatarGrid = (avatars: string[]) => (
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      {avatars.map((url) => (
+        <button
+          key={url}
+          onClick={() => setFormData({ ...formData, avatarUrl: url })}
+          className={`aspect-square overflow-hidden rounded-2xl border-2 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+            formData.avatarUrl === url
+              ? 'border-[#FF4F01] ring-2 ring-[#FF4F01]/15'
+              : isDarkMode
+                ? 'border-white/[0.08] hover:border-white/[0.18]'
+                : 'border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <img src={url} alt="Avatar option" className="h-full w-full object-cover" />
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <div className={`w-full h-full overflow-hidden flex flex-col p-8 font-sans ${isDarkMode ? 'bg-[#09090b] text-zinc-200' : 'bg-slate-50 text-slate-900'}`}>
-      <header className="mb-10">
-        <h1 className="text-4xl font-black tracking-tight mb-2">Settings</h1>
-        <p className="text-sm opacity-50 font-medium text-zinc-500">Manage your trading persona and application preferences.</p>
-      </header>
+    <div className={`min-h-screen overflow-auto ${containerBg}`}>
+      <div className="flex min-h-screen w-full flex-col gap-6 p-4 sm:p-6 lg:p-8">
+        <header className={`rounded-[32px] border p-6 md:p-8 ${shellCard}`}>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#FF4F01]">Preferences</p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">Settings</h1>
+              <p className={`mt-3 max-w-2xl text-sm leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-600'}`}>
+                Keep your trading identity, account setup, appearance, plan, security, and support in one clean place.
+              </p>
+            </div>
 
-      <div className="flex-1 flex gap-12 overflow-hidden">
-        {/* Navigation Sidebar */}
-        <aside className="w-64 flex flex-col gap-2 shrink-0">
-          {[
-            { id: 'profile', label: 'Trading Persona', icon: User },
-            { id: 'account', label: 'Account Config', icon: Briefcase },
-            { id: 'appearance', label: 'Appearance', icon: Palette },
-            { id: 'billing', label: 'Plan & Billing', icon: CreditCard },
-            { id: 'security', label: 'Security', icon: Shield },
-            { id: 'help', label: 'Help & Feedback', icon: HelpCircle },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === tab.id
-                ? 'bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/20'
-                : `hover:bg-black/5 dark:hover:bg-white/5 ${isDarkMode ? 'text-zinc-400' : 'text-zinc-600'}`
-                }`}
-            >
-              <tab.icon size={18} />
-              {tab.label}
-            </button>
-          ))}
-
-          <div className="mt-auto pt-6 border-t border-dashed border-zinc-800">
-            <button
-              onClick={onLogout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm text-rose-500 hover:bg-rose-500/10 transition-all"
-            >
-              <Trash2 size={18} /> Logout Account
-            </button>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className={`rounded-2xl border px-4 py-3 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Plan</p>
+                <p className="mt-1 text-sm font-bold">{formData.plan}</p>
+              </div>
+              <div className={`rounded-2xl border px-4 py-3 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Sync</p>
+                <p className="mt-1 text-sm font-bold">{formData.syncMethod === 'EA_CONNECT' ? 'EA Active' : 'Manual'}</p>
+              </div>
+              <div className={`rounded-2xl border px-4 py-3 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Trades</p>
+                <p className="mt-1 text-sm font-bold">{tradesCount}</p>
+              </div>
+              <div className={`rounded-2xl border px-4 py-3 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Notes</p>
+                <p className="mt-1 text-sm font-bold">{totalNotes}</p>
+              </div>
+            </div>
           </div>
-        </aside>
+        </header>
 
-        {/* Content Area */}
-        <main className={`flex-1 rounded-3xl border overflow-y-auto custom-scrollbar ${isDarkMode ? 'bg-[#18181b] border-[#27272a]' : 'bg-white border-slate-100 shadow-xl'}`}>
-          <div className={`p-10 ${activeTab === 'profile' || activeTab === 'help' ? 'max-w-full' : 'max-w-2xl'}`}>
+        <div className="grid flex-1 min-h-0 gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className={`flex min-h-0 flex-col gap-3 rounded-[32px] border p-3 ${shellCard} lg:sticky lg:top-8`}>
+            <div className="px-3 pb-2 pt-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] opacity-40">Sections</p>
+            </div>
+
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group flex items-center gap-4 rounded-2xl px-4 py-4 text-left transition-all ${
+                    active
+                      ? 'bg-[#FF4F01] text-white shadow-lg shadow-[#FF4F01]/20'
+                      : isDarkMode
+                        ? 'text-zinc-300 hover:bg-white/[0.04]'
+                        : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className={`rounded-xl p-2.5 ${active ? 'bg-white/15' : isDarkMode ? 'bg-white/[0.04]' : 'bg-slate-100'}`}>
+                    <Icon size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold">{tab.label}</p>
+                    <p className={`text-[11px] ${active ? 'text-white/75' : 'opacity-45'}`}>{tab.desc}</p>
+                  </div>
+                </button>
+              );
+            })}
+
+            <div className={`mt-2 rounded-2xl border p-4 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-rose-500/10 p-2 text-rose-500">
+                  <LogOut size={16} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold">Sign out</p>
+                  <p className="text-[11px] opacity-50">End this session on the device.</p>
+                </div>
+              </div>
+              <button
+                onClick={onLogout}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-rose-400"
+              >
+                <LogOut size={16} />
+                Sign Out
+              </button>
+            </div>
+          </aside>
+
+          <main className={`flex min-h-0 max-h-[calc(100vh-2rem)] flex-col overflow-y-auto rounded-[32px] border p-6 md:p-8 ${shellCard} custom-scrollbar`}>
+            <div
+              className={`mb-6 flex flex-col gap-3 border-b pb-5 ${
+                isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
+              }`}
+            >
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#FF4F01]">{currentTab.label}</p>
+                  <h2 className="mt-1 text-2xl font-black tracking-tight">{currentTab.label}</h2>
+                </div>
+                <p className={`max-w-2xl text-sm ${isDarkMode ? 'text-zinc-400' : 'text-slate-600'}`}>
+                  {currentTab.desc}
+                </p>
+              </div>
+            </div>
+
             {activeTab === 'profile' && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
-                  {/* Left Column: Profile Info */}
-                  <div className="xl:col-span-5 space-y-10">
-                    <div className="flex items-center gap-6">
-                      <div className="relative group">
-                        <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-2xl overflow-hidden">
-                          {formData.avatarUrl ? (
-                            <img src={formData.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                          ) : (
-                            <User size={48} />
-                          )}
+              <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="mb-6 flex items-center gap-4">
+                    <div className="h-20 w-20 overflow-hidden rounded-[24px] bg-gradient-to-br from-[#FF4F01] to-orange-500 shadow-lg shadow-[#FF4F01]/20">
+                      {formData.avatarUrl ? (
+                        <img src={formData.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-white">
+                          <User size={32} />
                         </div>
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-black mb-1">{formData.name}</h3>
-                        <p className="text-xs font-bold text-[#FF4F01] uppercase tracking-widest">{formData.plan}</p>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">Current Persona</p>
+                      <h3 className="mt-1 truncate text-xl font-black">{formData.name}</h3>
+                      <p className="mt-1 text-sm font-medium text-[#FF4F01]">{formData.plan}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-5">
+                    <div>
+                      <label htmlFor="settings-full-name" className={labelClass}>
+                        Full Name
+                      </label>
+                      <input
+                        id="settings-full-name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Email Address</label>
+                      <div className="relative">
+                        <Mail className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                        <input value={userEmail || ''} readOnly className={`${inputClass} cursor-not-allowed pl-10 opacity-70`} />
                       </div>
                     </div>
-
-                    <div className="space-y-8">
-                      <div className="group">
-                        <label htmlFor="settings-full-name" className={labelClasses}>Full Name</label>
+                    <div>
+                      <label htmlFor="settings-country" className={labelClass}>
+                        Country
+                      </label>
+                      <div className="relative">
+                        <Globe className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                         <input
-                          id="settings-full-name"
-                          name="fullName"
-                          value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          className={inputClasses}
+                          id="settings-country"
+                          value={formData.country}
+                          onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                          className={`${inputClass} pl-10`}
                         />
                       </div>
-                      <div className="group">
-                        <label className={labelClasses}>Email Address</label>
-                        <div className="relative">
-                          <Mail className="absolute left-0 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                          <input
-                            value={userEmail || ''}
-                            readOnly
-                            className={inputClasses + " pl-8 opacity-60 cursor-not-allowed"}
-                          />
-                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className={labelClass}>Trading Style</label>
+                        <Select
+                          value={formData.tradingStyle}
+                          onChange={(val) => setFormData({ ...formData, tradingStyle: val as UserProfile['tradingStyle'] })}
+                          options={profileOptions.tradingStyle.map((item) => ({ value: item, label: item }))}
+                          isDarkMode={isDarkMode}
+                        />
                       </div>
-                      <div className="group">
-                        <label htmlFor="settings-country" className={labelClasses}>Country</label>
-                        <div className="relative">
-                          <Globe className="absolute left-0 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                          <input
-                            id="settings-country"
-                            name="country"
-                            value={formData.country}
-                            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                            className={inputClasses + " pl-8"}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="group">
-                          <label className={labelClasses}>Trading Style</label>
-                          <Select
-                            value={formData.tradingStyle}
-                            onChange={(val) => setFormData({ ...formData, tradingStyle: val as any })}
-                            options={['Scalper', 'Day Trader', 'Swing Trader', 'Investor'].map(s => ({ value: s, label: s }))}
-                            isDarkMode={isDarkMode}
-                          />
-                        </div>
-                        <div className="group">
-                          <label className={labelClasses}>Experience Level</label>
-                          <Select
-                            value={formData.experienceLevel}
-                            onChange={(val) => setFormData({ ...formData, experienceLevel: val as any })}
-                            options={['Beginner', 'Intermediate', 'Advanced', 'Pro'].map(s => ({ value: s, label: s }))}
-                            isDarkMode={isDarkMode}
-                          />
-                        </div>
+                      <div>
+                        <label className={labelClass}>Experience Level</label>
+                        <Select
+                          value={formData.experienceLevel}
+                          onChange={(val) => setFormData({ ...formData, experienceLevel: val as UserProfile['experienceLevel'] })}
+                          options={profileOptions.experienceLevel.map((item) => ({ value: item, label: item }))}
+                          isDarkMode={isDarkMode}
+                        />
                       </div>
                     </div>
                   </div>
 
-                  {/* Right Column: Avatar Selection */}
-                  <div className="xl:col-span-7 space-y-6">
-                    <h3 className="text-lg font-bold mb-2">Choose Your Avatar</h3>
+                </section>
 
-                    {formData.plan === 'FREE TIER (JOURNALER)' && (
-                      <div className="space-y-4">
-                        <h4 className="text-xs font-bold uppercase tracking-widest opacity-60">Free Tier (Journaler Bots)</h4>
-                        <div className="grid grid-cols-6 gap-4">
-                          {freeAvatars.map((url, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setFormData({ ...formData, avatarUrl: url })}
-                              className={`aspect-square rounded-2xl overflow-hidden border-2 transition-all hover:scale-105 ${formData.avatarUrl === url ? 'border-[#FF4F01] ring-2 ring-[#FF4F01]/20' : 'border-transparent opacity-80 hover:opacity-100'}`}
-                            >
-                              <img src={url} alt="Avatar" className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                        </div>
+                <section className="space-y-6">
+                  <div className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'}`}>
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">Avatar Library</p>
+                        <h3 className="mt-1 text-lg font-black">Choose Your Avatar</h3>
                       </div>
-                    )}
+                      <div className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] opacity-60">
+                        {formData.plan.includes('FREE') ? 'Free' : formData.plan.includes('PRO') ? 'Pro' : 'Premium'}
+                      </div>
+                    </div>
 
-                    {formData.plan === 'PRO TIER (ANALYSTS)' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold uppercase tracking-widest opacity-60">Pro Tier (Analysts)</h4>
-                          <div className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[10px] font-black uppercase">Pro</div>
+                    <div className="space-y-5">
+                      {formData.plan === 'FREE TIER (JOURNALER)' && (
+                        <div>
+                          <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Journaler Bots</p>
+                          {renderAvatarGrid(freeAvatars)}
                         </div>
-                        <div className="grid grid-cols-6 gap-4">
-                          {proAvatars.map((url, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setFormData({ ...formData, avatarUrl: url })}
-                              className={`aspect-square rounded-2xl overflow-hidden border-2 transition-all hover:scale-105 ${formData.avatarUrl === url ? 'border-[#FF4F01] ring-2 ring-[#FF4F01]/20' : 'border-transparent opacity-80 hover:opacity-100'}`}
-                            >
-                              <img src={url} alt="Avatar" className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {formData.plan === 'PREMIUM (MASTERS)' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold uppercase tracking-widest opacity-60">Premium Tier (Elite Masters)</h4>
-                          <div className="px-2 py-0.5 rounded bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-black uppercase">Elite</div>
+                      {formData.plan === 'PRO TIER (ANALYSTS)' && (
+                        <div>
+                          <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Analyst Set</p>
+                          {renderAvatarGrid(proAvatars)}
                         </div>
-                        <div className="grid grid-cols-6 gap-4">
-                          {premiumAvatars.map((url, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setFormData({ ...formData, avatarUrl: url })}
-                              className={`aspect-square rounded-2xl overflow-hidden border-2 transition-all hover:scale-105 ${formData.avatarUrl === url ? 'border-[#FF4F01] ring-2 ring-[#FF4F01]/20' : 'border-transparent opacity-80 hover:opacity-100'}`}
-                            >
-                              <img src={url} alt="Avatar" className="w-full h-full object-cover" />
-                            </button>
-                          ))}
+                      )}
+
+                      {formData.plan === 'PREMIUM (MASTERS)' && (
+                        <div>
+                          <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Master Set</p>
+                          {renderAvatarGrid(premiumAvatars)}
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
+
+                    <div className={`mt-6 flex items-center justify-between gap-4 border-t pt-5 ${isDarkMode ? 'border-white/[0.08]' : 'border-slate-200'}`}>
+                      <p className="text-xs opacity-50">
+                        Save persona changes before leaving this section.
+                      </p>
+                      <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#FF4F01] px-5 py-3 text-sm font-black text-white transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isSaving ? 'Saving...' : 'Save Settings'}
+                        <Save size={16} />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </section>
               </div>
             )}
 
             {activeTab === 'account' && (
-              <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="grid grid-cols-1 gap-10">
-                  <div className="group">
-                    <label htmlFor="settings-account-name" className={labelClasses}>Primary Account Name</label>
-                    <input
-                      id="settings-account-name"
-                      name="accountName"
-                      value={formData.accountName}
-                      onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
-                      className={inputClasses}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-10">
-                    <div className="group">
-                      <label className={labelClasses}>Base Currency</label>
+              <div className="space-y-6">
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="settings-account-name" className={labelClass}>
+                        Primary Account Name
+                      </label>
+                      <input
+                        id="settings-account-name"
+                        value={formData.accountName}
+                        onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Base Currency</label>
                       <Select
                         value={formData.currency}
                         onChange={(val) => {
-                          const selected = APP_CONSTANTS.CURRENCIES.find(c => c.code === val);
+                          const selected = APP_CONSTANTS.CURRENCIES.find((currency) => currency.code === val);
                           if (selected) {
-                            setFormData({ ...formData, currency: selected.code, currencySymbol: selected.symbol });
+                            setFormData({
+                              ...formData,
+                              currency: selected.code,
+                              currencySymbol: selected.symbol,
+                            });
                           }
                         }}
-                        options={APP_CONSTANTS.CURRENCIES.map(c => ({ value: c.code, label: `${c.code} (${c.symbol})` }))}
+                        options={APP_CONSTANTS.CURRENCIES.map((currency) => ({
+                          value: currency.code,
+                          label: `${currency.code} (${currency.symbol})`,
+                        }))}
                         isDarkMode={isDarkMode}
                       />
                     </div>
-                    <div className="group">
-                      <label htmlFor="settings-initial-balance" className={labelClasses}>Initial Balance</label>
+                    <div>
+                      <label htmlFor="settings-initial-balance" className={labelClass}>
+                        Initial Balance
+                      </label>
                       <div className="relative">
-                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-xl">{formData.currencySymbol}</span>
+                        <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono font-black text-[#FF4F01]">
+                          {formData.currencySymbol}
+                        </span>
                         <input
                           id="settings-initial-balance"
-                          name="initialBalance"
                           type="number"
                           value={formData.initialBalance}
-                          onChange={(e) => setFormData({ ...formData, initialBalance: parseFloat(e.target.value) })}
-                          className={inputClasses + " pl-8 font-mono"}
+                          onChange={(e) =>
+                            setFormData({ ...formData, initialBalance: Number(e.target.value) || 0 })
+                          }
+                          className={`${inputClass} pl-10 font-mono`}
                         />
                       </div>
                     </div>
-                  </div>
-                  <div className="group">
-                    <label className={labelClasses}>Sync Method</label>
-                    <div className="flex items-center gap-3 pt-3">
-                      <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${formData.eaConnected ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'}`}>
-                        {formData.syncMethod === 'EA_CONNECT' ? 'EA Sync Active' : 'Manual Entry'}
-                      </span>
-                      <button className="text-[10px] font-black text-[#FF4F01] uppercase underline">Change</button>
-                    </div>
-                  </div>
-
-                  {formData.syncMethod === 'EA_CONNECT' && (
-                    <div className="space-y-6">
-                      <div className={`p-6 rounded-2xl border-2 border-dashed ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-200'}`}>
-                        <label className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-3 block">Your Active Sync Key</label>
-                        <div className="flex items-center gap-4">
-                          <div className="font-mono text-xl font-black tracking-wider text-[#FF4F01]">
-                            {formData.syncKey || 'NOT_GENERATED'}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={handleCopyKey}
-                              className={`p-2 rounded-lg transition-all ${copiedKey ? 'bg-emerald-500 text-white' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'}`}
-                              title="Copy Sync Key"
-                            >
-                              {copiedKey ? <Check size={16} /> : <Copy size={16} />}
-                            </button>
-                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest border ${formData.eaConnected ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
-                              {formData.eaConnected ? 'Connected' : 'Disconnected'}
-                            </div>
-                          </div>
+                    <div>
+                      <label className={labelClass}>Sync Method</label>
+                      <div className={`flex h-[52px] items-center justify-between rounded-2xl border px-4 ${
+                        isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-white'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${
+                            formData.eaConnected
+                              ? 'bg-emerald-500/10 text-emerald-500'
+                              : 'bg-zinc-500/10 text-zinc-500'
+                          }`}>
+                            {formData.syncMethod === 'EA_CONNECT' ? 'EA Sync' : 'Manual'}
+                          </span>
+                          <span className="text-sm font-medium opacity-70">
+                            {formData.eaConnected ? 'Connected' : 'Not connected'}
+                          </span>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </section>
 
-                      <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-bold text-sm">Auto-Journal MT5 Trades</p>
-                            <p className="text-xs opacity-50">Automatically add closed trades to your journal.</p>
-                          </div>
+                {formData.syncMethod === 'EA_CONNECT' && (
+                  <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">Sync Key</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <code className="rounded-2xl border px-4 py-3 font-mono text-sm font-bold tracking-wider text-[#FF4F01]">
+                            {formData.syncKey || 'real-sync-key'}
+                          </code>
                           <button
-                            onClick={() => setFormData({ ...formData, autoJournal: !formData.autoJournal })}
-                            className={`w-12 h-6 rounded-full transition-all relative ${formData.autoJournal ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                            onClick={handleCopyKey}
+                            className={`rounded-2xl border px-3 py-3 transition-all ${
+                              copiedKey
+                                ? 'border-emerald-500 bg-emerald-500 text-white'
+                                : isDarkMode
+                                  ? 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
+                                  : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                            }`}
+                            title="Copy sync key"
                           >
-                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.autoJournal ? 'right-1' : 'left-1'}`} />
+                            {copiedKey ? <Check size={16} /> : <Copy size={16} />}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const newKey = `JFX-${Math.floor(1000 + Math.random() * 9000)}-${Math.random()
+                                .toString(36)
+                                .substring(2, 6)
+                                .toUpperCase()}`;
+                              setFormData({ ...formData, syncKey: newKey });
+                            }}
+                            className={`rounded-2xl border px-3 py-3 transition-all ${
+                              isDarkMode
+                                ? 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
+                                : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                            }`}
+                            title="Regenerate sync key"
+                          >
+                            <Zap size={16} />
                           </button>
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="flex items-center gap-3 mb-6">
-                      <Zap size={20} className="text-[#FF4F01]" />
-                      <h3 className="text-lg font-bold">Backtest Lab Config</h3>
-                    </div>
-                    
-                    <div className="group">
-                      <label htmlFor="settings-default-rr" className={labelClasses}>Default Risk:Reward Ratio (1:X)</label>
-                      <div className="relative">
-                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[#FF4F01] font-bold text-xl">1:</span>
-                        <input
-                          id="settings-default-rr"
-                          name="defaultRR"
-                          type="number"
-                          step="0.1"
-                          min="0.1"
-                          value={formData.defaultRR || 2.0}
-                          onChange={(e) => setFormData({ ...formData, defaultRR: parseFloat(e.target.value) })}
-                          className={inputClasses + " pl-8 font-mono"}
-                          placeholder="2.0"
-                        />
+                      <div
+                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+                          isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-slate-50'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Auto-journal</p>
+                          <p className="text-sm font-medium opacity-70">Automatically add closed trades.</p>
+                        </div>
+                        <button
+                          onClick={() => setFormData({ ...formData, autoJournal: !formData.autoJournal })}
+                          className={`relative h-7 w-14 rounded-full transition-all ${
+                            formData.autoJournal ? 'bg-emerald-500' : 'bg-zinc-700'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${
+                              formData.autoJournal ? 'right-1' : 'left-1'
+                            }`}
+                          />
+                        </button>
                       </div>
-                      <p className="mt-2 text-[10px] opacity-50 font-medium italic">This will be the initial target distance when placing Long/Short tools.</p>
                     </div>
-                  </div>
+                  </section>
+                )}
 
-                  <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="flex items-center gap-3 mb-6">
-                      <Trash2 size={20} className="text-[#FF4F01]" />
-                      <h3 className="text-lg font-bold">History Maintenance</h3>
-                    </div>
-                    
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="font-bold text-sm">Clean Up Duplicates</p>
-                        <p className="text-xs opacity-50">Remove redundant manual entries matching date, pair, and price.</p>
+                {onDeduplicate && (
+                  <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <Trash2 size={18} className="text-[#FF4F01]" />
+                      <div className="flex-1">
+                        <p className="text-sm font-bold">Clean duplicate entries</p>
+                        <p className="text-xs opacity-50">Remove duplicate manual entries that share the same date, pair, and price.</p>
                       </div>
                       <button
                         onClick={onDeduplicate}
-                        className={`px-6 py-2.5 rounded-xl font-black text-xs transition-all ${isDarkMode ? 'bg-zinc-800 hover:bg-zinc-700 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-700'}`}
+                        className={`rounded-2xl px-4 py-3 text-xs font-black uppercase tracking-[0.16em] transition-all ${
+                          isDarkMode
+                            ? 'bg-white/[0.06] text-white hover:bg-white/[0.1]'
+                            : 'bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
                       >
-                        RUN CLEANUP
+                        Run Cleanup
                       </button>
                     </div>
-                  </div>
-                </div>
+                  </section>
+                )}
               </div>
             )}
 
             {activeTab === 'appearance' && (
-              <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex flex-col gap-6">
-                  <div className="flex items-center justify-between p-6 rounded-2xl border border-dashed border-zinc-800">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-xl ${isDarkMode ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-500/10 text-amber-600'}`}>
-                        {isDarkMode ? <Moon size={24} /> : <Sun size={24} />}
+              <div className="space-y-6">
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className="rounded-2xl bg-[#FF4F01]/10 p-3 text-[#FF4F01]">
+                        <Moon size={22} />
                       </div>
                       <div>
-                        <p className="text-lg font-bold">Display Mode</p>
-                        <p className="text-sm opacity-50">{isDarkMode ? 'Dark mode' : 'Light mode'} is currently active.</p>
+                        <p className="text-sm font-bold">Workspace Mode</p>
+                        <p className="mt-1 text-sm opacity-60">
+                          Obsidian mode is the default workspace look. Premium themes are available for Masters.
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={onToggleTheme}
-                      className={`w-14 h-8 rounded-full relative transition-all ${isDarkMode ? 'bg-indigo-600' : 'bg-amber-500'}`}
-                    >
-                      <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-lg ${isDarkMode ? 'left-7' : 'left-1'}`} />
-                    </button>
+                    <div className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] opacity-60">
+                      Locked
+                    </div>
                   </div>
+                </section>
 
-                  {formData.plan === 'PREMIUM (MASTERS)' && (
-                    <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className="flex items-center gap-3 mb-6">
-                        <Crown size={20} className="text-amber-500" />
-                        <h3 className="text-lg font-bold">Premium Themes</h3>
-                        <div className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase tracking-widest border border-amber-500/20 ml-auto">Masters Exclusive</div>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {[
-                          { id: 'default', label: 'Obsidian', desc: 'Standard dark aesthetic.', bg: 'bg-[#050505]', accent: 'bg-indigo-500' },
-                          { id: 'midnight', label: 'Midnight Blue', desc: 'Deep ocean atmosphere.', bg: 'bg-[#020617]', accent: 'bg-sky-500' },
-                        ].map((t) => (
+                {formData.plan === 'PREMIUM (MASTERS)' && (
+                  <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'}`}>
+                    <div className="mb-4 flex items-center gap-3">
+                      <Crown size={18} className="text-amber-500" />
+                      <h3 className="text-lg font-black">Premium Themes</h3>
+                      <span className="ml-auto rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-500">
+                        Masters only
+                      </span>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {[
+                        { id: 'obsidian', label: 'Obsidian', desc: 'Deep dark panels with orange accents.' },
+                        { id: 'cosmic', label: 'Cosmic', desc: 'Dark violet canvas with sharper contrast.' },
+                      ].map((theme) => {
+                        const selected = formData.themePreference === theme.id;
+                        return (
                           <button
-                            key={t.id}
-                            onClick={() => setFormData({ ...formData, themePreference: t.id as any })}
-                            className={`p-4 rounded-2xl border-2 transition-all text-left flex flex-col gap-3 group relative overflow-hidden ${formData.themePreference === t.id ? 'border-[#FF4F01] bg-[#FF4F01]/5' : 'border-transparent hover:border-zinc-700'}`}
+                            key={theme.id}
+                            onClick={() => setFormData({ ...formData, themePreference: theme.id as UserProfile['themePreference'] })}
+                            className={`rounded-[24px] border p-4 text-left transition-all ${
+                              selected
+                                ? 'border-[#FF4F01] bg-[#FF4F01]/5'
+                                : isDarkMode
+                                  ? 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14]'
+                                  : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                            }`}
                           >
-                            <div className={`w-full h-20 rounded-xl ${t.bg} border border-white/10 relative overflow-hidden p-3`}>
-                               <div className={`w-1/2 h-2 rounded-full ${t.accent} opacity-50 mb-2`} />
-                               <div className="w-1/3 h-2 rounded-full bg-white/10 mb-2" />
-                               <div className="w-2/3 h-2 rounded-full bg-white/10" />
-                               {formData.themePreference === t.id && (
-                                 <div className="absolute top-2 right-2 text-[#FF4F01]">
-                                   <CheckCircle2 size={16} />
-                                 </div>
-                               )}
+                            <div className="mb-4 rounded-2xl border border-white/10 bg-[#050505] p-4">
+                              <div className="mb-2 h-2 w-1/2 rounded-full bg-[#FF4F01]/60" />
+                              <div className="mb-2 h-2 w-1/3 rounded-full bg-white/10" />
+                              <div className="h-2 w-2/3 rounded-full bg-white/10" />
                             </div>
-                            <div>
-                              <p className="font-bold text-sm">{t.label}</p>
-                              <p className="text-[10px] opacity-50 font-medium">{t.desc}</p>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-bold">{theme.label}</p>
+                                <p className="text-xs opacity-50">{theme.desc}</p>
+                              </div>
+                              {selected && <CheckCircle2 size={16} className="text-[#FF4F01]" />}
                             </div>
                           </button>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
-                  )}
+                  </section>
+                )}
 
-                  <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="flex items-center gap-3 mb-2">
-                      <Zap size={20} className="text-indigo-500" />
-                      <h3 className="text-lg font-bold">Performance</h3>
-                    </div>
-                    <div className="flex items-center justify-between p-4 rounded-2xl bg-black/10 dark:bg-white/5">
-                      <div className="max-w-[80%]">
-                        <p className="text-sm font-bold">Keep Charts Alive in Background</p>
-                        <p className="text-xs opacity-50">Maintains chart state (drawings) when switching pages. Disable if the app feels slow.</p>
-                      </div>
-                      <button
-                        onClick={() => setFormData({ ...formData, keepChartsAlive: !formData.keepChartsAlive })}
-                        className={`w-12 h-6 rounded-full transition-all relative ${formData.keepChartsAlive ? 'bg-indigo-500' : 'bg-zinc-700'}`}
-                      >
-                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.keepChartsAlive ? 'right-1' : 'left-1'}`} />
-                      </button>
-                    </div>
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="mb-4 flex items-center gap-3">
+                    <Zap size={18} className="text-indigo-500" />
+                    <h3 className="text-lg font-black">Performance</h3>
                   </div>
-                </div>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="max-w-2xl">
+                      <p className="text-sm font-bold">Keep charts alive in background</p>
+                      <p className="mt-1 text-sm opacity-60">
+                        Preserve chart state when moving between pages. Turn it off if the interface feels heavy.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setFormData({ ...formData, keepChartsAlive: !formData.keepChartsAlive })}
+                      className={`relative h-7 w-14 rounded-full transition-all ${
+                        formData.keepChartsAlive ? 'bg-indigo-500' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${
+                          formData.keepChartsAlive ? 'right-1' : 'left-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </section>
               </div>
             )}
 
             {activeTab === 'billing' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className={`p-8 rounded-[32px] border-2 border-[#FF4F01] bg-[#FF4F01]/5 relative overflow-hidden`}>
-                  <div className="absolute top-[-20%] right-[-10%] w-40 h-40 bg-[#FF4F01]/20 rounded-full blur-3xl" />
-                  <div className="relative z-10 flex justify-between items-start">
-                    <div>
-                      <h4 className="text-xs font-black uppercase tracking-[0.2em] mb-4 opacity-60">Current Plan</h4>
-                      <h3 className="text-4xl font-black mb-2">{formData.plan}</h3>
-                      <p className="text-sm font-medium opacity-60 mb-8">
-                        {formData.plan === 'FREE TIER (JOURNALER)' && 'Lightweight journaling for beginners.'}
-                        {formData.plan === 'PRO TIER (ANALYSTS)' && 'Data-driven automated trading.'}
-                        {formData.plan === 'PREMIUM (MASTERS)' && 'Full-capacity logging & advanced mapping.'}
+              <div className="space-y-6">
+                <section className="rounded-[32px] border border-[#FF4F01]/25 bg-[#FF4F01]/6 p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl">
+                      <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#FF4F01]">Current Plan</p>
+                      <h3 className="mt-2 text-3xl font-black tracking-tight">{formData.plan}</h3>
+                      <p className="mt-3 text-sm leading-relaxed opacity-70">
+                        {formData.plan === 'FREE TIER (JOURNALER)' && 'Manual journaling for lean trade tracking.'}
+                        {formData.plan === 'PRO TIER (ANALYSTS)' && 'EA sync and workflow tools for active traders.'}
+                        {formData.plan === 'PREMIUM (MASTERS)' && 'Full-capacity logging and advanced workspace control.'}
                       </p>
                     </div>
-                    <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20">
-                      <Award size={32} className="text-[#FF4F01]" />
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className={`min-w-[110px] rounded-2xl border p-4 ${isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-white'}`}>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Trades</p>
+                        <p className="mt-2 text-lg font-black">{tradesThisMonth}</p>
+                        <div className="mt-3">{renderPlanProgress(tradesThisMonth, formData.plan === 'PRO TIER (ANALYSTS)' ? 500 : 50)}</div>
+                      </div>
+                      <div className={`min-w-[110px] rounded-2xl border p-4 ${isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-white'}`}>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Notes</p>
+                        <p className="mt-2 text-lg font-black">{formData.plan === 'FREE TIER (JOURNALER)' ? totalNotes : 'Unlimited'}</p>
+                        <div className="mt-3">{renderPlanProgress(totalNotes, 1)}</div>
+                      </div>
+                      <div className={`min-w-[110px] rounded-2xl border p-4 ${isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-white'}`}>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Images</p>
+                        <p className="mt-2 text-lg font-black">
+                          {formData.plan === 'FREE TIER (JOURNALER)' ? '0' : formData.plan === 'PREMIUM (MASTERS)' ? 'Unlimited' : totalImages}
+                        </p>
+                        <div className="mt-3">{renderPlanProgress(totalImages, 1000)}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </section>
 
-                {/* Detailed Usage Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex justify-between items-center mb-4">
-                      <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40">Monthly Trades</h5>
-                      <span className="text-[10px] font-bold text-indigo-500">
-                        {formData.plan === 'PREMIUM (MASTERS)' ? 'Unlimited' : `${tradesThisMonth} / ${formData.plan === 'PRO TIER (ANALYSTS)' ? 500 : 50}`}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-black/10 dark:bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-indigo-500 rounded-full transition-all duration-1000" 
-                        style={{ width: `${formData.plan === 'PREMIUM (MASTERS)' ? 0 : Math.min(100, (tradesThisMonth / (formData.plan === 'PRO TIER (ANALYSTS)' ? 500 : 50)) * 100)}%` }} 
-                      />
-                    </div>
-                  </div>
-                  <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex justify-between items-center mb-4">
-                      <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40">Notebook Slots</h5>
-                      <span className="text-[10px] font-bold text-purple-500">
-                        {formData.plan === 'FREE TIER (JOURNALER)' ? `${totalNotes} / 1` : 'Unlimited'}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-black/10 dark:bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-purple-500 rounded-full transition-all duration-1000" 
-                        style={{ width: `${formData.plan === 'FREE TIER (JOURNALER)' ? Math.min(100, (totalNotes / 1) * 100) : 0}%` }} 
-                      />
-                    </div>
-                  </div>
-                  <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex justify-between items-center mb-4">
-                      <h5 className="text-[10px] font-black uppercase tracking-widest opacity-40">Images Used</h5>
-                      <span className="text-[10px] font-bold text-orange-500">
-                        {formData.plan === 'FREE TIER (JOURNALER)' ? '0 / 0' : (formData.plan === 'PREMIUM (MASTERS)' ? 'Unlimited' : `${totalImages} / 1000`)}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-black/10 dark:bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-orange-500 rounded-full transition-all duration-1000" 
-                        style={{ width: `${formData.plan === 'PREMIUM (MASTERS)' ? 0 : (formData.plan === 'FREE TIER (JOURNALER)' ? 0 : Math.min(100, (totalImages / 1000) * 100))}%` }} 
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-6">
-                  <h4 className="text-xs font-black uppercase tracking-widest opacity-40">Available Plans</h4>
+                <section className="grid gap-4">
                   {[
-                    { 
-                      id: 'FREE TIER (JOURNALER)', 
-                      price: '0', 
-                      desc: 'Manual trade logging & daily bias.',
-                      features: ['50 trades / mo', 'Max 1 note', 'Manual Entry']
+                    {
+                      id: 'FREE TIER (JOURNALER)',
+                      desc: 'Manual trade logging and daily bias notes.',
+                      features: ['50 trades / month', '1 note', 'Manual entry'],
                     },
-                    { 
-                      id: 'PRO TIER (ANALYSTS)', 
-                      price: '0', 
-                      desc: 'Free for Beta Testers - EA Sync & Goals.',
-                      features: ['500 trades / mo', '1 Chart Layout', 'Desktop Bridge']
+                    {
+                      id: 'PRO TIER (ANALYSTS)',
+                      desc: 'EA sync, charts, and trading workflow tools.',
+                      features: ['500 trades / month', 'Desktop bridge', 'Live sync'],
                     },
-                    { 
-                      id: 'PREMIUM (MASTERS)', 
-                      price: '0', 
-                      desc: 'Free for Beta Testers - Full-capacity logging.',
-                      features: ['Unlimited trades', 'Custom Chart Layouts', 'Unlimited Notes']
-                    }
-                  ].map((plan) => (
-                    <div key={plan.id} className={`p-6 rounded-2xl border flex items-center justify-between transition-all ${formData.plan === plan.id ? 'border-[#FF4F01] bg-[#FF4F01]/5' : isDarkMode ? 'bg-zinc-900/50 border-zinc-800' : 'bg-slate-50 border-slate-100'}`}>
-                      <div className="flex gap-4 items-center">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${formData.plan === plan.id ? 'bg-[#FF4F01] text-white' : 'bg-zinc-800 text-zinc-400'}`}>
-                          {plan.id === 'PREMIUM (MASTERS)' ? <Crown size={20} /> : <Zap size={20} />}
-                        </div>
-                        <div>
-                          <h5 className="font-bold text-sm">{plan.id}</h5>
-                          <p className="text-xs opacity-50">{plan.desc}</p>
+                    {
+                      id: 'PREMIUM (MASTERS)',
+                      desc: 'Maximum limits with full workspace control.',
+                      features: ['Unlimited trades', 'Unlimited notes', 'Premium themes'],
+                    },
+                  ].map((plan) => {
+                    const active = formData.plan === plan.id;
+
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`rounded-[28px] border p-5 transition-all ${
+                          active
+                            ? 'border-[#FF4F01] bg-[#FF4F01]/5'
+                            : isDarkMode
+                              ? 'border-white/[0.08] bg-black/20'
+                              : 'border-slate-200 bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex items-start gap-4">
+                            <div className={`rounded-2xl p-3 ${active ? 'bg-[#FF4F01] text-white' : isDarkMode ? 'bg-white/[0.04] text-zinc-300' : 'bg-white text-slate-600'}`}>
+                              {plan.id === 'PREMIUM (MASTERS)' ? <Crown size={18} /> : <Zap size={18} />}
+                            </div>
+                            <div>
+                              <h4 className="font-bold">{plan.id}</h4>
+                              <p className="mt-1 text-sm opacity-60">{plan.desc}</p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {plan.features.map((feature) => (
+                                  <span
+                                    key={feature}
+                                    className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${
+                                      isDarkMode
+                                        ? 'border-white/[0.08] bg-white/[0.03] text-zinc-300'
+                                        : 'border-slate-200 bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    {feature}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              {plan.id === 'FREE TIER (JOURNALER)' ? (
+                                <p className="text-lg font-black">$0</p>
+                              ) : (
+                                <p className="text-sm font-black text-[#FF4F01]">FREE BETA</p>
+                              )}
+                              <p className="text-[10px] font-bold uppercase opacity-40">per month</p>
+                            </div>
+                            <button
+                              onClick={() => setFormData({ ...formData, plan: plan.id })}
+                              disabled={active}
+                              className={`rounded-2xl px-4 py-3 text-xs font-black uppercase tracking-[0.16em] transition-all ${
+                                active
+                                  ? 'cursor-default bg-zinc-700 text-zinc-400'
+                                  : 'bg-[#FF4F01] text-white hover:scale-[1.02]'
+                              }`}
+                            >
+                              {active ? 'Active' : 'Switch'}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6">
-                        <div className="text-right">
-                          {plan.price === '0' && plan.id !== 'FREE TIER (JOURNALER)' ? (
-                            <p className="text-sm font-black text-[#FF4F01]">FREE (BETA)</p>
-                          ) : (
-                            <>
-                              <p className="text-lg font-black">${plan.price}</p>
-                              <p className="text-[10px] font-bold uppercase opacity-40">/month</p>
-                            </>
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => setFormData({ ...formData, plan: plan.id })}
-                          disabled={formData.plan === plan.id}
-                          className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${formData.plan === plan.id ? 'bg-zinc-800 text-zinc-500 cursor-default' : 'bg-[#FF4F01] text-white hover:scale-105 shadow-lg shadow-[#FF4F01]/20'}`}
-                        >
-                          {formData.plan === plan.id ? 'Active' : 'Switch'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    );
+                  })}
+                </section>
               </div>
-            ) }
+            )}
 
             {activeTab === 'security' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between p-6 rounded-2xl border border-dashed border-zinc-800">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl"><Lock size={20} /></div>
+              <div className="space-y-6">
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className="rounded-2xl bg-amber-500/10 p-3 text-amber-500">
+                        <Lock size={20} />
+                      </div>
                       <div>
-                        <p className="text-sm font-bold">Two-Factor Auth</p>
-                        <p className="text-xs opacity-50">Enabled via Authenticator App</p>
+                        <p className="text-sm font-bold">Two-factor authentication</p>
+                        <p className="mt-1 text-sm opacity-60">Account-level protection is handled through your login provider.</p>
                       </div>
                     </div>
-                    <button className="text-[10px] font-black uppercase underline text-rose-500">Disable</button>
+                    <div className="rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] opacity-60">
+                      Enabled
+                    </div>
                   </div>
-                </div>
+                </section>
+
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-bold">Session control</p>
+                      <p className="mt-1 text-sm opacity-60">Use sign out to end this device session immediately.</p>
+                    </div>
+                    <button
+                      onClick={onLogout}
+                      className="rounded-2xl bg-rose-500 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-rose-400"
+                    >
+                      Sign Out Now
+                    </button>
+                  </div>
+                </section>
               </div>
             )}
 
             {activeTab === 'help' && (
-              <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="space-y-6">
+                <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {supportLinks.map((item) => {
+                    const Icon = item.icon;
+                    const disabled = !item.href;
 
-                {/* App Version Banner */}
-                <div className={`p-4 rounded-2xl border border-dashed flex items-center justify-between ${isDarkMode ? 'bg-zinc-900/30 border-zinc-800' : 'bg-slate-100 border-slate-200'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-[#FF4F01]/10 text-[#FF4F01] rounded-lg">
-                      <Zap size={16} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold">JournalFX Beta v2.0</p>
-                      <p className="text-[10px] opacity-50">Last updated: February 2026</p>
-                    </div>
-                  </div>
-                  <button className="text-[10px] font-black uppercase text-[#FF4F01] underline">Check for Updates</button>
-                </div>
-
-                {/* Quick Actions */}
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Quick Actions</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { label: 'New Trade', icon: Plus, shortcut: 'T' },
-                      { label: 'New Note', icon: FileText, shortcut: 'N' },
-                      { label: 'Screenshot', icon: Camera, shortcut: 'S' },
-                      { label: 'AI Assistant', icon: MessageSquare, shortcut: 'A' },
-                    ].map((action, i) => (
-                      <button
-                        key={i}
-                        className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.02] ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
+                    return disabled ? (
+                      <div
+                        key={item.title}
+                        className={`rounded-[28px] border p-5 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'} opacity-60`}
                       >
-                        <div className="flex items-center gap-2 mb-2">
-                          <action.icon size={14} className="text-[#FF4F01]" />
-                          <span className="text-xs font-bold">{action.label}</span>
-                        </div>
-                        <span className="text-[10px] opacity-40 font-mono bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded">{action.shortcut}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Support Resources */}
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Resources & Support</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {[
-                      { title: 'Documentation', icon: HelpCircle, color: 'text-indigo-500', desc: 'Complete guides & tutorials.', link: '/DOCUMENTATION.md' },
-                      { title: 'Video Tutorials', icon: Youtube, color: 'text-red-500', desc: 'Watch step-by-step guides.', link: null },
-                      { title: 'Telegram Channel', icon: Telegram, color: 'text-violet-500', desc: 'Join our trading community.', link: 'https://t.me/+w_KvKM5HESYyMTdk' },
-                      { title: 'GitHub Issues', icon: Github, color: 'text-zinc-500', desc: 'Report bugs & feature requests.', link: null },
-                    ].map((item, i) => {
-                      const isDisabled = !item.link;
-                      const Tag = isDisabled ? 'div' : 'a';
-                      
-                      return (
-                        <Tag
-                          key={i}
-                          {...(isDisabled ? {} : { 
-                            href: item.link as string,
-                            target: "_blank",
-                            rel: "noopener noreferrer"
-                          })}
-                          className={`p-5 rounded-2xl border transition-all ${isDisabled 
-                            ? 'opacity-50 cursor-not-allowed grayscale-[0.5]' 
-                            : 'hover:scale-[1.02]'} ${isDarkMode ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}
-                        >
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className={`p-2 rounded-lg bg-black/5 dark:bg-white/5 ${item.color}`}>
-                              <item.icon size={16} />
-                            </div>
-                            <h4 className="font-bold text-sm">{item.title}</h4>
-                            {!isDisabled && <ExternalLink size={12} className="ml-auto opacity-30" />}
-                            {isDisabled && <span className="ml-auto text-[8px] font-black uppercase tracking-widest opacity-30">Coming Soon</span>}
+                        <div className="mb-3 flex items-center gap-3">
+                          <div className="rounded-2xl bg-white/[0.04] p-3 text-zinc-400">
+                            <Icon size={16} />
                           </div>
-                          <p className="text-xs opacity-50">{item.desc}</p>
-                        </Tag>
-                      );
-                    })}
-                  </div>
-                </div>
+                          <div>
+                            <h4 className="font-bold">{item.title}</h4>
+                            <p className="text-[11px] uppercase tracking-[0.16em] opacity-40">Coming soon</p>
+                          </div>
+                        </div>
+                        <p className="text-sm opacity-60">{item.desc}</p>
+                      </div>
+                    ) : (
+                      <a
+                        key={item.title}
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`rounded-[28px] border p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+                          isDarkMode ? 'border-white/[0.08] bg-black/20 hover:border-white/[0.14]' : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="mb-3 flex items-center gap-3">
+                          <div className="rounded-2xl bg-[#FF4F01]/10 p-3 text-[#FF4F01]">
+                            <Icon size={16} />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold">{item.title}</h4>
+                            <p className="text-sm opacity-60">{item.desc}</p>
+                          </div>
+                          <ExternalLink size={14} className="opacity-30" />
+                        </div>
+                      </a>
+                    );
+                  })}
+                </section>
 
-                {/* FAQ Accordion */}
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest opacity-40 mb-4">Frequently Asked Questions</h3>
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">FAQ</p>
+                      <h3 className="mt-1 text-lg font-black">Frequently asked questions</h3>
+                    </div>
+                    {migrationVersion && (
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">
+                        Database {migrationVersion}
+                      </p>
+                    )}
+                  </div>
                   <div className="space-y-2">
-                    {[
-                      { q: 'How do I sync trades from MT5?', a: 'Go to Account Config tab and generate a sync key. Enter this key in the JFX Bridge application to start auto-syncing your trades.' },
-                      { q: 'Can I export my trading data?', a: 'Yes! Navigate to Analytics > Reports and click Export to download your data as CSV or PDF.' },
-                      { q: 'How do I upgrade my plan?', a: 'Visit the Plan & Billing tab in Settings to upgrade. Beta testers enjoy free access to all tiers!' },
-                      { q: 'Why are my charts not loading?', a: 'Try disabling "Keep Charts Alive" in Appearance settings, or refresh the page. Make sure your ad blocker isn\'t blocking TradingView.' },
-                    ].map((faq, i) => (
-                      <FAQItem key={i} question={faq.q} answer={faq.a} isDarkMode={isDarkMode} />
+                    {faqItems.map((faq) => (
+                      <FAQItem key={faq.q} question={faq.q} answer={faq.a} isDarkMode={isDarkMode} />
                     ))}
                   </div>
-                </div>
+                </section>
 
-                {/* Feedback Form Section */}
-                <div className={`p-8 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex items-center gap-3 mb-6">
-                    <MessageSquare size={20} className="text-[#FF4F01]" />
-                    <h3 className="text-lg font-bold">Send Feedback</h3>
+                <section className={`rounded-[28px] border p-6 ${isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'}`}>
+                  <div className="mb-5 flex items-center gap-3">
+                    <MessageSquare size={18} className="text-[#FF4F01]" />
+                    <h3 className="text-lg font-black">Send feedback</h3>
                   </div>
-                  
+
                   {feedbackSuccess ? (
-                    <div className="py-12 flex flex-col items-center text-center animate-in fade-in zoom-in-95">
-                      <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mb-4">
-                        <CheckCircle2 size={32} />
+                    <div className="rounded-[24px] border border-emerald-500/20 bg-emerald-500/5 px-6 py-10 text-center">
+                      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+                        <CheckCircle2 size={28} />
                       </div>
-                      <h4 className="text-xl font-bold mb-2">Feedback Received!</h4>
-                      <p className="text-sm opacity-50 max-w-xs">Thank you for contributing to the JFX Beta. Your input has been logged.</p>
+                      <h4 className="text-xl font-black">Feedback received</h4>
+                      <p className="mx-auto mt-2 max-w-md text-sm opacity-60">
+                        Your message has been logged. Thanks for helping shape the next version of JournalFX.
+                      </p>
                     </div>
                   ) : (
-                    <div className="space-y-5">
-                      <div className="grid grid-cols-4 gap-2">
-                        {['Bug Report', 'Feature Request', 'Improvement', 'Other'].map((type) => (
-                          <button
-                            key={type}
-                            className={`py-2 px-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${isDarkMode 
-                              ? 'border-zinc-700 hover:border-zinc-600' 
-                              : 'border-slate-200 hover:border-slate-300'}`}
-                          >
-                            {type}
-                          </button>
-                        ))}
+                    <div className="grid gap-5">
+                      <div className={`rounded-2xl border p-4 ${isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}>
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">Category</p>
+                            <p className="mt-1 text-sm font-bold">Choose the closest match</p>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Direct message</span>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-4">
+                          {['Bug Report', 'Feature Request', 'Improvement', 'Other'].map((item) => (
+                            <button
+                              key={item}
+                              onClick={() => setFeedbackCategory(item)}
+                              className={`rounded-2xl border px-3 py-3 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
+                                feedbackCategory === item
+                                  ? 'border-[#FF4F01] bg-[#FF4F01] text-white'
+                                  : isDarkMode
+                                    ? 'border-white/[0.08] bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="group">
-                        <label htmlFor="feedback-subject" className={labelClasses}>Subject</label>
-                        <input
-                          id="feedback-subject"
-                          name="subject"
-                          placeholder="Brief summary of your feedback..."
-                          className={inputClasses}
-                        />
+
+                      <div className="grid gap-5 lg:grid-cols-[1fr_minmax(240px,0.7fr)]">
+                        <div className="space-y-5">
+                          <div>
+                            <label htmlFor="feedback-subject" className={labelClass}>
+                              Subject
+                            </label>
+                            <input
+                              id="feedback-subject"
+                              value={feedbackSubject}
+                              onChange={(e) => setFeedbackSubject(e.target.value)}
+                              placeholder="What should we look at?"
+                              className={inputClass}
+                            />
+                          </div>
+
+                          <div>
+                            <label htmlFor="feedback-message" className={labelClass}>
+                              Message
+                            </label>
+                            <textarea
+                              id="feedback-message"
+                              value={feedbackMessage}
+                              onChange={(e) => setFeedbackMessage(e.target.value)}
+                              rows={7}
+                              placeholder="Share the issue, idea, or improvement."
+                              className={`${inputClass} min-h-[220px] resize-none`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className={`rounded-[24px] border p-5 ${isDarkMode ? 'border-white/[0.08] bg-white/[0.03]' : 'border-slate-200 bg-slate-50'}`}>
+                          <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-40">Send details</p>
+                          <div className="mt-4 space-y-3 text-sm">
+                            <div
+                              className={`rounded-2xl border px-4 py-3 ${
+                                isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Category</p>
+                              <p className="mt-1 font-bold">{feedbackCategory}</p>
+                            </div>
+                            <div
+                              className={`rounded-2xl border px-4 py-3 ${
+                                isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Subject</p>
+                              <p className="mt-1 font-bold">{feedbackSubject.trim() || 'No subject yet'}</p>
+                            </div>
+                            <div
+                              className={`rounded-2xl border px-4 py-3 ${
+                                isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'
+                              }`}
+                            >
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-40">Message</p>
+                              <p className="mt-1 line-clamp-4 text-sm opacity-70">
+                                {feedbackMessage.trim() || 'Your message preview will appear here.'}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="mt-4 text-xs opacity-50">
+                            Keep it short and specific. Screenshots are not required for this version.
+                          </p>
+                        </div>
                       </div>
-                      <div className="group">
-                        <label htmlFor="feedback-message" className={labelClasses}>Message</label>
-                        <textarea
-                          id="feedback-message"
-                          name="message"
-                          placeholder="The more details you provide, the better we can help! Include steps to reproduce if it's a bug..."
-                          rows={5}
-                          className={`w-full bg-transparent border-b-2 py-3 text-sm font-medium outline-none transition-all resize-none ${isDarkMode
-                            ? 'border-zinc-800 focus:border-[#FF4F01] text-white'
-                            : 'border-zinc-200 focus:border-[#FF4F01] text-zinc-900'
-                            }`}
-                        />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${isDarkMode 
-                          ? 'border-zinc-700 hover:border-zinc-600' 
-                          : 'border-slate-200 hover:border-slate-300'}`}
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-xs opacity-50">
+                          {feedbackMessage.trim().length} characters
+                        </p>
+                        <button
+                          onClick={handleFeedbackSubmit}
+                          disabled={isSubmittingFeedback || !feedbackMessage.trim()}
+                          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#FF4F01] px-5 py-3 text-sm font-bold text-white transition-all hover:bg-[#e64901] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <Camera size={14} />
-                          Add Screenshot
+                          {isSubmittingFeedback ? (
+                            <>
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <Send size={16} />
+                              Submit Feedback
+                            </>
+                          )}
                         </button>
-                        <span className="text-[10px] opacity-40">Optional: Attach a screenshot to help us understand</span>
                       </div>
-                      <button 
-                        onClick={handleFeedbackSubmit}
-                        disabled={isSubmittingFeedback}
-                        className="w-full py-4 bg-[#FF4F01] hover:bg-[#FF4F01]/90 text-white rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#FF4F01]/20"
-                      >
-                        {isSubmittingFeedback ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            Sending...
-                          </>
-                        ) : (
-                          <>
-                            <Send size={16} />
-                            Submit Feedback
-                          </>
-                        )}
-                      </button>
                     </div>
                   )}
-                </div>
+                </section>
               </div>
             )}
 
-            {/* Footer Actions */}
-            <div className="mt-16 pt-8 border-t border-zinc-800/50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className={`mt-8 flex flex-col gap-4 border-t pt-6 md:flex-row md:items-center md:justify-between ${isDarkMode ? 'border-white/[0.08]' : 'border-slate-200'}`}>
+              <div className="min-h-[24px]">
                 {saveMessage && (
-                  <div className="flex items-center gap-2 text-emerald-500 text-xs font-bold animate-in fade-in slide-in-from-left-2">
-                    <CheckCircle2 size={14} /> {saveMessage}
+                  <div className="flex items-center gap-2 text-sm font-bold text-emerald-500">
+                    <CheckCircle2 size={14} />
+                    {saveMessage}
                   </div>
                 )}
               </div>
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex items-center gap-3 px-10 py-4 bg-[#FF4F01] text-white rounded-2xl font-black text-sm shadow-2xl shadow-[#FF4F01]/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#FF4F01] px-6 py-3.5 text-sm font-black text-white transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSaving ? 'Saving Changes...' : 'Save Settings'} <Save size={18} />
+                {isSaving ? 'Saving...' : 'Save Settings'}
+                <Save size={16} />
               </button>
             </div>
-          </div>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
 };
 
-// FAQ Accordion Item Component
-const FAQItem: React.FC<{ question: string; answer: string; isDarkMode: boolean }> = ({ 
-  question, 
-  answer, 
-  isDarkMode 
-}) => {
+const FAQItem: React.FC<{ question: string; answer: string; isDarkMode: boolean }> = ({ question, answer, isDarkMode }) => {
   const [isOpen, setIsOpen] = useState(false);
-  
+
   return (
-    <div className={`rounded-xl border overflow-hidden transition-all ${isDarkMode 
-      ? 'bg-zinc-900/30 border-zinc-800' 
-      : 'bg-white border-slate-200'}`}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-4 text-left"
-      >
+    <div
+      className={`overflow-hidden rounded-2xl border transition-all ${
+        isDarkMode ? 'border-white/[0.08] bg-black/20' : 'border-slate-200 bg-white'
+      }`}
+    >
+      <button onClick={() => setIsOpen(!isOpen)} className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left">
         <span className="text-sm font-bold">{question}</span>
-        <ChevronDown 
-          size={18} 
-          className={`text-zinc-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
-        />
+        <ChevronDown size={16} className={`shrink-0 text-zinc-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       <div className={`overflow-hidden transition-all ${isOpen ? 'max-h-40' : 'max-h-0'}`}>
-        <p className="px-4 pb-4 text-xs opacity-60">{answer}</p>
+        <p className="px-4 pb-4 text-sm opacity-60">{answer}</p>
       </div>
     </div>
   );

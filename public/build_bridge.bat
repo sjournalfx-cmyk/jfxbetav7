@@ -16,7 +16,11 @@ echo.
 
 pyinstaller --noconfirm --onefile --windowed ^
     --name "JournalFX_Bridge" ^
-    --icon "NONE" ^
+    --icon "%~dp0JournalFX_Bridge.ico" ^
+    --add-data "%~dp0JournalFX_Bridge.ico;." ^
+    --distpath "%~dp0dist" ^
+    --workpath "%~dp0build" ^
+    --specpath "%~dp0build" ^
     --hidden-import "tkinter" ^
     --hidden-import "requests" ^
     --hidden-import "MetaTrader5" ^
@@ -26,16 +30,17 @@ pyinstaller --noconfirm --onefile --windowed ^
     --hidden-import "numpy._core._multiarray_umath" ^
     --collect-all "numpy" ^
     --collect-all "MetaTrader5" ^
-    jfx_bridge_gui.py
+    "%~dp0jfx_bridge_gui.py"
 
 echo.
-if exist "dist\JournalFX_Bridge.exe" (
+if exist "%~dp0dist\JournalFX_Bridge.exe" (
+    copy /Y "%~dp0dist\JournalFX_Bridge.exe" "%~dp0JournalFX_Bridge.exe" >nul
     echo ========================================
     echo   BUILD SUCCESSFUL!
     echo ========================================
     echo.
     echo   Your executable is ready at:
-    echo   dist\JournalFX_Bridge.exe
+    echo   %~dp0JournalFX_Bridge.exe
     echo.
     echo   You can now distribute this file.
     echo   No Python installation required!

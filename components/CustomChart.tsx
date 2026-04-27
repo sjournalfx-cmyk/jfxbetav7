@@ -156,6 +156,43 @@ const CustomChart: React.FC<CustomChartProps> = ({
             viewState.current.offsetX = 0;
             setChartRevision(r => r + 1);
           },
+          applyOptions: (options: any) => {
+            if (options.barSpacing !== undefined) {
+              const oldScaleX = viewState.current.scaleX;
+              const newScaleX = Math.max(0.5, Math.min(200, options.barSpacing));
+              
+              // Zoom around the center of the chart if no specific point is provided
+              const centerX = (viewState.current.width - PADDING_RIGHT) / 2;
+              const logicalAtCenter = getIndexFromX(centerX);
+              
+              viewState.current.scaleX = newScaleX;
+              const chartWidth = viewState.current.width - PADDING_RIGHT;
+              viewState.current.offsetX = chartWidth - centerX - (data.length - 1 - logicalAtCenter) * newScaleX;
+              
+              setChartRevision(r => r + 1);
+              draw();
+              notifyViewStateChange();
+            }
+            if (options.rightBarSpacing !== undefined) {
+                // Map rightBarSpacing to some offset adjustment if needed, 
+                // but usually barSpacing is what controls zoom.
+                // For compatibility with the current BacktestLab zoom buttons:
+                const zoomFactor = options.rightBarSpacing > 100 ? 1.1 : 0.9;
+                const oldScaleX = viewState.current.scaleX;
+                const newScaleX = Math.max(0.5, Math.min(200, oldScaleX * zoomFactor));
+                
+                const centerX = (viewState.current.width - PADDING_RIGHT) / 2;
+                const logicalAtCenter = getIndexFromX(centerX);
+                
+                viewState.current.scaleX = newScaleX;
+                const chartWidth = viewState.current.width - PADDING_RIGHT;
+                viewState.current.offsetX = chartWidth - centerX - (data.length - 1 - logicalAtCenter) * newScaleX;
+                
+                setChartRevision(r => r + 1);
+                draw();
+                notifyViewStateChange();
+            }
+          },
           updateOffsetForNewBar: (isFollowing: boolean) => {
             // If following is true, we do nothing to offsetX. 
             // getX is relative to (data.length - 1), so offsetX=constant means latest bar stays at fixed X.
@@ -185,6 +222,9 @@ const CustomChart: React.FC<CustomChartProps> = ({
     const { width, height, scaleX, offsetX, isManualPriceRange, manualMinPrice, manualMaxPrice } = viewState.current;
     const chartWidth = width - PADDING_RIGHT;
     const chartHeight = height - PADDING_BOTTOM;
+    const dpr = width > 0 ? (canvas.width / width) : (window.devicePixelRatio || 1);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // 1. Calculate Scales
     const leftIdx = Math.floor(getIndexFromX(0));
@@ -237,7 +277,7 @@ const CustomChart: React.FC<CustomChartProps> = ({
     if (isNaN(minPrice) || isNaN(maxPrice)) return;
 
     // 2. Clear
-    ctx.fillStyle = isDarkMode ? '#09090b' : '#ffffff';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
     // 3. Grid
@@ -256,23 +296,33 @@ const CustomChart: React.FC<CustomChartProps> = ({
     ctx.stroke();
 
     // 4. Candles
-    const candleWidth = Math.max(1, scaleX * 0.8);
-    const wickWidth = Math.max(1, Math.floor(scaleX * 0.1));
+    const candleWidth = Math.max(1, Math.min(scaleX * 0.72, scaleX - 1));
+    const wickWidth = Math.max(1, Math.round(Math.min(scaleX * 0.12, 2)));
 
     data.slice(start, end + 1).forEach((candle, i) => {
       const idx = start + i;
-      const x = Math.round(getX(idx));
+      const x = getX(idx);
       const yOpen = getY(candle.open);
       const yClose = getY(candle.close);
       const yHigh = getY(candle.high);
       const yLow = getY(candle.low);
 
       const isUp = candle.close >= candle.open;
-      ctx.fillStyle = isUp ? '#10b981' : '#ef4444';
+      const bodyColor = isUp ? '#10b981' : '#ef4444';
+      const wickX = Math.round(x) + 0.5;
+      const bodyX = Math.round(x - candleWidth / 2) + 0.5;
+      const bodyTop = Math.min(yOpen, yClose);
+      const bodyHeight = Math.max(1, Math.abs(yOpen - yClose));
+      const wickTop = Math.min(yHigh, yLow);
+      const wickHeight = Math.max(1, Math.abs(yLow - yHigh));
 
-      ctx.fillRect(x - wickWidth / 2, yHigh, wickWidth, yLow - yHigh);
-      const barHeight = Math.max(1, Math.abs(yOpen - yClose));
-      ctx.fillRect(x - candleWidth / 2, Math.min(yOpen, yClose), candleWidth, barHeight);
+      ctx.fillStyle = bodyColor;
+      ctx.strokeStyle = bodyColor;
+
+      ctx.fillRect(wickX - wickWidth / 2, wickTop, wickWidth, wickHeight);
+      ctx.fillRect(bodyX, bodyTop, candleWidth, bodyHeight);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bodyX, bodyTop, candleWidth, bodyHeight);
     });
 
     // 5. Drawings (Canvas Layer) — Full visual rendering (SVG is hit-area only)
@@ -445,65 +495,63 @@ const CustomChart: React.FC<CustomChartProps> = ({
         const w = Math.max(Math.abs(x2 - x1), 80);
         const left = Math.min(x1, x2 || x1 + 80);
         const right = left + w;
+        const centerX = left + (w / 2);
 
-        // Calculate R:R, percentages, pips
+        // Calculate R:R
         const risk = Math.abs(entryPrice - stopPrice);
         const reward = Math.abs(targetPrice - entryPrice);
         const rr = risk > 0 ? (reward / risk) : 0;
-        const targetPct = entryPrice !== 0 ? ((targetPrice - entryPrice) / entryPrice * 100) : 0;
-        const stopPct = entryPrice !== 0 ? ((stopPrice - entryPrice) / entryPrice * 100) : 0;
-        const targetPips = Math.abs(targetPrice - entryPrice);
-        const stopPips = Math.abs(stopPrice - entryPrice);
 
-        // --- Profit zone (green) ---
         const profitTop = Math.min(entryY, targetY);
         const profitH = Math.abs(targetY - entryY);
-        ctx.fillStyle = '#26a69a';
-        ctx.globalAlpha = 0.18;
-        ctx.fillRect(left, profitTop, w, profitH);
-        ctx.globalAlpha = 1.0;
-
-        // --- Loss zone (red) ---
         const lossTop = Math.min(entryY, stopY);
         const lossH = Math.abs(stopY - entryY);
-        ctx.fillStyle = '#ef5350';
-        ctx.globalAlpha = 0.18;
-        ctx.fillRect(left, lossTop, w, lossH);
-        ctx.globalAlpha = 1.0;
 
-        // --- Entry line (solid, white/neutral) ---
+        // --- Profit zone ---
+        // Fill
+        ctx.fillStyle = isDarkMode ? 'rgba(38, 166, 154, 0.25)' : 'rgba(38, 166, 154, 0.15)';
+        ctx.fillRect(left, profitTop, w, Math.max(profitH, 1));
+        // Border
+        ctx.strokeStyle = '#26a69a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(left, profitTop, w, Math.max(profitH, 1));
+
+        // --- Loss zone ---
+        // Fill
+        ctx.fillStyle = isDarkMode ? 'rgba(239, 83, 80, 0.25)' : 'rgba(239, 83, 80, 0.15)';
+        ctx.fillRect(left, lossTop, w, Math.max(lossH, 1));
+        // Border
+        ctx.strokeStyle = '#ef5350';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(left, lossTop, w, Math.max(lossH, 1));
+
+        // --- Entry line ---
         ctx.strokeStyle = isDarkMode ? '#b2b5be' : '#555555';
         ctx.lineWidth = 1;
-        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(left, entryY);
         ctx.lineTo(right, entryY);
         ctx.stroke();
 
-        // --- Target line (dashed green) ---
-        ctx.strokeStyle = '#26a69a';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo(left, targetY);
-        ctx.lineTo(right, targetY);
-        ctx.stroke();
-
-        // --- Stop line (dashed red) ---
-        ctx.strokeStyle = '#ef5350';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo(left, stopY);
-        ctx.lineTo(right, stopY);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // --- Center RR Text Tag (TradingView Style) ---
+        const rrText = `Risk/Reward Ratio: ${rr.toFixed(2)}`;
+        ctx.font = 'bold 9px sans-serif';
+        const txtWidth = ctx.measureText(rrText).width;
+        // Background for text
+        ctx.fillStyle = isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.4)';
+        // Center text on the entry line
+        ctx.fillRect(centerX - (txtWidth / 2) - 3, entryY - 7, txtWidth + 6, 14);
+        
+        ctx.fillStyle = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(30, 41, 59, 0.9)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(rrText, centerX, entryY);
       }
     });
     ctx.setLineDash([]); // Reset
 
     // 5. Axes Rendering
-    ctx.fillStyle = isDarkMode ? '#09090b' : '#ffffff';
+    ctx.fillStyle = '#000000';
     ctx.fillRect(chartWidth, 0, PADDING_RIGHT, height);
     ctx.fillRect(0, chartHeight, width, PADDING_BOTTOM);
 
@@ -626,8 +674,6 @@ const CustomChart: React.FC<CustomChartProps> = ({
         }
 
       } else if (mouse.current.dragType === 'PRICE_SCALE') {
-
-
         const { minPrice, maxPrice, height } = viewState.current;
         const chartHeight = height - PADDING_BOTTOM;
         const priceRange = maxPrice - minPrice;
@@ -718,7 +764,6 @@ const CustomChart: React.FC<CustomChartProps> = ({
           canvasRef.current.height = clientHeight * dpr;
           canvasRef.current.style.width = `${clientWidth}px`;
           canvasRef.current.style.height = `${clientHeight}px`;
-          canvasRef.current.getContext('2d')?.scale(dpr, dpr);
           viewState.current.width = clientWidth;
           viewState.current.height = clientHeight;
           draw();

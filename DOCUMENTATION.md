@@ -1,354 +1,308 @@
-# 📓 JournalFX Beta Documentation
+# JournalFX Documentation
 
-<div align="center">
+Comprehensive product overview for the current JournalFX beta.
 
-![Version](https://img.shields.io/badge/Version-Beta_2.0-orange?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Active-green?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Platform-Web-blue?style=for-the-badge)
+**Version:** `1.0.0-beta.1`  
+**Status:** Active beta  
+**Platform:** Web
 
-**Your comprehensive trading journal for professional traders**
+## Overview
 
-</div>
+JournalFX is a trading journal built for traders who want to log execution, review performance, manage rules, and sync activity from external trading platforms.
 
----
+The app currently focuses on:
 
-## 📋 Table of Contents
+- trade journaling and review
+- performance analytics
+- notes and playbooks
+- chart analysis
+- automated trade sync through the desktop bridge
+- AI-assisted trade and note workflows
+- backtesting and strategy review
 
-| # | Section | Description |
-|---|---------|-------------|
-| 1 | [🚀 Getting Started](#-getting-started) | Account creation and setup |
-| 2 | [⭐ Core Features](#-core-features) | Main app functionalities |
-| 3 | [🛠️ Trading Tools](#️-trading-tools) | Advanced trading features |
-| 4 | [⌨️ Keyboard Shortcuts](#️-keyboard-shortcuts) | Quick action keys |
-| 5 | [💳 Account & Billing](#-account--billing) | Subscription plans |
-| 6 | [🔧 Troubleshooting](#-troubleshooting) | Common issues & solutions |
-| 7 | [❓ FAQ](#-faq) | Frequently asked questions |
-| 8 | [📖 Glossary](#-glossary) | Trading terminology |
+## Current App Surface
 
----
+These are the main areas available in the app right now:
 
-## 🚀 Getting Started
+- Dashboard
+- Log Trade
+- Journal
+- Analytics
+- Notebook
+- Desktop Bridge
+- Market Grid
+- Backtest Lab
+- AI Assistant
+- Broker
+- Settings
 
-### Creating Your Account
+## Getting Started
 
-| Step | Action |
-|------|--------|
-| 1️⃣ | Visit JournalFX and create an account using email or OAuth (Google, GitHub) |
-| 2️⃣ | Complete onboarding: select trading style, experience level, initial balance, currency |
-| 3️⃣ | Choose your avatar to personalize your trading persona |
+### Account Setup
 
-### Connecting Your Broker (MetaTrader 5)
+1. Create or sign in with your JournalFX account.
+2. Complete onboarding with:
+   - trading style
+   - experience level
+   - initial balance
+   - base currency
+3. Choose an avatar and finish profile setup.
 
-> **⚡ Quick Setup**: For automated trade syncing, follow these steps:
+### Settings Tabs
 
-```
-Settings → Account Config → Generate Sync Key → Enter in JFX Bridge → Enable Auto-Journal
-```
+The Settings area currently includes:
 
-| Step | Action |
-|------|--------|
-| 1 | Navigate to **Settings → Account Config** |
-| 2 | Generate your unique **Sync Key** |
-| 3 | Download and install **JFX Bridge** |
-| 4 | Enter your Sync Key in Bridge settings |
-| 5 | Configure auto-journaling |
+- Trading Persona
+- Account Config
+- Appearance
+- Plan & Billing
+- Security
+- Help & Feedback
 
-> **📌 Note**: The EA (Expert Advisor) syncs trades from MT5 to your journal in real-time.
+## Core Features
 
----
+### Dashboard
 
-## ⭐ Core Features
+- daily trade summary
+- win rate and P&L snapshot
+- daily bias tracking
+- quick access to journaling actions
+- performance widgets and recent activity
+- demo-mode sample data when enabled
 
-### 📊 Dashboard
+### Journal
 
-| Feature | Description |
-|---------|-------------|
-| 🎯 **Trade Summary** | Today's P&L, win rate, and trade count |
-| 📈 **Daily Bias** | Set market direction (Bullish/Bearish/Neutral) |
-| ⚡ **Quick Actions** | Rapid access to trades, notes, screenshots |
-| 📉 **Performance Widgets** | Track momentum and recent results |
+- full trade history
+- create, edit, and review trades
+- notes, tags, and trade comments
+- screenshots and attachments
+- trade cleanup and deduplication tools
+- offline queue support when network sync fails
 
-### 📓 Journal
+### Analytics
 
-| Feature | Description |
-|---------|-------------|
-| 📝 **Trade Logging** | Symbol, direction, entry/exit, lot size, timestamp |
-| ✏️ **Trade Editing** | Full CRUD operations |
-| 📸 **Screenshots** | Attach chart snapshots |
-| 🏷️ **Tags & Categories** | Organize by strategy, session, pattern |
-| 📃 **Trade Notes** | Observations, emotions, lessons |
+Analytics currently includes multiple views and widgets:
 
-#### How to Log a Trade
+- overview
+- trades
+- psychology
+- time analysis
+- advanced analytics
+- comparison
+- cash transactions
+- reports
+- session performance
 
-```
-Press [T] → Select Symbol → Choose Direction → Enter Prices → 
-Set Lot Size → Add Notes → Save
-```
+Common metrics and charts include:
 
-### 📈 Analytics
+- win/loss breakdowns
+- drawdown analysis
+- equity curve
+- performance by session
+- performance by pair and symbol
+- mindset and plan-adherence analysis
+- mistake tracking
+- strategy performance
+- trade grade distribution
+- time-based analysis
+- cash transaction reporting
 
-| Feature | Description |
-|---------|-------------|
-| 📊 **Win/Loss Ratio** | Overall and per-symbol breakdown |
-| 📉 **Drawdown Analysis** | Track max drawdown & recovery |
-| ⏰ **Time Analysis** | Best sessions, days of week |
-| 🎯 **Strategy Performance** | Compare strategies with bubble charts |
-| 📑 **Monthly Reports** | PDF/CSV exports |
-| 🧠 **Mindset Tracking** | P&L vs emotional states |
+### Notebook
 
-### 🎯 Goals
+The notebook supports richer note workflows:
 
-| Feature | Description |
-|---------|-------------|
-| 💰 **Financial Goals** | Target profit, account growth |
-| 📋 **Process Goals** | Daily targets (trades, reviews) |
-| 🏆 **Milestones** | Achievable steps |
-| 🔄 **Auto-Tracking** | Connected to P&L metrics |
+- create and edit notes
+- pin, archive, and trash notes
+- labels and search
+- list-style notes
+- tables and images
+- note ordering and filtering
+- Gemini-assisted note generation
 
-### 📝 Notes
+### Charts
 
-| Feature | Description |
-|---------|-------------|
-| ✍️ **Create Notes** | Press `N` |
-| 📌 **Pin Important** | Keep at top |
-| 🎨 **Color Coding** | Categorization |
-| 🔗 **Link to Trades** | Connect to trades/goals |
-| 🤖 **AI Assistance** | Gemini AI generation |
+Charting includes:
 
-### 📉 Charts
+- multi-chart layouts
+- persistent chart configuration
+- focus mode
+- TradingView integration
+- drawings and annotations
+- multi-timeframe review
 
-| Feature | Description |
-|---------|-------------|
-| 📊 **Multi-Chart Layouts** | Multiple symbols |
-| 🔳 **Focus Mode** | Full-screen analysis |
-| ✏️ **Drawings Persistence** | Save annotations |
-| 📅 **Multi-Timeframe** | 1-min to monthly |
+### Rules and Playbook
 
-### 🧮 Calculators
+The playbook is for documenting trading logic:
 
-| Calculator | Purpose |
-|------------|---------|
-| 📐 **Position Size** | Lot size from risk % |
-| ⚖️ **Risk:Reward** | Stop-loss & take-profit |
-| 💵 **Pip Value** | Per currency pair |
-
-### 📖 Rules & Playbook
-
-| Feature | Description |
-|---------|-------------|
-| ⚡ **Hard Rules** | Non-negotiable |
-| 💡 **Soft Rules** | Guidelines |
-| 📝 **Strategy Entries** | Entry conditions |
-| 🔀 **Diagram Visualization** | Flowcharts |
-
----
-
-## 🛠️ Trading Tools
+- hard rules
+- soft rules
+- setup definitions
+- setup images and phase images
+- setup rating and review
+- logic rules grouped by phase
 
 ### Backtest Lab
 
-```
-Load Data → Apply Rules → Run Tests → Analyze Results
-```
+Backtest Lab is used to review strategies historically:
 
-### EA Setup
+- saved backtest sessions
+- drawing history and undo/redo
+- trade replay-style analysis
+- session persistence
 
-```
-Generate Key → Configure Bridge → Set Preferences → Enable Auto-Journal
-```
+### AI Assistant
 
-### Broker Connect
+The AI assistant supports:
 
-| Broker | Integration |
-|--------|-------------|
-| MetaTrader 5 | MetaAPI |
-| Direct APIs | Real-time feeds |
+- trade review and analysis
+- strategy planning
+- journaling help
+- note generation
+- voice note transcription support
+- research and mentor-style workflows
 
----
+### Desktop Bridge
 
-## ⌨️ Keyboard Shortcuts
+Desktop Bridge is the MT5 sync workflow.
 
-| Shortcut | Action |
-|----------|--------|
-| `T` | New Trade |
-| `N` | New Note |
-| `S` | Screenshot |
-| `A` | AI Assistant |
-| `D` | Open Dashboard |
-| `J` | Open Journal |
-| `Ctrl + S` | Save Current Work |
-| `Esc` | Close Modal/Drawer |
+Current behavior:
 
----
+- generates a sync key
+- connects JournalFX to MT5 through the bridge
+- supports live heartbeat and status monitoring
+- can work with local headless MT5 data when available
+- supports trade syncing into the journal
 
-## 💳 Account & Billing
+### Broker
 
-### Subscription Tiers
+The Broker section is currently present, but the page indicates the integration is under maintenance.
 
-| Feature | 📝 Journaler | 💼 Analyst | 👑 Masters |
-|---------|:------------:|:----------:|:----------:|
-| **Trades/Month** | 50 | 500 | ∞ Unlimited |
-| **Notes** | 1 | ∞ | ∞ |
-| **Chart Layouts** | 1 | 2 | ∞ |
-| **Analytics** | Basic | Advanced | Full |
-| **EA Sync** | ❌ | ✅ | ✅ |
-| **AI Insights** | ❌ | ❌ | ✅ |
-| **Custom Themes** | ❌ | ❌ | ✅ |
+## Import, Sync, and Automation
 
-### Upgrading Your Plan
+JournalFX currently supports:
 
-```
-Settings → Plan & Billing → Select Tier → Confirm
-```
+- manual trade entry
+- trade import from files
+- automatic journaling through the desktop bridge
+- Supabase-backed real-time sync
+- offline queue fallback when the app is offline
 
-> **🎉 Beta Special**: All tiers are free during beta testing!
+## Current Plan Limits
 
----
+Plan names and limits currently defined in the app:
 
-## 🔧 Troubleshooting
+| Plan | Trades / Month | Notes | Images | AI Insights | Broker Sync |
+| --- | ---: | ---: | ---: | --- | --- |
+| Free Tier (Journaler) | 50 | 1 | 0 | No | No |
+| Pro Tier (Analysts) | 500 | Unlimited | 1000 | No | No |
+| Premium (Masters) | Unlimited | Unlimited | Unlimited | Yes | Yes |
 
-### ❌ Charts Not Loading
+Additional Premium capabilities include:
 
-| Solution |
-|----------|
-| 1. Disable "Keep Charts Alive" in Appearance |
-| 2. Refresh the page |
-| 3. Check ad blocker isn't blocking TradingView |
+- comparison analytics
+- multi-chart layouts
+- voice notes
+- robustness analytics
+- headless MT5 support
 
-### ❌ Trades Not Syncing
+## Keyboard Shortcuts
 
-| Solution |
-|----------|
-| 1. Verify Sync Key in JFX Bridge |
-| 2. Check internet connection |
-| 3. Ensure MT5 is running |
-| 4. Check Bridge logs |
+Current shortcuts exposed in the app include:
 
-### ❌ Can't Export Data
+- `Ctrl + 1` Dashboard
+- `Ctrl + 2` Journal
+- `Ctrl + 3` Analytics
+- `Ctrl + 4` Notes
+- `T` New trade
+- `N` New note
+- `S` Screenshot
+- `A` AI Assistant
+- `D` Dashboard
+- `J` Journal
+- `Esc` Close modal or drawer
 
-| Solution |
-|----------|
-| 1. Navigate to Analytics → Reports |
-| 2. Select date range |
-| 3. Choose format (CSV/PDF) |
-| 4. Check browser downloads |
+## Current Tech Notes
 
-### ❌ Login Issues
+The app currently uses:
 
-| Solution |
-|----------|
-| 1. Clear cache & cookies |
-| 2. Try incognito mode |
-| 3. Reset password |
-| 4. Check Supabase settings |
+- React 19
+- TypeScript
+- Vite
+- Supabase
+- Gemini API
+- TradingView widgets
+- Recharts
+- TipTap
+- DnD Kit
+- Motion
+- Mermaid
 
-### ❌ Performance Issues
+## Troubleshooting
 
-| Solution |
-|----------|
-| 1. Disable "Keep Charts Alive" |
-| 2. Reduce open layouts |
-| 3. Clear browser cache |
-| 4. Upgrade to Premium |
+### Charts not loading
 
----
+- disable `Keep Charts Alive` in Appearance
+- refresh the page
+- confirm no ad blocker is blocking TradingView
 
-## ❓ FAQ
+### Trades not syncing
 
-### Q1: How do I sync trades from MT5?
+- verify the sync key in JournalFX Bridge
+- confirm MT5 is running
+- check internet connectivity
+- inspect bridge logs and heartbeat status
 
-> **Answer**: Go to **Account Config** tab → Generate sync key → Enter in JFX Bridge → Enable auto-sync
+### Export problems
 
----
+- go to Analytics > Reports
+- choose the date range
+- select CSV or PDF
+- confirm the browser download is allowed
 
-### Q2: Can I export my trading data?
+### Login problems
 
-> **Answer**: Yes! Navigate to **Analytics → Reports** → Click **Export** → Choose CSV or PDF
+- clear cache and cookies
+- try incognito mode
+- reset password
+- confirm Supabase config and env vars
 
----
+### Performance problems
 
-### Q3: How do I upgrade my plan?
+- reduce the number of open chart layouts
+- disable persistent chart loading if needed
+- clear browser cache
+- use demo mode only for viewing sample data
 
-> **Answer**: Visit **Settings → Plan & Billing** → Select tier → Confirm (free during beta!)
+## FAQ
 
----
+### How do I sync trades from MT5?
 
-### Q4: Why are my charts not loading?
+Go to `Settings > Account Config`, generate a sync key, enter it in JournalFX Bridge, and enable auto-journaling.
 
-> **Answer**: Disable "Keep Charts Alive" in Appearance, refresh page, check ad blocker settings
+### Can I export my data?
 
----
+Yes. Use `Analytics > Reports` and export as CSV or PDF.
 
-### Q5: How do I use the position size calculator?
+### Is Broker Connect working?
 
-> **Answer**: Enter account balance, risk %, and stop-loss distance → Calculator auto-determines lot size
+The current UI shows Broker Connect as under maintenance.
 
----
+### Is demo mode read-only?
 
-### Q6: Can I import historical trades?
+Yes. Demo mode is for viewing sample trades, notes, and analytics without changing live data.
 
-> **Answer**: Yes! Use CSV import in Journal section (requires correct format)
+## Glossary
 
----
+- `P&L`: Profit and loss.
+- `EA`: Expert Advisor.
+- `MT5`: MetaTrader 5.
+- `Sync Key`: The key used to connect the bridge to your account.
+- `Daily Bias`: Your planned direction for the trading day.
+- `Plan Adherence`: How closely the trade followed your rules.
 
-### Q7: Is my data secure?
+## Notes
 
-> **Answer**: ✅ All data encrypted and stored in Supabase. We never share your trading data.
-
----
-
-### Q8: How do I contact support?
-
-> **Answer**: Use feedback form in **Settings → Help & Feedback** or join our [Telegram Channel](https://t.me/+w_KvKM5HESYyMTdk)
-
----
-
-## 📖 Glossary
-
-### Trading Terms
-
-| Term | Definition |
-|------|------------|
-| **P&L** | Profit and Loss - financial result |
-| **Drawdown** | Peak-to-trough decline |
-| **Win Rate** | % of profitable trades |
-| **Risk:Reward** | Profit:loss ratio |
-| **Lot Size** | Trade volume |
-| **Pip** | Price Interest Point |
-| **Spread** | Bid-ask difference |
-| **Slippage** | Execution price difference |
-
-### JournalFX Terms
-
-| Term | Definition |
-|------|------------|
-| **Daily Bias** | Market outlook (Bullish/Bearish/Neutral) |
-| **EA** | Expert Advisor - automated script |
-| **Sync Key** | Bridge connection identifier |
-| **Auto-Journal** | Automatic trade logging |
-| **Plan Adherence** | Rule following score |
-
----
-
-## 📞 Getting Help
-
-<div align="center">
-
-| Resource | Link |
-|----------|------|
-| 📚 **Documentation** | [GitBook](https://jfxbeta.gitbook.io/docs) |
-| 🎬 **Video Tutorials** | [YouTube](https://youtube.com/@jfxtrading) |
-| 💬 **Telegram** | [Join Channel](https://t.me/+w_KvKM5HESYyMTdk) |
-| 🐛 **GitHub** | [Report Issues](https://github.com/sjournalfx-cmyk/jfxbetav7/issues) |
-
-</div>
-
----
-
-<div align="center">
-
-**Version**: JournalFX Beta v2.0 | **Last Updated**: February 2026 | **© 2026 JournalFX**
-
-![Made with ❤️](https://img.shields.io/badge/Made_with-❤️-red?style=for-the-badge)
-
-</div>
+- `DOCUMENTATION.md` is now the single merged product document.
+- `FEATURES.md` has been removed to avoid duplicate stale content.
+- This document reflects the current app surface as implemented in the codebase.
+- For a screen-by-screen and widget-by-widget breakdown, see [DEEP_DIVE.md](C:/Users/phemelo/OneDrive/Desktop/jfxbetav7/DEEP_DIVE.md).

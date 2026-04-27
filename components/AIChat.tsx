@@ -1,1637 +1,3237 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trade, UserProfile, Goal, DailyBias, EASession, MetricType } from '../types';
-import { geminiService } from '../services/geminiService';
+import { Trade, UserProfile, DailyBias, EASession } from '../types';
+import { modalResearchService, ModalModelType, getAssistantMode, AssistantContextSummary } from '../services/nvidiaAiService';
+import { browserSpeechService } from '../services/voiceInputService';
 import { calculateStats } from '../lib/statsUtils';
-import { PerformanceByPairWidget } from './analytics/PerformanceByPairWidget';
-import { OutcomeDistributionWidget } from './analytics/OutcomeDistributionWidget';
-import { PerformanceRadarWidget } from './analytics/PerformanceRadarWidget';
-import { PerformanceBySession } from './analytics/PerformanceBySession';
-import { EquityCurveWidget } from './analytics/EquityCurveWidget';
-import { ExecutionPerformanceTable } from './analytics/ExecutionPerformanceTable';
-import { DrawdownOverTimeWidget } from './analytics/DrawdownOverTimeWidget';
-import { StrategyPerformanceBubbleChart } from './analytics/StrategyPerformanceBubbleChart';
-import { SymbolPerformanceWidget } from './analytics/SymbolPerformanceWidget';
-import { MomentumStreakWidget } from './analytics/MomentumStreakWidget';
-import { TradeExitAnalysisWidget } from './analytics/TradeExitAnalysisWidget';
-import { CurrencyStrengthMeter } from './analytics/CurrencyStrengthMeter';
-import { MonthlyPerformanceWidget } from './analytics/MonthlyPerformanceWidget';
-import { PLByPlanAdherenceWidget } from './analytics/PLByPlanAdherenceWidget';
-import { PLByMindsetWidget } from './analytics/PLByMindsetWidget';
-import TradingViewWidget from './TradingViewWidget';
+import { buildAnalyticsAiSnapshot } from '../lib/analyticsAiSnapshot';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { TrendingUp, PieChart, Brain, Clock, Wand2, Send, Bot, User, Trash2, Coins, ChevronDown, List, Settings as SettingsIcon, X, History, Plus, ChevronRight, Workflow, CheckCircle2, StickyNote, Download, FileText, Activity, Sparkles, Target } from 'lucide-react';
+import { cleanThinkingTags } from '../lib/thinkingCleaner';
+import { TrendingUp, TrendingDown, Brain, Clock, Wand2, Send, User, Trash2, Coins, ChevronDown, List as ListIcon, X, History, Plus, ChevronRight, ChevronLeft, Workflow, CheckCircle2, StickyNote, Download, FileText, Activity, Sparkles, Target, Table, Mic, Star, Square, CheckSquare, ArrowUpRight, Save, RotateCcw, LayoutGrid, MessageSquare, Menu, MoreHorizontal, Copy, ThumbsUp, ThumbsDown, Paperclip, Image, Smile, CornerDownLeft, Zap, AlertCircle, Check, Loader2, StopCircle, ArrowLeft, ArrowRight, ListChecks, BarChart3, Clock3, BrainCircuit, DollarSign, Timer, CircleDot, Goal as GoalIcon, Pause, Play, Settings, Telescope } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import mermaid from 'mermaid';
-import { ChecklistWidget, MermaidWidget } from './ai/AIWidgets';
-import { AISettingsDrawer } from './ai/AISettingsDrawer';
-import { APP_CONSTANTS } from '../lib/constants';
 import { useToast } from './ui/Toast';
 
-// --- Goal Creation Widget ---
-const GoalCreationWidget = ({ 
-  isDarkMode, 
-  onAddGoal,
-  initialTitle = "",
-  initialTarget = 0,
-  initialMetric = "currency" as "currency" | "percentage" | "count"
-}: { 
-  isDarkMode: boolean, 
-  onAddGoal: (goal: any) => Promise<void>,
-  initialTitle?: string,
-  initialTarget?: number,
-  initialMetric?: "currency" | "percentage" | "count"
-}) => {
-  const [step, setStep] = useState(1);
-  const [title, setTitle] = useState(initialTitle);
-  const [type, setType] = useState<Goal['type']>('Financial');
-  const [metric, setMetric] = useState<MetricType>(initialMetric);
-  const [target, setTarget] = useState(initialTarget);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDone, setIsDone] = useState(false);
+// --- Utilities ---
+const formatDuration = (openTime?: string, closeTime?: string) => {
+  if (!openTime || !closeTime) return null;
+  try {
+    const start = new Date(openTime).getTime();
+    const end = new Date(closeTime).getTime();
+    const diff = Math.abs(end - start) / 1000;
 
-  const handleCreate = async () => {
-    setIsSubmitting(true);
-    try {
-      const now = new Date();
-      const endDate = new Date();
-      endDate.setDate(now.getDate() + 30); // Default 30 days
+    const days = Math.floor(diff / 86400);
+    const hours = Math.floor((diff % 86400) / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
 
-      await onAddGoal({
-        title,
-        type,
-        metric,
-        targetValue: target,
-        startValue: 0,
-        startDate: now.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
-        status: 'active',
-        milestones: [],
-        createdAt: now.toISOString()
-      });
-      setIsDone(true);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  } catch {
+    return null;
+  }
+};
+
+const VOICE_TRANSCRIPTION_PROMPT = 'Transcribe this trading journal voice note faithfully. Preserve pair symbols such as EURUSD, GBPUSD, XAUUSD, NAS100, US30, percentages, prices, R-multiples, times, and short command phrases. Keep the transcript concise and do not normalize symbols.';
+
+const DAILY_CREDIT_MAX = 5;
+
+type DailyCreditState = {
+  date: string;
+  researchRemaining: number;
+  mentorRemaining: number;
+};
+
+const getLocalDateKey = (date = new Date()) => (
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+);
+
+const createDailyCreditState = (date = getLocalDateKey()): DailyCreditState => ({
+  date,
+  researchRemaining: DAILY_CREDIT_MAX,
+  mentorRemaining: DAILY_CREDIT_MAX,
+});
+
+const normalizeAssistantMarkdown = (text: string): string => {
+  if (!text) return '';
+
+  let result = text.replace(/\r\n/g, '\n').trim();
+
+  const balanceDelimitedToken = (value: string, token: string) => {
+    const parts = value.split(token);
+    if (parts.length % 2 === 0) {
+      return value;
     }
+
+    return `${value}${token}`;
   };
 
-  if (isDone) {
-    return (
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className={`p-6 rounded-[32px] border flex flex-col items-center text-center gap-4 ${isDarkMode ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}
-      >
-        <div className="w-12 h-12 rounded-2xl bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-          <CheckCircle2 size={24} />
-        </div>
-        <div>
-          <h4 className="text-lg font-black uppercase tracking-tight">Goal Created!</h4>
-          <p className="text-xs font-medium opacity-60 mt-1">Your new objective has been added to the Goals page.</p>
-        </div>
-      </motion.div>
-    );
-  }
+  // Strip broken leading bold markers like "** is your biggest losing pair..."
+  result = result.replace(/^\*\*\s+(?=(?:is|was|are|were|your|the|this|that)\b)/i, '');
 
+  // Remove dangling bold markers before punctuation, which can swallow trailing text in markdown rendering.
+  result = result.replace(/\*\*(?=[)\],.!?:;]|$)/g, '');
+
+  // Strip token-only markdown fragments such as "(**`)" or "[***]" that sometimes leak from model output.
+  result = result.replace(/([(\[{])\s*(?:[*_`~#>-]+\s*){1,6}([)\]}])/g, '');
+  result = result.replace(/(^|[\s([{-])(?:\*\*`|`\*\*|\*\*_|_\*\*|``\*\*|\*\*\*`|`\*\*\*)(?=$|[\s)\]}:;,.!?-])/g, '$1');
+  result = result.replace(/([(\[{])\s*([)\]}])/g, '');
+
+  // Remove empty markdown wrappers left behind after cleanup.
+  result = result.replace(/\*\*\s*\*\*/g, '');
+  result = result.replace(/`{1,3}\s*`{1,3}/g, '');
+
+  // Repair headings that were emitted without a space after the marker.
+  result = result.replace(/^(#{1,6})([^\s#])/gm, '$1 $2');
+
+  // Ensure dense label lines split cleanly into bullets when the model emits shouty summaries.
+  result = result.replace(
+    /(^|[\n])([A-Z][A-Z\s/&-]{2,}:\s+[^\n]+)/g,
+    (match, prefix, line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('#')) {
+        return `${prefix}${trimmed}`;
+      }
+      return `${prefix}- **${trimmed.split(':')[0].trim()}:** ${trimmed.split(':').slice(1).join(':').trim()}`;
+    }
+  );
+
+  // Add breathing room before headings and list blocks when the model compresses sections.
+  result = result.replace(/([^\n])\n(#{1,6}\s)/g, '$1\n\n$2');
+  result = result.replace(/([^\n])\n([-*]\s|\d+\.\s)/g, '$1\n\n$2');
+
+  // Balance common markdown delimiters so malformed model output doesn't truncate rendering.
+  result = balanceDelimitedToken(result, '**');
+  result = balanceDelimitedToken(result, '`');
+
+  // Collapse overly large gaps while keeping paragraphs readable.
+  result = result.replace(/\n{3,}/g, '\n\n');
+  result = result.replace(/[ \t]{2,}/g, ' ');
+
+  return result.trim();
+};
+
+const isPairPerformanceQuestion = (input: string) => {
+  const normalized = input.toLowerCase();
   return (
-    <div className={`p-6 rounded-[32px] border flex flex-col gap-6 relative overflow-hidden w-fit max-w-full ${isDarkMode ? 'bg-zinc-900/60 border-white/5 shadow-2xl' : 'bg-white border-slate-200 shadow-xl'}`}>
-      {/* Lava Lamp Background Blobs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-[0.08] dark:opacity-[0.12]">
-        <div className="absolute -top-10 -left-10 w-40 h-40 bg-indigo-500 blur-[40px] animate-lava" style={{ animationDelay: '0s' }} />
-        <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-purple-500 blur-[50px] animate-lava" style={{ animationDelay: '-5s' }} />
-      </div>
-
-      <div className="flex items-center justify-between relative z-10">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
-            <Target size={20} />
-          </div>
-          <div>
-            <h4 className="text-[11px] font-black uppercase tracking-widest">Goal Architect</h4>
-            <div className="flex gap-1 mt-1">
-              {[1, 2, 3].map(i => (
-                <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-4 bg-indigo-500' : (i < step ? 'w-2 bg-emerald-500' : 'w-2 bg-zinc-500/20')}`} />
-              ))}
-            </div>
-          </div>
-        </div>
-        <span className="text-[10px] font-mono font-bold opacity-30">Step {step} of 3</span>
-      </div>
-
-      <AnimatePresence mode="wait">
-        {step === 1 && (
-          <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
-            <p className="text-sm font-medium opacity-60">What should we call this objective?</p>
-            <input 
-              autoFocus
-              type="text" 
-              value={title} 
-              onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. 5% Monthly Return"
-              className={`w-full bg-transparent border-b-2 border-zinc-500/20 py-2 text-lg font-black focus:border-indigo-500 focus:outline-none transition-all ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-            />
-            <button 
-              disabled={!title}
-              onClick={() => setStep(2)}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20"
-            >
-              Next Strategy Step
-            </button>
-          </motion.div>
-        )}
-
-        {step === 2 && (
-          <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
-            <p className="text-sm font-medium opacity-60">What is the measurement metric?</p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Currency ($)', value: 'currency' },
-                { label: 'Percentage (%)', value: 'percentage' },
-                { label: 'Trade Count', value: 'count' },
-                { label: 'Win/Loss', value: 'boolean' }
-              ].map(m => (
-                <button
-                  key={m.value}
-                  onClick={() => setMetric(m.value as any)}
-                  className={`p-4 rounded-2xl border text-left transition-all ${metric === m.value ? 'border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500' : 'border-zinc-500/10 hover:border-zinc-500/30'}`}
-                >
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${metric === m.value ? 'text-indigo-500' : 'opacity-40'}`}>{m.label}</span>
-                </button>
-              ))}
-            </div>
-            <button 
-              onClick={() => setStep(3)}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
-            >
-              Confirm Metric
-            </button>
-          </motion.div>
-        )}
-
-        {step === 3 && (
-          <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 relative z-10">
-            <p className="text-sm font-medium opacity-60">Set your final target value</p>
-            <div className="flex items-end gap-3">
-              <input 
-                autoFocus
-                type="number" 
-                value={target || ''} 
-                onChange={e => setTarget(Number(e.target.value))}
-                placeholder="0.00"
-                className={`flex-1 bg-transparent border-b-2 border-zinc-500/20 py-2 text-3xl font-black focus:border-indigo-500 focus:outline-none transition-all ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-              />
-              <span className="text-xl font-black opacity-30 pb-3">{metric === 'currency' ? '$' : metric === 'percentage' ? '%' : 'trades'}</span>
-            </div>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setStep(2)}
-                className={`flex-1 py-3 border border-zinc-500/20 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-500/5 transition-all`}
-              >
-                Back
-              </button>
-              <button 
-                onClick={handleCreate}
-                disabled={isSubmitting || !target}
-                className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-2"
-              >
-                {isSubmitting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles size={14} />}
-                {isSubmitting ? 'Architecting...' : 'Deploy Goal'}
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    normalized.includes('biggest losing pair') ||
+    normalized.includes('biggest lossing pair') ||
+    normalized.includes('worst pair') ||
+    normalized.includes('losing pair') ||
+    normalized.includes('best pair') ||
+    normalized.includes('winning pair') ||
+    normalized.includes('most profitable pair') ||
+    normalized.includes('least profitable pair')
   );
 };
 
+const buildPairPerformanceAnswer = (input: string, trades: Trade[], userProfile: UserProfile | null) => {
+  const stats = calculateStats(trades);
+  const normalized = input.toLowerCase();
+  const wantsBoth =
+    normalized.includes('best pair') &&
+    (
+      normalized.includes('worst pair') ||
+      normalized.includes('lowest pair') ||
+      normalized.includes('losing pair')
+    );
+  const wantsBestPair =
+    normalized.includes('best pair') ||
+    normalized.includes('winning pair') ||
+    normalized.includes('most profitable pair');
+
+  const formatPairLine = (label: string, pair: { symbol: string; pnl: number } | null) => {
+    if (!pair) return `**${label}:** I don't have enough trade data yet.`;
+
+    const pairTrades = trades.filter((trade) => trade.pair.toUpperCase() === pair.symbol);
+    const wins = pairTrades.filter((trade) => trade.result === 'Win').length;
+    const winRate = pairTrades.length > 0 ? (wins / pairTrades.length) * 100 : 0;
+    const currency = userProfile?.currencySymbol || '$';
+
+    return `**${label}:** **${pair.symbol}** with ${currency}${pair.pnl.toFixed(2)} P&L across ${pairTrades.length} trade${pairTrades.length === 1 ? '' : 's'} (${winRate.toFixed(1)}% win rate)`;
+  };
+
+  if (wantsBoth) {
+    return [
+      formatPairLine('Best pair', stats.bestPair),
+      formatPairLine('Worst pair', stats.worstPair),
+    ].join('\n\n');
+  }
+
+  const selectedPair = wantsBestPair ? stats.bestPair : stats.worstPair;
+  if (!selectedPair) {
+    return "I don't have enough trade data to identify a pair yet.";
+  }
+
+  const symbol = selectedPair.symbol;
+  const pairTrades = trades.filter((trade) => trade.pair.toUpperCase() === symbol);
+  const wins = pairTrades.filter((trade) => trade.result === 'Win').length;
+  const pairWinRate = pairTrades.length > 0 ? (wins / pairTrades.length) * 100 : 0;
+  const currency = userProfile?.currencySymbol || '$';
+  const pnl = selectedPair.pnl;
+  const label = wantsBestPair ? 'best pair' : 'biggest losing pair';
+
+  return `**${symbol}** is your ${label} with ${currency}${pnl.toFixed(2)} P&L across ${pairTrades.length} trade${pairTrades.length === 1 ? '' : 's'} (${pairWinRate.toFixed(1)}% win rate).`;
+};
+
+// --- Types ---
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  widgetKeys?: string[];
-  chartSymbols?: Record<string, string>;
+  audioAttachment?: {
+    url: string;
+    durationMs: number;
+    mimeType: string;
+    deviceLabel?: string;
+  };
   sections?: Record<string, string>;
-  mermaidData?: Record<string, { type: string, code: string }>;
-  checklistData?: Record<string, { title: string, items: { text: string, checked: boolean }[] }>;
+  isStreaming?: boolean;
+  isDeepAnalysis?: boolean;
+  kind?: 'chat' | 'analysis' | 'strategy' | 'psychology' | 'scaling' | 'trading-plan';
+  strategyProfile?: {
+    tradingStyle: string;
+    goals: string;
+    riskTolerance: string;
+    challenges: string[];
+    timeCommitment: string;
+    experience: string;
+    preferredPairs: string[];
+    markets: string[];
+    analysisTimeframe: string;
+    entryTimeframe: string;
+    tradingSessions: string[];
+    dailyTradeLimit: string;
+    exitMechanics: string;
+    tradeManagement: string;
+    profitTarget: string;
+    lossCap: string;
+    whyITrade: string;
+  };
+  psychologySnapshot?: {
+    topEmotion: string;
+    worstEmotion: string;
+    noPlanTrades: number;
+    followPlanTrades: number;
+    recentLosses: number;
+    totalTrades: number;
+  };
+  scalingSnapshot?: {
+    balance: string;
+    netProfit: string;
+    winRate: string;
+    profitFactor: string;
+    avgWin: string;
+    avgLoss: string;
+    riskPerTrade: string;
+    bestPair: string;
+  };
+  contextSummary?: AssistantContextSummary;
 }
+
+interface VoiceClipAttachment {
+  blob: Blob;
+  url: string;
+  durationMs: number;
+  mimeType: string;
+  deviceLabel?: string;
+}
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Failed to convert audio to a data URL.'));
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read audio data.'));
+    reader.readAsDataURL(blob);
+  });
+
+const formatAudioDuration = (durationMs: number) => {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
+
+const VoiceWaveform = ({ bars, isDarkMode, active }: { bars: number[]; isDarkMode: boolean; active: boolean }) => (
+  <div className="flex h-10 items-end gap-1" aria-hidden="true">
+    {bars.map((bar, index) => (
+      <motion.div
+        key={`${index}-${bar}`}
+        animate={{ height: `${Math.max(18, bar * 100)}%`, opacity: active ? 1 : 0.45 }}
+        transition={{ duration: 0.12, ease: 'easeOut' }}
+        className={`w-1.5 rounded-full ${isDarkMode ? 'bg-emerald-400/90' : 'bg-emerald-500/85'}`}
+      />
+    ))}
+  </div>
+);
+
+const VoiceAudioPlayer = ({
+  src,
+  durationMs,
+  isDarkMode,
+  compact = false,
+}: {
+  src: string;
+  durationMs: number;
+  isDarkMode: boolean;
+  compact?: boolean;
+}) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [loadedDuration, setLoadedDuration] = useState(durationMs / 1000);
+  const totalSeconds = Math.max(durationMs / 1000, 0.1);
+  const resolvedDuration = Math.max(loadedDuration || 0, totalSeconds);
+  const progress = Math.min(100, (currentTime / resolvedDuration) * 100);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.pause();
+    audio.currentTime = 0;
+    audio.load();
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setLoadedDuration(durationMs / 1000);
+  }, [src, durationMs]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime || 0);
+    const handleLoadedMetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setLoadedDuration(audio.duration);
+      }
+    };
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+      audio.currentTime = 0;
+    };
+    const handlePause = () => setIsPlaying(false);
+    const handlePlay = () => setIsPlaying(true);
+
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('play', handlePlay);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('play', handlePlay);
+    };
+  }, [src, durationMs]);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      try {
+        audio.muted = false;
+        audio.volume = 1;
+        await audio.play();
+      } catch (error) {
+        console.error('Voice audio playback failed:', error);
+      }
+      return;
+    }
+
+    audio.pause();
+  };
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const nextTime = Number(event.target.value);
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
+  return (
+    <div className={`rounded-xl border px-2 py-1.5 ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-slate-200 bg-white/80'}`}>
+      <audio ref={audioRef} preload="metadata" playsInline className="hidden" src={src} />
+      <div className={`flex items-center gap-2.5 ${compact ? 'min-w-[190px]' : ''}`}>
+        <button
+          type="button"
+          onClick={togglePlayback}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors ${
+            isDarkMode ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          }`}
+          title={isPlaying ? 'Pause audio' : 'Play audio'}
+        >
+          {isPlaying ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="mb-0.5 flex items-center justify-between gap-2">
+            <span className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+              {isPlaying ? 'Playing' : 'Preview'}
+            </span>
+            <span className={`text-[11px] tabular-nums ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+              {formatAudioDuration(currentTime * 1000)} / {formatAudioDuration(resolvedDuration * 1000)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={resolvedDuration}
+            step={0.01}
+            value={Math.min(currentTime, resolvedDuration)}
+            onChange={handleSeek}
+            aria-label="Seek audio"
+            className="h-1 w-full cursor-pointer accent-emerald-500"
+            style={{
+              background: `linear-gradient(to right, rgb(16 185 129) 0%, rgb(16 185 129) ${progress}%, ${isDarkMode ? 'rgb(63 63 70)' : 'rgb(226 232 240)'} ${progress}%, ${isDarkMode ? 'rgb(63 63 70)' : 'rgb(226 232 240)'} 100%)`,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface AIChatProps {
   isDarkMode: boolean;
   trades: Trade[];
   userProfile: UserProfile | null;
-  goals?: Goal[];
   dailyBias?: DailyBias[];
   eaSession?: EASession | null;
   onAddNote?: (note: any) => Promise<any>;
-  onAddGoal?: (goal: any) => Promise<any>;
+  onUpdateTrade?: (trade: Trade) => Promise<void>;
+  onOpenSettings?: () => void;
 }
 
-const AIChat: React.FC<AIChatProps> = ({
-  isDarkMode,
-  trades: rawTrades = [],
-  userProfile,
-  goals = [],
-  dailyBias = [],
-  eaSession = null,
-  onAddNote,
-  onAddGoal
-}) => {
-  const trades = useMemo(() => {
-    return [...rawTrades].sort((a, b) => {
-      const dateTimeA = new Date(`${a.date}T${a.time}`);
-      const dateTimeB = new Date(`${b.date}T${b.time}`);
-      return dateTimeA.getTime() - dateTimeB.getTime();
-    });
-  }, [rawTrades]);
+const STRATEGY_SECTION_ORDER = ['IDENTITY', 'MARKET_SELECTION', 'CORE_EDGE', 'RISK', 'STRATEGY_RULES', 'EXECUTION_FLOW', 'EXIT_PROTOCOL', 'ROUTINE', 'REVIEW'];
+const PSYCHOLOGY_SECTION_ORDER = ['STATE_READ', 'TRIGGERS', 'RESET_PROTOCOL', 'ROUTINE', 'TARGETS'];
+const SCALING_SECTION_ORDER = ['BASELINE', 'RISK_LIMITS', 'SCALING_ROADMAP', 'CAPITAL_RULES', 'TARGETS'];
 
-  const [persistedMessages, setPersistedMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history', []);
-  const [selectedModel, setSelectedModel] = useLocalStorage<string>('jfx_ai_selected_model', 'gemini-1.5-flash');
-  const [communicationStyle, setCommunicationStyle] = useLocalStorage<string>('jfx_ai_communication_style', 'Professional');
-  const [autoRevealCharts, setAutoRevealCharts] = useLocalStorage<boolean>('jfx_ai_auto_reveal', true);
-  const [recallMemory, setRecallMemory] = useLocalStorage<boolean>('jfx_ai_recall_memory', true);
-  const [isPlanMode, setIsPlanMode] = useState(false);
-  const [showModeDropdown, setShowModeDropdown] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { addToast } = useToast();
+const STRATEGY_SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bg: string; borderColor: string; label: string }> = {
+  IDENTITY: { icon: <Target size={16} />, color: 'text-amber-400', bg: 'bg-amber-500/10', borderColor: 'border-amber-500/20', label: 'Goals & Identity' },
+  MARKET_SELECTION: { icon: <LayoutGrid size={16} />, color: 'text-blue-400', bg: 'bg-blue-500/10', borderColor: 'border-blue-500/20', label: 'Market Selection' },
+  CORE_EDGE: { icon: <Activity size={16} />, color: 'text-emerald-400', bg: 'bg-emerald-500/10', borderColor: 'border-emerald-500/20', label: 'Core Edge' },
+  RISK: { icon: <AlertCircle size={16} />, color: 'text-rose-400', bg: 'bg-rose-500/10', borderColor: 'border-rose-500/20', label: 'Risk Rules' },
+  STRATEGY_RULES: { icon: <Workflow size={16} />, color: 'text-indigo-400', bg: 'bg-indigo-500/10', borderColor: 'border-indigo-500/20', label: 'Strategic Rules' },
+  EXECUTION_FLOW: { icon: <Zap size={16} />, color: 'text-cyan-400', bg: 'bg-cyan-500/10', borderColor: 'border-cyan-500/20', label: 'Execution Flow' },
+  EXIT_PROTOCOL: { icon: <Timer size={16} />, color: 'text-orange-400', bg: 'bg-orange-500/10', borderColor: 'border-orange-500/20', label: 'Exit Management' },
+  ROUTINE: { icon: <Clock3 size={16} />, color: 'text-violet-400', bg: 'bg-violet-500/10', borderColor: 'border-violet-500/20', label: 'Trading Routine' },
+  REVIEW: { icon: <BarChart3 size={16} />, color: 'text-zinc-400', bg: 'bg-zinc-500/10', borderColor: 'border-zinc-500/20', label: 'Weekly Review' }
+};
+const PSYCHOLOGY_SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bg: string; borderColor: string; label: string }> = {
+  STATE_READ: { icon: <Brain size={16} />, color: 'text-rose-400', bg: 'bg-rose-500/10', borderColor: 'border-rose-500/20', label: 'State Read' },
+  TRIGGERS: { icon: <AlertCircle size={16} />, color: 'text-orange-400', bg: 'bg-orange-500/10', borderColor: 'border-orange-500/20', label: 'Triggers' },
+  RESET_PROTOCOL: { icon: <RotateCcw size={16} />, color: 'text-indigo-400', bg: 'bg-indigo-500/10', borderColor: 'border-indigo-500/20', label: 'Reset Protocol' },
+  ROUTINE: { icon: <Clock3 size={16} />, color: 'text-emerald-400', bg: 'bg-emerald-500/10', borderColor: 'border-emerald-500/20', label: 'Routine' },
+  TARGETS: { icon: <Target size={16} />, color: 'text-pink-400', bg: 'bg-pink-500/10', borderColor: 'border-pink-500/20', label: 'Targets' }
+};
+const SCALING_SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bg: string; borderColor: string; label: string }> = {
+  BASELINE: { icon: <BarChart3 size={16} />, color: 'text-cyan-400', bg: 'bg-cyan-500/10', borderColor: 'border-cyan-500/20', label: 'Baseline' },
+  RISK_LIMITS: { icon: <AlertCircle size={16} />, color: 'text-rose-400', bg: 'bg-rose-500/10', borderColor: 'border-rose-500/20', label: 'Risk Limits' },
+  SCALING_ROADMAP: { icon: <TrendingUp size={16} />, color: 'text-amber-400', bg: 'bg-amber-500/10', borderColor: 'border-amber-500/20', label: 'Scaling Roadmap' },
+  CAPITAL_RULES: { icon: <Coins size={16} />, color: 'text-emerald-400', bg: 'bg-emerald-500/10', borderColor: 'border-emerald-500/20', label: 'Capital Rules' },
+  TARGETS: { icon: <Target size={16} />, color: 'text-indigo-400', bg: 'bg-indigo-500/10', borderColor: 'border-indigo-500/20', label: 'Targets' }
+};
 
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (persistedMessages.length > 0) {
-      return persistedMessages.map(m => ({
-        ...m,
-        timestamp: new Date(m.timestamp)
-      }));
-    }
-    return [
-      {
-        id: '1',
-        role: 'assistant',
-        content: `Hello ${userProfile?.name?.split(' ')[0] || 'Trader'}! I'm your JFX Assistant. How can I help you analyze your trading performance today?`,
-        timestamp: new Date(),
-      }
-    ];
-  });
+const ANALYSIS_SECTION_ORDER = ['SNAPSHOT', 'EDGE', 'LEAKS', 'PLAYBOOK', 'TARGETS'];
 
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'success' | 'error'>('idle');
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+const ANALYSIS_SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bg: string; borderColor: string; label: string }> = {
+  SNAPSHOT: { icon: <Activity size={16} />, color: 'text-cyan-400', bg: 'bg-cyan-500/10', borderColor: 'border-cyan-500/20', label: 'Performance Snapshot' },
+  EDGE: { icon: <TrendingUp size={16} />, color: 'text-emerald-400', bg: 'bg-emerald-500/10', borderColor: 'border-emerald-500/20', label: 'Current Edge' },
+  LEAKS: { icon: <AlertCircle size={16} />, color: 'text-rose-400', bg: 'bg-rose-500/10', borderColor: 'border-rose-500/20', label: 'Primary Leaks' },
+  PLAYBOOK: { icon: <Workflow size={16} />, color: 'text-indigo-400', bg: 'bg-indigo-500/10', borderColor: 'border-indigo-500/20', label: 'Fix Plan' },
+  TARGETS: { icon: <Target size={16} />, color: 'text-amber-400', bg: 'bg-amber-500/10', borderColor: 'border-amber-500/20', label: '30-Day Targets' },
+  LACKS: { icon: <AlertCircle size={16} />, color: 'text-rose-400', bg: 'bg-rose-500/10', borderColor: 'border-rose-500/20', label: 'Weaknesses' },
+  RECOMMENDATIONS: { icon: <Sparkles size={16} />, color: 'text-indigo-400', bg: 'bg-indigo-500/10', borderColor: 'border-indigo-500/20', label: 'Strategic Fixes' },
+};
 
-  const analysisSteps = [
-    "Fetching trading history...",
-    "Analyzing equity curve...",
-    "Evaluating win rate...",
-    "Processing psychology...",
-    "Generating growth goals..."
-  ];
+const ReadOnlyStarRating = ({ rating, isDarkMode }: { rating: number, isDarkMode: boolean }) => (
+  <div className="flex items-center gap-0.5">
+    {[1, 2, 3, 4, 5].map((star) => (
+      <Star 
+        key={star} 
+        size={10} 
+        className={`${
+          star <= rating 
+            ? 'text-amber-400 fill-amber-400' 
+            : isDarkMode ? 'text-zinc-800' : 'text-slate-200'
+        }`} 
+      />
+    ))}
+  </div>
+);
 
-  const stepColors = [
-    'text-zinc-400',
-    'text-blue-400',
-    'text-emerald-400',
-    'text-purple-400',
-    'text-amber-400'
-  ];
+interface MessageRowProps {
+  message: Message;
+  isDarkMode: boolean;
+  userProfile: UserProfile | null;
+  renderMessageContent: (message: Message) => React.ReactNode;
+  renderSectionCards: (sections: Record<string, string>, message: Message) => React.ReactNode;
+  assistantIcon: React.ElementType;
+}
 
-  const stepBgColors = [
-    'bg-zinc-400',
-    'bg-blue-400',
-    'bg-emerald-400',
-    'bg-purple-400',
-    'bg-amber-400'
-  ];
+const MessageRow = React.memo(({ message, isDarkMode, userProfile, renderMessageContent, renderSectionCards, assistantIcon: AssistantIcon }: MessageRowProps) => {
+  const [copied, setCopied] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const isUser = message.role === 'user';
+  const isCompactAudioMessage = isUser && Boolean(message.audioAttachment) && (!message.content || message.content === '[Voice recording]');
 
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [showMentionMenu, setShowMentionMenu] = useState(false);
-  const [mentionFilter, setMentionMenuFilter] = useState('');
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [expandedWidgets, setExpandedWidgets] = useState<Record<string, boolean>>({});
-  const [isListening, setIsListening] = useState(false);
-
-  const availableMentions = useMemo(() => {
-    const widgets = [
-      { label: 'Equity Growth', value: 'equitycurve', icon: <TrendingUp size={14} />, type: 'widget' },
-      { label: 'Win Rate', value: 'winrate', icon: <PieChart size={14} />, type: 'widget' },
-      { label: 'Psychology Radar', value: 'mindset', icon: <Brain size={14} />, type: 'widget' },
-      { label: 'Session Analysis', value: 'sessions', icon: <Clock size={14} />, type: 'widget' },
-      { label: 'Trade Momentum', value: 'momentum', icon: <Activity size={14} />, type: 'widget' },
-      { label: 'Trade Exits', value: 'exit', icon: <PieChart size={14} />, type: 'widget' },
-      { label: 'Currency Strength', value: 'currency', icon: <Coins size={14} />, type: 'widget' },
-      { label: 'Monthly Growth', value: 'monthly', icon: <TrendingUp size={14} />, type: 'widget' },
-      { label: 'Plan Adherence', value: 'adherence', icon: <CheckCircle2 size={14} />, type: 'widget' },
-      { label: 'Mindset P/L', value: 'mindset_pl', icon: <Brain size={14} />, type: 'widget' },
-      { label: 'Create Goal', value: 'create_goal', icon: <Target size={14} />, type: 'widget' },
-      { label: 'Pair Breakdown', value: 'pairs', icon: <List size={14} />, type: 'widget' },
-      { label: 'Drawdown Map', value: 'drawdown', icon: <TrendingUp size={14} />, type: 'widget' },
-      { label: 'Trade History', value: 'history', icon: <List size={14} />, type: 'widget' },
-      { label: 'Strategy Efficiency', value: 'strategy', icon: <Wand2 size={14} />, type: 'widget' },
-      { label: 'Symbol Performance', value: 'symbol', icon: <PieChart size={14} />, type: 'widget' },
-    ];
-
-    const uniqueSymbols = Array.from(new Set(trades.map(t => t.pair.toUpperCase())))
-      .sort()
-      .map(symbol => ({
-        label: `${symbol} Live Chart`,
-        value: symbol,
-        icon: <TrendingUp size={14} className="text-emerald-500" />,
-        type: 'symbol'
-      }));
-
-    return [...widgets, ...uniqueSymbols];
-  }, [trades]);
-
-  const renderWithMentions = (content: React.ReactNode): React.ReactNode => {
-    if (typeof content !== 'string') return content;
-
-    // Create a dynamic regex from available labels and values to handle multi-word mentions
-    const mentionTerms = availableMentions.flatMap(m => [m.label, m.value]);
-    // Sort by length descending to match longest phrases first (e.g. "Trade Momentum" before "Trade")
-    const sortedTerms = Array.from(new Set(mentionTerms)).sort((a, b) => b.length - a.length);
-    const escapedTerms = sortedTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const mentionRegex = new RegExp(`(@(?:${escapedTerms.join('|')}))`, 'gi');
-
-    const parts = content.split(mentionRegex);
-    return parts.map((part, i) => {
-      if (part.startsWith('@')) {
-        return (
-          <span key={i} className="font-black text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-md border border-amber-500/20 inline-block">
-            {part}
-          </span>
-        );
-      }
-      return part;
-    });
+  const handleCopy = () => {
+    const cleanContentText = (message.content || '').replace(/\[SECTION:[^\]]+\]/g, "");
+    navigator.clipboard?.writeText(cleanContentText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
-
-  const filteredMentions = useMemo(() => {
-    if (!mentionFilter) return [];
-    return availableMentions.filter(m =>
-      m.label.toLowerCase().includes(mentionFilter.toLowerCase()) ||
-      m.value.toLowerCase().includes(mentionFilter.toLowerCase())
-    );
-  }, [availableMentions, mentionFilter]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  useEffect(() => {
-    setPersistedMessages(messages);
-  }, [messages]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isTyping]);
-
-  const scrollToMessage = (id: string) => {
-    const element = messageRefs.current[id];
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setIsHistoryOpen(false);
-    }
-  };
-
-  const toggleWidget = (id: string) => {
-    setExpandedWidgets(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
-
-  const tagToLabel: Record<string, string> = {
-    'pnl': 'Equity Growth Analysis',
-    'winrate': 'Win Rate Distribution',
-    'mindset': 'Psychology Footprint',
-    'sessions': 'Session Performance',
-    'pair': 'Currency Pair breakdown',
-    'drawdown': 'Risk & Drawdown Map',
-    'momentum': 'Trade Momentum & Streaks',
-    'exit': 'Trade Exit Analysis',
-    'currency': 'Currency Strength Meter',
-    'monthly': 'Monthly Performance vs Drawdown',
-    'adherence': 'P/L by Plan Adherence',
-    'mindset_pl': 'P/L by Mindset Breakdown',
-    'table': 'Recent Trade History',
-    'chart': 'Live Market Chart',
-    'strategy': 'Strategy Efficiency',
-    'symbol': 'Symbol Performance',
-    'create_goal': 'Goal Architect',
-    'mermaid': 'Strategic Diagram',
-    'checklist': 'Interactive Plan Checklist'
-  };
-
-  const handleSaveToNotebook = async (title: string, content: string) => {
-    if (!onAddNote) return;
-    try {
-      // For Mermaid diagrams, we wrap them in a special div that our notebook will recognize
-      const formattedContent = content.startsWith('```mermaid')
-        ? `<div class="mermaid-diagram-note">${content}</div>`
-        : content;
-
-      await onAddNote({
-        title: title,
-        content: formattedContent,
-        category: 'Strategy',
-        tags: ['AI Generated', 'Plan Mode'],
-        id: '',
-        date: new Date().toISOString(),
-        isPinned: false,
-        color: 'gray'
-      });
-    } catch (error) {
-      console.error("Failed to save note:", error);
-    }
-  };
-
-  const handleExportStrategy = () => {
-    // Collect all strategy artifacts from the chat
-    let exportContent = `# Trading Strategy: ${userProfile?.name || 'Trader'}'s Plan\n`;
-    exportContent += `Exported on: ${new Date().toLocaleString()}\n\n`;
-
-    messages.forEach(msg => {
-      if (msg.role === 'assistant') {
-        // Add text content
-        if (msg.content && !msg.content.includes('Hello')) {
-          exportContent += `${msg.content}\n\n`;
-        }
-
-        // Add Checklists
-        if (msg.checklistData) {
-          Object.values(msg.checklistData).forEach((checklist: any) => {
-            exportContent += `## ${checklist.title}\n`;
-            checklist.items.forEach((item: any) => {
-              exportContent += `- [${item.checked ? 'x' : ' '}] ${item.text}\n`;
-            });
-            exportContent += `\n`;
-          });
-        }
-
-        // Add Mermaid Diagrams
-        if (msg.mermaidData) {
-          Object.values(msg.mermaidData).forEach((diagram: any) => {
-            exportContent += `### ${diagram.type} Diagram\n`;
-            exportContent += `\`\`\`mermaid\n${diagram.code}\n\`\`\`\n\n`;
-          });
-        }
-      }
-    });
-
-    // Create a blob and download it
-    const blob = new Blob([exportContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `JFX-Strategy-Plan-${new Date().toISOString().split('T')[0]}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleFixMermaid = async (type: string, code: string) => {
-    const fixPrompt = `The Mermaid ${type} diagram you generated has a syntax error. Please fix the following code and return ONLY the corrected [WIDGET:MERMAID:${type}]CODE[/WIDGET:MERMAID] block:
-
-\`\`\`mermaid
-${code}
-\`\`\``;
-
-    // Directly send the fix request instead of using setTimeout
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: fixPrompt, timestamp: new Date() };
-    setMessages(prev => [...prev, userMessage]);
-    setIsTyping(true);
-    setErrorMessage(null);
-
-    try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const fullResponse = await geminiService.generateResponse(fixPrompt, trades, userProfile, goals, dailyBias, false, history, selectedModel, isPlanMode, communicationStyle);
-      const aiMessageId = (Date.now() + 1).toString();
-      processResponse(fullResponse, aiMessageId);
-    } catch (error) {
-      console.error("Fix Mermaid Error:", error);
-      setErrorMessage("Failed to fix the diagram. Please try again.");
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  const renderWidget = (key: string, messageId: string, message: Message, index?: number, children?: React.ReactNode) => {
-    const isExpanded = expandedWidgets[`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`];
-    const currencySymbol = userProfile?.currencySymbol || '$';
-
-    if (key === 'create_goal') {
-      return (
-        <GoalCreationWidget 
-          isDarkMode={isDarkMode} 
-          onAddGoal={onAddGoal || (async () => {})} 
-        />
-      );
-    }
-
-    const getWidgetContent = () => {
-      switch (key) {
-        case 'pnl': {
-          const isPro = userProfile?.plan === APP_CONSTANTS.PLANS.HOBBY; // PRO TIER
-          const isPremium = userProfile?.plan === APP_CONSTANTS.PLANS.STANDARD; // PREMIUM
-          
-          let effectiveInitialBalance = userProfile?.initialBalance || 0;
-          
-          if ((isPro || isPremium) && eaSession?.data?.account?.balance !== undefined) {
-               const totalPnL = (trades || []).reduce((acc, t) => acc + t.pnl, 0);
-               effectiveInitialBalance = eaSession.data.account.balance - totalPnL;
-          }
-
-          let cumulative = effectiveInitialBalance;
-          const equityData = [cumulative];
-          trades.forEach(t => {
-            cumulative += t.pnl;
-            equityData.push(cumulative);
-          });
-          
-          const currentBalance = eaSession?.data?.account?.equity !== undefined
-            ? eaSession.data.account.equity
-            : (equityData?.length > 0 ? equityData[equityData.length - 1] : 0);
-
-          return (
-            <div className="p-0 sm:p-2 w-full h-full">
-              <EquityCurveWidget 
-                trades={trades} 
-                equityData={equityData} 
-                isDarkMode={isDarkMode} 
-                currencySymbol={currencySymbol} 
-                currentBalanceOverride={currentBalance}
-              />
-            </div>
-          );
-        }
-        case 'winrate':
-          return <div className="p-0 sm:p-2 w-full h-full"><OutcomeDistributionWidget trades={trades} isDarkMode={isDarkMode} /></div>;
-        case 'pair':
-          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceByPairWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'mindset':
-          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceRadarWidget trades={trades} isDarkMode={isDarkMode} /></div>;
-        case 'sessions':
-          return <div className="p-0 sm:p-2 w-full h-full"><PerformanceBySession trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'drawdown':
-          return <div className="p-0 sm:p-2 w-full h-full"><DrawdownOverTimeWidget trades={trades} isDarkMode={isDarkMode} userProfile={userProfile!} /></div>;
-        case 'momentum':
-          return <div className="p-0 sm:p-2 w-full h-full"><MomentumStreakWidget trades={trades} isDarkMode={isDarkMode} /></div>;
-        case 'exit':
-          return <div className="p-0 sm:p-2 w-full h-full"><TradeExitAnalysisWidget trades={trades} isDarkMode={isDarkMode} /></div>;
-        case 'currency':
-          return <div className="p-0 sm:p-2 w-full h-full"><CurrencyStrengthMeter trades={trades} isDarkMode={isDarkMode} /></div>;
-        case 'monthly':
-          return <div className="p-0 sm:p-2 w-full h-full"><MonthlyPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'adherence':
-          return <div className="p-0 sm:p-2 w-full h-full"><PLByPlanAdherenceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'mindset_pl':
-          return <div className="p-0 sm:p-2 w-full h-full"><PLByMindsetWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'table':
-          return <div className="p-0 sm:p-2 w-full h-full overflow-x-auto"><ExecutionPerformanceTable trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} initialBalance={userProfile?.initialBalance || 0} /></div>;
-        case 'strategy':
-          return <div className="p-0 sm:p-2 w-full h-full"><StrategyPerformanceBubbleChart trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'symbol':
-          return <div className="p-0 sm:p-2 w-full h-full"><SymbolPerformanceWidget trades={trades} isDarkMode={isDarkMode} currencySymbol={currencySymbol} /></div>;
-        case 'chart': {
-          const chartKey = index !== undefined ? `${messageId}-chart-${index}` : `${messageId}-chart`;
-          const symbol = message.chartSymbols?.[chartKey] || "FX:EURUSD";
-          return (
-            <div className="p-0 sm:p-2 w-full h-[250px] sm:h-[350px]">
-              <TradingViewWidget
-                symbol={symbol}
-                theme={isDarkMode ? 'dark' : 'light'}
-                chartId={chartKey}
-                showToolbar={false}
-              />
-            </div>
-          );
-        }
-        case 'mermaid': {
-          const mermaidKey = index !== undefined ? `${messageId}-mermaid-${index}` : `${messageId}-mermaid`;
-          const mData = message.mermaidData?.[mermaidKey];
-          if (!mData) return null;
-          return (
-            <div className="p-0 sm:p-2 w-full h-full">
-              <MermaidWidget
-                code={mData.code}
-                type={mData.type}
-                isDarkMode={isDarkMode}
-                onSave={() => handleSaveToNotebook(`Strategy Map: ${mData.type}`, `\`\`\`mermaid\n${mData.code}\n\`\`\``)}
-                onFix={() => handleFixMermaid(mData.type, mData.code)}
-              />
-            </div>
-          );
-        }
-        case 'checklist': {
-          const checklistKey = index !== undefined ? `${messageId}-checklist-${index}` : `${messageId}-checklist`;
-          const cData = message.checklistData?.[checklistKey];
-          if (!cData) return null;
-          return (
-            <div className="p-0 sm:p-2 w-full h-full">
-              <ChecklistWidget title={cData.title} items={cData.items} isDarkMode={isDarkMode} />
-            </div>
-          );
-        }
-        default: return null;
-      }
-    };
-
-    const isSmallWidget = ['sessions', 'strategy', 'table', 'exit', 'currency'].includes(key);
-
-    return (
-      <div key={`${key}-${index ?? 0}`} className={`rounded-2xl sm:rounded-[20px] border transition-all duration-500 overflow-hidden w-full ${isDarkMode
-        ? 'bg-gradient-to-br from-[#121218] to-[#0a0a0c] border-white/8 shadow-lg shadow-black/20'
-        : 'bg-gradient-to-br from-white to-slate-50 border-slate-200/60 shadow-md'
-        } ${isExpanded ? 'ring-1 ring-indigo-500/30' : ''} group/widget`}>
-        <button
-          onClick={() => toggleWidget(`${messageId}-${key}${index !== undefined ? `-${index}` : ''}`)}
-          className={`w-full flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 transition-all ${isExpanded
-            ? (isDarkMode ? 'bg-indigo-500/[0.05] text-indigo-400' : 'bg-indigo-50/80 text-indigo-600')
-            : (isDarkMode ? 'hover:bg-white/[0.03] text-zinc-400' : 'hover:bg-slate-50/80 text-slate-500')
-            }`}
-        >
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className={`p-2 sm:p-2.5 rounded-xl transition-all duration-500 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-lg shadow-indigo-500/10' : 'bg-zinc-500/5 group-hover/widget:bg-zinc-500/10'}`}>
-              {key === 'mermaid' ? <Workflow size={16} /> :
-                key === 'checklist' ? <List size={16} /> :
-                  <TrendingUp size={16} />}
-            </div>
-            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em]">
-              {tagToLabel[key] || 'Data Widget'}
-            </span>
-          </div>
-          <motion.div
-            animate={{ rotate: isExpanded ? 180 : 0 }}
-            className={`p-1.5 rounded-lg transition-all ${isExpanded ? 'text-indigo-500 bg-indigo-500/10' : 'text-zinc-500/40'}`}
-          >
-            <ChevronDown size={16} />
-          </motion.div>
-        </button>
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="border-t border-white/5"
-            >
-              <div className="p-4 sm:p-6 flex flex-col gap-6">
-                <div className="w-full">
-                  {getWidgetContent()}
-                </div>
-                {children && (
-                  <div className={`p-6 rounded-2xl border leading-relaxed text-[13px] relative overflow-hidden ${isDarkMode ? 'bg-white/[0.02] border-white/5 text-zinc-300' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
-                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500/30" />
-                    <div className="relative z-10 font-medium">
-                      {children}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setInput(value);
-
-    // Mention detection
-    const lastAtPos = value.lastIndexOf('@');
-    if (lastAtPos !== -1 && (lastAtPos === 0 || value[lastAtPos - 1] === ' ')) {
-      const query = value.substring(lastAtPos + 1);
-      if (!query.includes(' ')) {
-        setMentionMenuFilter(query);
-        // Trigger only when at least 1 character is added after @
-        setShowMentionMenu(query.length >= 1);
-        setMentionIndex(0);
-        return;
-      }
-    }
-    setShowMentionMenu(false);
-  };
-
-  const insertMention = (mention: string) => {
-    const lastAtPos = input.lastIndexOf('@');
-    const newValue = input.substring(0, lastAtPos) + '@' + mention + ' ';
-    setInput(newValue);
-    setShowMentionMenu(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (showMentionMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setMentionIndex(prev => (prev + 1) % filteredMentions.length);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setMentionIndex(prev => (prev - 1 + filteredMentions.length) % filteredMentions.length);
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        if (filteredMentions[mentionIndex]) {
-          insertMention(filteredMentions[mentionIndex].value);
-        }
-      } else if (e.key === 'Escape') {
-        setShowMentionMenu(false);
-      }
-    } else if (e.key === 'Enter') {
-      handleSend();
-    }
-  };
-
-  const toggleVoiceInput = () => {
-    if (isListening) {
-      setIsListening(false);
-      return;
-    }
-
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      setErrorMessage("Voice input is not supported in this browser.");
-      return;
-    }
-
-    setIsListening(true);
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(prev => prev + (prev ? ' ' : '') + transcript);
-      setIsListening(false);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      setIsListening(false);
-      if (event.error === 'not-allowed') {
-        setErrorMessage("Microphone access denied.");
-      }
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.start();
-  };
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input, timestamp: new Date() };
-    setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
-    setInput('');
-    setIsTyping(true);
-    setErrorMessage(null);
-
-    try {
-      const history = recallMemory ? messages.map(m => ({ role: m.role, content: m.content })) : [];
-      const fullResponse = await geminiService.generateResponse(currentInput, trades, userProfile, goals, dailyBias, false, history, selectedModel, isPlanMode, communicationStyle);
-      const aiMessageId = (Date.now() + 1).toString();
-      processResponse(fullResponse, aiMessageId);
-
-      // Auto-expand widgets if autoRevealCharts is enabled
-      if (autoRevealCharts) {
-        // Will be handled in processResponse
-      }
-    } catch (error: any) {
-      console.error("Chat Error:", error);
-      const errorMsg = error?.message || "I'm experiencing a connection issue. Please check your internet and try again.";
-      setErrorMessage(errorMsg);
-
-      // Add error message to chat
-      const errorResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `⚠️ **Connection Issue**\n\nI couldn't process your request. ${errorMsg}\n\n> Try again in a moment, or rephrase your question.`,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorResponse]);
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  const handleSpecialAnalysis = async () => {
-    if (trades.length < 5 && !isPlanMode) {
-      addToast({
-        type: 'info',
-        title: 'Insufficient Data',
-        message: `You need at least 5 logged trades for a deep performance analysis. You currently have ${trades.length}.`,
-        duration: 5000
-      });
-      return;
-    }
-
-    setIsTyping(true);
-    setAnalysisStatus('analyzing');
-    setCurrentStepIndex(0);
-
-    // Cycle through steps
-    const stepInterval = setInterval(() => {
-      setCurrentStepIndex(prev => (prev < analysisSteps.length - 1 ? prev + 1 : prev));
-    }, 1500);
-
-    const analysisId = Date.now().toString();
-    const analysisRequest: Message = {
-      id: analysisId,
-      role: 'user',
-      content: isPlanMode ? "Start New Strategy Planning Session" : "Deep Performance Analysis & Goal Suggestion",
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, analysisRequest]);
-
-    try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const fullResponse = await geminiService.generateResponse(isPlanMode ? "Let's start building a new strategy." : "", trades, userProfile, goals, dailyBias, !isPlanMode, history, selectedModel, isPlanMode, communicationStyle);
-      clearInterval(stepInterval);
-      setCurrentStepIndex(analysisSteps.length - 1);
-      const aiMessageId = (Date.now() + 1).toString();
-      setAnalysisStatus('success');
-      processResponse(fullResponse, aiMessageId);
-
-      // Keep success state for 1.5 seconds before resetting
-      setTimeout(() => {
-        setAnalysisStatus('idle');
-        setCurrentStepIndex(0);
-      }, 1500);
-    } catch (error) {
-      clearInterval(stepInterval);
-      console.error("Analysis Error:", error);
-      setAnalysisStatus('error');
-      setTimeout(() => setAnalysisStatus('idle'), 2000);
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  const processResponse = (fullResponse: string, messageId: string) => {
-    let cleanContent = fullResponse;
-    const foundKeys: string[] = [];
-    const chartSymbols: Record<string, string> = {};
-    const sections: Record<string, string> = {};
-    const mermaidData: Record<string, { type: string, code: string }> = {};
-
-    // Parse Sections
-    const sectionNames = ['LACKS', 'RECOMMENDATIONS', 'GOALS'];
-    sectionNames.forEach(name => {
-      const tag = `[SECTION:${name}]`;
-      if (cleanContent.includes(tag)) {
-        const parts = cleanContent.split(tag);
-        let sectionContent = parts[1];
-        sectionNames.forEach(otherName => {
-          const otherTag = `[SECTION:${otherName}]`;
-          if (sectionContent.includes(otherTag)) {
-            sectionContent = sectionContent.split(otherTag)[0];
-          }
-        });
-        
-        // Track widgets found in section for history/expansion
-        const tagMap: Record<string, string> = {
-          '[WIDGET:PNL]': 'pnl', '[WIDGET:WINRATE]': 'winrate', '[WIDGET:MINDSET]': 'mindset',
-          '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', 
-          '[WIDGET:MOMENTUM]': 'momentum', '[WIDGET:EXIT]': 'exit', '[WIDGET:CURRENCY]': 'currency',
-          '[WIDGET:MONTHLY]': 'monthly', '[WIDGET:ADHERENCE]': 'adherence', '[WIDGET:MINDSET_PL]': 'mindset_pl',
-          '[WIDGET:CREATE_GOAL]': 'create_goal',
-          '[WIDGET:TABLE]': 'table', '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
-        };
-        for (const [t, key] of Object.entries(tagMap)) {
-          if (sectionContent.includes(t)) foundKeys.push(key);
-        }
-
-        // KEEP widget tags in section content
-        sections[name] = sectionContent.trim();
-        cleanContent = cleanContent.replace(tag, '').replace(sectionContent, '');
-      }
-    });
-
-    const tagMap: Record<string, string> = {
-      '[WIDGET:PNL]': 'pnl', '[WIDGET:WINRATE]': 'winrate', '[WIDGET:MINDSET]': 'mindset',
-      '[WIDGET:SESSIONS]': 'sessions', '[WIDGET:PAIR]': 'pair', '[WIDGET:DRAWDOWN]': 'drawdown', 
-      '[WIDGET:MOMENTUM]': 'momentum', '[WIDGET:EXIT]': 'exit', '[WIDGET:CURRENCY]': 'currency',
-      '[WIDGET:MONTHLY]': 'monthly', '[WIDGET:ADHERENCE]': 'adherence', '[WIDGET:MINDSET_PL]': 'mindset_pl',
-      '[WIDGET:CREATE_GOAL]': 'create_goal',
-      '[WIDGET:TABLE]': 'table', '[WIDGET:STRATEGY_EFFICIENCY]': 'strategy', '[WIDGET:SYMBOL]': 'symbol'
-    };
-
-    for (const [tag, key] of Object.entries(tagMap)) {
-      if (fullResponse.includes(tag)) {
-        // Keep tag in content for inline rendering, but track it for history
-        foundKeys.push(key);
-      }
-    }
-
-    let chartIdx = 0;
-    const chartRegex = /\[WIDGET:CHART:([A-Z0-9]+)\]/g;
-    let match;
-    while ((match = chartRegex.exec(fullResponse)) !== null) {
-      const symbol = match[1];
-      const tag = match[0];
-      foundKeys.push('chart');
-      chartSymbols[`${messageId}-chart-${chartIdx}`] = symbol;
-      // Replace only this occurrence with an indexed tag
-      cleanContent = cleanContent.replace(tag, `[WIDGET:CHART_INDEXED:${chartIdx}]`);
-      chartIdx++;
-    }
-
-    // Mermaid Parsing [WIDGET:MERMAID:TYPE]CODE[/WIDGET:MERMAID]
-    let mermaidIdx = 0;
-    const mermaidRegex = /\[WIDGET:MERMAID:([A-Z]+)\]([\s\S]+?)\[\/WIDGET:MERMAID\]/g;
-    let mermaidMatch;
-    while ((mermaidMatch = mermaidRegex.exec(fullResponse)) !== null) {
-      const type = mermaidMatch[1];
-      const tag = mermaidMatch[0];
-      let code = mermaidMatch[2].trim().replace(/\\n/g, '\n');
-      code = code.replace(/```mermaid/g, '').replace(/```/g, '').trim();
-      
-      foundKeys.push('mermaid');
-      mermaidData[`${messageId}-mermaid-${mermaidIdx}`] = { type, code };
-      cleanContent = cleanContent.replace(tag, `[WIDGET:MERMAID_INDEXED:${mermaidIdx}]`);
-      mermaidIdx++;
-    }
-
-    // Checklist Parsing [WIDGET:CHECKLIST:TITLE]ITEM1|ITEM2|...[/WIDGET:CHECKLIST]
-    let checklistIdx = 0;
-    const checklistRegex = /\[WIDGET:CHECKLIST:([^\]]+)\]([\s\S]+?)\[\/WIDGET:CHECKLIST\]/g;
-    let checklistMatch;
-    const checklistData: Record<string, { title: string, items: { text: string, checked: boolean }[] }> = {};
-    while ((checklistMatch = checklistRegex.exec(fullResponse)) !== null) {
-      const title = checklistMatch[1];
-      const tag = checklistMatch[0];
-      const items = checklistMatch[2].split('|').map(item => ({ text: item.trim(), checked: false }));
-      foundKeys.push('checklist');
-      checklistData[`${messageId}-checklist-${checklistIdx}`] = { title, items };
-      cleanContent = cleanContent.replace(tag, `[WIDGET:CHECKLIST_INDEXED:${checklistIdx}]`);
-      checklistIdx++;
-    }
-
-    const aiMessage: Message = {
-      id: messageId,
-      role: 'assistant',
-      content: cleanContent.trim(),
-      timestamp: new Date(),
-      widgetKeys: foundKeys.length > 0 ? foundKeys : undefined,
-      chartSymbols: Object.keys(chartSymbols).length > 0 ? chartSymbols : undefined,
-      sections: Object.keys(sections).length > 0 ? sections : undefined,
-      mermaidData: Object.keys(mermaidData).length > 0 ? mermaidData : undefined,
-      checklistData: Object.keys(checklistData).length > 0 ? checklistData : undefined,
-    };
-    setMessages(prev => [...prev, aiMessage]);
-
-    // Auto-expand widgets if autoRevealCharts is enabled
-    if (autoRevealCharts && foundKeys.length > 0) {
-      const newExpandedWidgets: Record<string, boolean> = {};
-      foundKeys.forEach((key, i) => { newExpandedWidgets[`${messageId}-${key}-${i}`] = true;
-      });
-      setExpandedWidgets(prev => ({ ...prev, ...newExpandedWidgets }));
-    }
-  };
-
-  const renderContentBlocks = (text: string, message: Message) => {
-    const blocks: React.ReactNode[] = [];
-    
-    // 1. Identify all items
-    const parts = text.split(/(\[WIDGET:(?:PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|MOMENTUM|EXIT|CURRENCY|MONTHLY|ADHERENCE|MINDSET_PL|CREATE_GOAL|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED:\d+|MERMAID_INDEXED:\d+|CHECKLIST_INDEXED:\d+)\])/g);
-    
-    parts.forEach((part, idx) => {
-      if (!part) return;
-      const match = part.match(/\[WIDGET:(PNL|WINRATE|MINDSET|SESSIONS|PAIR|DRAWDOWN|MOMENTUM|EXIT|CURRENCY|MONTHLY|ADHERENCE|MINDSET_PL|CREATE_GOAL|TABLE|STRATEGY_EFFICIENCY|SYMBOL|CHART_INDEXED|MERMAID_INDEXED|CHECKLIST_INDEXED)(?::(\d+))?\]/);
-      
-      if (match) {
-        const type = match[1];
-        const index = match[2] ? parseInt(match[2]) : undefined;
-        let actualKey = type.toLowerCase();
-        if (type === 'STRATEGY_EFFICIENCY') actualKey = 'strategy';
-        if (type.includes('_INDEXED')) actualKey = type.replace('_INDEXED', '').toLowerCase();
-        
-        const isSmallWidget = ['sessions', 'strategy', 'table', 'exit', 'currency'].includes(actualKey);
-        
-        blocks.push(
-          <div key={`widget-${idx}`} className={`my-4 ${isSmallWidget ? 'w-fit max-w-full' : 'w-full'}`}>
-            {renderWidget(actualKey, message.id, message, index)}
-          </div>
-        );
-      } else {
-        blocks.push(
-          <div key={`text-${idx}`} className={`mb-4 last:mb-0 text-[13px] sm:text-[14px] leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'} prose prose-sm max-w-none dark:prose-invert`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-              p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed">{renderWithMentions(children)}</p>,
-              ul: ({ children }) => <ul className="list-disc ml-4 mb-4 space-y-2">{children}</ul>,
-              ol: ({ children }) => <ol className="list-decimal ml-4 mb-4 space-y-2">{children}</ol>,
-              li: ({ children }) => <li className="marker:text-indigo-500 pl-1">{renderWithMentions(children)}</li>,
-              strong: ({ children }) => <strong className={`font-black tracking-tight ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>{renderWithMentions(children)}</strong>,
-            }}>
-              {part}
-            </ReactMarkdown>
-          </div>
-        );
-      }
-    });
-
-    return <div className="space-y-2 w-fit max-w-full">{blocks}</div>;
-  };
-
-  const renderMessageContent = (message: Message) => {
-    return renderContentBlocks(message.content, message);
-  };
-
-  const renderSectionCards = (sections: Record<string, string>, message: Message) => {
-    const config: Record<string, { title: string, icon: any, color: string, bg: string, border: string, dot: string, glow: string }> = {
-      'LACKS': {
-        title: 'Performance Leaks',
-        icon: <Trash2 size={18} />,
-        color: 'text-rose-500',
-        bg: isDarkMode ? 'bg-rose-500/[0.03]' : 'bg-rose-50/50',
-        border: isDarkMode ? 'border-rose-500/10' : 'border-rose-200/50',
-        dot: 'bg-rose-500',
-        glow: 'group-hover:shadow-rose-500/5'
-      },
-      'RECOMMENDATIONS': {
-        title: 'Strategic Fixes',
-        icon: <Wand2 size={18} />,
-        color: 'text-amber-500',
-        bg: isDarkMode ? 'bg-amber-500/[0.03]' : 'bg-amber-50/50',
-        border: isDarkMode ? 'border-amber-500/10' : 'border-amber-200/50',
-        dot: 'bg-amber-500',
-        glow: 'group-hover:shadow-amber-500/5'
-      },
-      'GOALS': {
-        title: '30-Day Roadmap',
-        icon: <TrendingUp size={18} />,
-        color: 'text-emerald-500',
-        bg: isDarkMode ? 'bg-emerald-500/[0.03]' : 'bg-emerald-50/50',
-        border: isDarkMode ? 'border-emerald-500/10' : 'border-emerald-200/50',
-        dot: 'bg-emerald-500',
-        glow: 'group-hover:shadow-emerald-500/5'
-      }
-    };
-
-    const Card = ({ id, className }: { id: string, className?: string }) => {
-      const content = sections[id];
-      if (!content) return null;
-      return (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`p-6 sm:p-8 rounded-[32px] border ${config[id].bg} ${config[id].border} flex flex-col gap-6 relative overflow-hidden group hover:bg-white/[0.02] dark:hover:bg-white/[0.02] transition-all duration-700 shadow-2xl ${config[id].glow} ${className}`}
-        >
-          {/* Subtle Accent Background Glow */}
-          <div className={`absolute -top-24 -right-24 w-48 h-48 rounded-full blur-[80px] opacity-0 group-hover:opacity-20 transition-opacity duration-700 ${config[id].dot.replace('bg-', 'bg-')}`} />
-
-          <div className="flex items-center justify-between relative z-10">
-            <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-2xl bg-white/5 backdrop-blur-md ${config[id].color} shadow-lg border border-white/5 group-hover:scale-110 transition-transform duration-500`}>
-                {config[id].icon}
-              </div>
-              <div className="flex flex-col">
-                <h4 className={`text-[11px] font-black uppercase tracking-[0.25em] ${config[id].color}`}>
-                  {config[id].title}
-                </h4>
-                <div className="flex items-center gap-1 mt-1">
-                  <div className={`w-1 h-1 rounded-full ${config[id].dot}`} />
-                  <span className="text-[8px] font-bold opacity-30 uppercase tracking-widest">Active Analysis</span>
-                </div>
-              </div>
-            </div>
-            <div className={`w-2 h-2 rounded-full ${config[id].dot} animate-pulse shadow-[0_0_12px] ${config[id].dot.replace('bg-', 'shadow-')}`} />
-          </div>
-
-          <div className="relative z-10 flex-1 flex flex-col justify-start w-full">
-            {renderContentBlocks(content, message)}
-          </div>
-        </motion.div>
-      );
-    };
-
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4 items-stretch">
-        <Card id="LACKS" className="lg:col-span-12" />
-        <Card id="RECOMMENDATIONS" className="lg:col-span-6" />
-        <Card id="GOALS" className="lg:col-span-6" />
-      </div>
-    );
-  };
-
-  const clearChat = () => {
-    setMessages([{
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: `Chat cleared. How can I help you now, ${userProfile?.name?.split(' ')[0] || 'Trader'}?`,
-      timestamp: new Date(),
-    }]);
-  };
-
-  const deleteMessage = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setMessages(prev => prev.filter(m => m.id !== id));
-  };
-
-  const analysisHistory = useMemo(() => {
-    return messages.filter(m => m.widgetKeys && m.widgetKeys.length > 0);
-  }, [messages]);
 
   return (
-    <div className={`flex flex-col h-full transition-all duration-500 overflow-hidden ${isDarkMode ? 'bg-[#050505] text-zinc-100' : 'bg-[#F8FAFC] text-slate-900'
-      }`}>
-      {/* Header */}
-      <div className={`px-4 sm:px-6 py-4 flex items-center justify-between border-b transition-all duration-500 z-30 sticky top-0 ${isDarkMode ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white/60'
-        } backdrop-blur-2xl`}>
-        <div className="flex items-center gap-4">
-          <div className="relative group">
-            <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center text-white shadow-xl transition-all duration-500 group-hover:scale-105 ${isPlanMode
-              ? 'bg-gradient-to-br from-[#FF4F01] to-[#FF8F01] shadow-[#FF4F01]/20'
-              : 'bg-gradient-to-br from-indigo-600 to-violet-600 shadow-indigo-500/20'
-              }`}>
-              {isPlanMode ? <Workflow size={24} className="sm:size-7" /> : <Bot size={24} className="sm:size-7" />}
-            </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-[#050505] shadow-lg" />
-          </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm sm:text-base font-black uppercase tracking-widest">
-                {isPlanMode ? 'Strategy Architect' : 'JFX AI Assistant'}
-              </h2>
-              {!isPlanMode && (
-                <div className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-widest border border-indigo-500/20">
-                  v3.0
-                </div>
-              )}
-              {isPlanMode && (
-                <div className="px-2 py-0.5 rounded-full bg-[#FF4F01]/10 text-[#FF4F01] text-[8px] font-black uppercase tracking-widest border border-[#FF4F01]/20 animate-pulse">
-                  Active Plan
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <div className="flex gap-0.5">
-                {[0, 1, 2].map((i) => (
-                  <div key={i} className={`w-1 h-1 rounded-full bg-emerald-500/40 ${isTyping ? 'animate-bounce' : ''}`} style={{ animationDelay: `${i * 0.1}s` }} />
-                ))}
-              </div>
-              <span className="text-[9px] font-bold opacity-40 uppercase tracking-widest">{isTyping ? 'Thinking...' : 'System Ready'}</span>
-            </div>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className={`group flex w-full px-4 py-2 hover:bg-zinc-50/50 dark:hover:bg-white/5 transition-colors ${isUser ? 'bg-zinc-50/30 dark:bg-white/[0.02]' : ''}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="flex gap-4 max-w-4xl mx-auto w-full">
+        {/* Avatar */}
+        <div className={`shrink-0 mt-1 ${isUser ? 'order-2' : 'order-1'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+            isUser 
+              ? isDarkMode ? 'bg-zinc-700' : 'bg-slate-300 text-slate-600'
+              : 'bg-zinc-800 dark:bg-zinc-700'
+          }`}>
+            {isUser ? (
+              userProfile?.avatarUrl 
+                ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover rounded-full" alt="User" />
+                : <span>{userProfile?.name?.charAt(0) || 'U'}</span>
+            ) : (
+              <AssistantIcon size={16} />
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {isPlanMode && (
-            <button
-              onClick={handleExportStrategy}
-              className={`hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest ${isDarkMode
-                ? 'bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/5'
-                : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 shadow-sm'
-                }`}
-            >
-              <Download size={15} />
-              Export Plan
-            </button>
-          )}
-          <div className={`h-8 w-px mx-1 hidden sm:block ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`} />
-          <div className="flex items-center bg-zinc-500/5 rounded-2xl p-1 gap-1">
-            <button
-              onClick={() => setIsHistoryOpen(true)}
-              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500 shadow-sm'
-                }`}
-              title="Analysis History"
-            >
-              <History size={18} />
-            </button>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/10 text-zinc-400' : 'hover:bg-white text-slate-500 shadow-sm'
-                }`}
-              title="Settings"
-            >
-              <SettingsIcon size={18} />
-            </button>
-            <button
-              onClick={clearChat}
-              className={`p-2 sm:p-2.5 rounded-xl transition-all ${isDarkMode ? 'hover:bg-indigo-500/10 text-zinc-400 hover:text-indigo-400' : 'hover:bg-indigo-50 text-slate-500 hover:text-indigo-600'
-                }`}
-              title="Reset Conversation"
-            >
-              <Plus size={18} />
-            </button>
+        {/* Message Content */}
+        <div className={`flex-1 min-w-0 ${isUser ? 'order-1' : 'order-2'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-sm font-medium ${isDarkMode ? 'text-zinc-300' : 'text-slate-900'}`}>
+              {isUser ? (userProfile?.name || 'You') : 'JFX Architect'}
+            </span>
+            {!isUser && (
+              <>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  AI
+                </span>
+                {message.kind === 'strategy' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'
+                    }`}
+                  >
+                    STRATEGY PLAN
+                  </motion.span>
+                )}
+                {message.kind === 'analysis' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isDarkMode ? 'bg-cyan-500/20 text-cyan-400' : 'bg-cyan-100 text-cyan-700'
+                    }`}
+                  >
+                    NEURAL AUDIT
+                  </motion.span>
+                )}
+                {message.kind === 'psychology' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isDarkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700'
+                    }`}
+                  >
+                    PSYCHOLOGY
+                  </motion.span>
+                )}
+                {message.kind === 'scaling' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'
+                    }`}
+                  >
+                    SCALING
+                  </motion.span>
+                )}
+                {message.isDeepAnalysis && message.kind !== 'strategy' && message.kind !== 'analysis' && (
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      isDarkMode ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-700'
+                    }`}
+                  >
+                    DEEP ANALYSIS
+                  </motion.span>
+                )}
+              </>
+            )}
           </div>
+          
+          {/* Message Body - ChatGPT Style */}
+          <div className={`prose prose-sm max-w-none ${
+            isUser 
+              ? 'prose-invert' 
+              : (isDarkMode ? 'prose-invert prose-invert:text-zinc-300' : 'text-slate-800')
+          }`}>
+            <div className={`rounded-2xl ${
+              isCompactAudioMessage ? 'w-fit max-w-xs px-2 py-1.5 ml-auto' : 'px-4 py-3'
+            } ${
+              isUser 
+                ? isDarkMode ? 'bg-zinc-800 text-zinc-100' : 'bg-slate-200 text-slate-900'
+                : isDarkMode ? 'bg-transparent text-zinc-200' : 'bg-transparent text-slate-800'
+            } ${message.isDeepAnalysis && !isUser ? (isDarkMode ? 'border border-emerald-500/50 bg-emerald-900/10' : 'border border-emerald-300/50 bg-emerald-50') : ''}`}>
+              {renderMessageContent(message)}
+            </div>
+          </div>
+
+          {/* Section Cards for AI messages */}
+          {message.sections && !isUser && (message.isDeepAnalysis || message.kind === 'strategy' || message.kind === 'psychology' || message.kind === 'scaling') && (
+            <div className="mt-4">
+              {renderSectionCards(message.sections, message)}
+            </div>
+          )}
+
+          {/* Action Buttons - ChatGPT Style */}
+          {!message.isStreaming && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: hovered ? 1 : 0 }}
+              className={`flex items-center gap-1 mt-2 -ml-2 ${isUser ? 'justify-start' : ''}`}
+            >
+              <button 
+                onClick={handleCopy}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  isDarkMode ? 'hover:bg-zinc-700 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'
+                }`}
+                title="Copy"
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+              {!isUser && (
+                <>
+                  <button 
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      isDarkMode ? 'hover:bg-zinc-700 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'
+                    }`}
+                    title="Good response"
+                  >
+                    <ThumbsUp size={14} />
+                  </button>
+                  <button 
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      isDarkMode ? 'hover:bg-zinc-700 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'
+                    }`}
+                    title="Bad response"
+                  >
+                    <ThumbsDown size={14} />
+                  </button>
+                </>
+              )}
+            </motion.div>
+          )}
         </div>
       </div>
+    </motion.div>
+  );
+});
+MessageRow.displayName = 'MessageRow';
 
-      {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 space-y-10 custom-scrollbar scroll-smooth relative">
-        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-[0.03] dark:opacity-[0.05]">
-          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-indigo-500 rounded-full blur-[120px]" />
-          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-purple-500 rounded-full blur-[120px]" />
+interface QuickPrompt {
+  title: string;
+  icon: React.ReactNode;
+  prompt: string;
+  color: string;
+  category: 'psychology' | 'scaling' | 'analysis' | 'strategy';
+  featureMode?: 'psychology' | 'scaling';
+}
+
+interface WizardData {
+  tradingStyle: string;
+  goals: string;
+  riskTolerance: string;
+  challenges: string[];
+  timeCommitment: string;
+  experience: string;
+  preferredPairs: string[];
+  markets: string[];
+  analysisTimeframe: string;
+  entryTimeframe: string;
+  tradingSessions: string[];
+  dailyTradeLimit: string;
+  exitMechanics: string;
+  tradeManagement: string;
+  profitTarget: string;
+  lossCap: string;
+  whyITrade: string;
+}
+
+interface ChallengeOption {
+  id: string;
+  label: string;
+  desc: string;
+  icon: React.ReactNode;
+}
+
+interface ChallengesStepProps {
+  isDarkMode: boolean;
+  data: WizardData;
+  challengeOptions: ChallengeOption[];
+  onChange: (update: Partial<Pick<WizardData, 'challenges'>>) => void;
+}
+
+interface ResearchPrompt {
+  title: string;
+  icon: React.ReactNode;
+  prompt: string;
+  color: string;
+  desc: string;
+}
+
+const ChallengesStep = ({ isDarkMode, data, challengeOptions, onChange }: ChallengesStepProps) => (
+  <div className="space-y-6">
+    <div className="text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center mx-auto mb-4">
+        <Brain size={32} className="text-white" />
+      </div>
+      <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Core Challenges</h2>
+      <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Select the issues that affect your trading most.</p>
+    </div>
+
+    <div className="grid sm:grid-cols-2 gap-3">
+      {challengeOptions.map((option) => {
+        const active = data.challenges.includes(option.id);
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => {
+              const next = active
+                ? data.challenges.filter((challenge) => challenge !== option.id)
+                : [...data.challenges, option.id];
+              onChange({ challenges: next });
+            }}
+            className={`rounded-2xl border p-4 text-left transition-all ${
+              active
+                ? 'border-rose-500 bg-rose-500/10'
+                : isDarkMode
+                  ? 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 rounded-xl p-2 ${active ? 'bg-rose-500/15 text-rose-500' : isDarkMode ? 'bg-zinc-800 text-zinc-300' : 'bg-slate-100 text-slate-600'}`}>
+                {option.icon}
+              </div>
+              <div className="min-w-0">
+                <div className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{option.label}</div>
+                <div className={`mt-1 text-xs leading-relaxed ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{option.desc}</div>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+);
+
+const MENTOR_QUICK_PROMPTS: QuickPrompt[] = [
+  { title: "Tilt Protocol", icon: <Brain size={16} />, prompt: "Create a comprehensive tilt management protocol for handling trading drawdown.", color: 'text-rose-500', category: 'psychology', featureMode: 'psychology' },
+  { title: "Mindset Audit", icon: <Brain size={16} />, prompt: "Analyze my trading psychology based on my trade data.", color: 'text-pink-500', category: 'psychology', featureMode: 'psychology' },
+  { title: "Focus Flow", icon: <Target size={16} />, prompt: "Design a focus enhancement protocol.", color: 'text-violet-500', category: 'psychology', featureMode: 'psychology' },
+  { title: "Compound Strategy", icon: <TrendingUp size={16} />, prompt: "Create a compounding strategy.", color: 'text-emerald-500', category: 'scaling', featureMode: 'scaling' },
+  { title: "Deep Audit", icon: <Activity size={16} />, prompt: "Perform a deep performance audit. Include: 1) Win rate analysis by pair/time/emotion 2) Best and worst setups 3) Execution quality assessment 4) Risk management score 5) Key improvement areas 6) Personalized action plan", color: 'text-indigo-500', category: 'analysis' },
+  { title: "Strategy Tree", icon: <Workflow size={16} />, prompt: "Generate a visual decision tree for my current trading strategy with entry/exit criteria.", color: 'text-cyan-500', category: 'strategy' },
+];
+
+const RESEARCH_QUICK_PROMPTS: ResearchPrompt[] = [
+  { title: "Session Edge", icon: <Clock3 size={16} />, prompt: "Explain how London, New York, and overlap sessions behave differently for forex traders, including liquidity, volatility, and common traps.", color: 'text-cyan-500', desc: 'Session behavior and timing' },
+  { title: "Setup Brief", icon: <Workflow size={16} />, prompt: "Build a concise research brief for a high-probability market structure setup. Include ideal conditions, entry confirmation, invalidation, and common failure cases.", color: 'text-emerald-500', desc: 'Playbook research' },
+  { title: "Risk Model", icon: <Coins size={16} />, prompt: "Compare fixed fractional risk, volatility-adjusted position sizing, and R-based execution for discretionary traders. Keep it practical.", color: 'text-amber-500', desc: 'Risk framework research' },
+  { title: "Macro Lens", icon: <TrendingUp size={16} />, prompt: "Explain how a trader should research macro drivers before taking a directional trade in forex or indices, without relying on live headlines.", color: 'text-violet-500', desc: 'Top-down context building' },
+];
+
+const RESEARCH_STARTERS = RESEARCH_QUICK_PROMPTS.slice(0, 2);
+
+const FORGE_ITEMS = [
+  { title: "Execution Checklist", icon: <CheckCircle2 size={20} />, desc: "High-probability rule set", prompt: "Build me a high-probability execution checklist based on my best performing trades." },
+  { title: "Strategy Roadmap", icon: <Workflow size={20} />, desc: "Logic & decision trees", prompt: "Generate a visual decision tree for my current trading strategy." },
+  { title: "Psychology Flow", icon: <Brain size={20} />, desc: "Emotional state management", prompt: "Create a psychology protocol for managing state during drawdown." }
+];
+
+const AIChat: React.FC<AIChatProps> = ({ isDarkMode, trades: rawTrades = [], userProfile, dailyBias = [], eaSession, onAddNote, onUpdateTrade, onOpenSettings }) => {
+  const safePnL = (value: unknown): number => {
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const challengeOptions = useMemo(() => ([
+    { id: 'emotions', label: 'Emotional Trading', desc: 'FOMO, revenge trading, fear of missing out', icon: <Brain size={20} /> },
+    { id: 'discipline', label: 'Lack of Discipline', desc: 'Skipping trades, not following rules', icon: <ListChecks size={20} /> },
+    { id: 'analysis', label: 'Analysis Paralysis', desc: 'Overthinking, unable to make decisions', icon: <BrainCircuit size={20} /> },
+    { id: 'drawdown', label: 'Drawdown Recovery', desc: 'Difficulty recovering from losses', icon: <TrendingDown size={20} /> },
+    { id: 'consistency', label: 'Inconsistent Results', desc: 'Unpredictable performance', icon: <BarChart3 size={20} /> },
+    { id: 'time', label: 'Time Management', desc: 'Not enough time to trade properly', icon: <Timer size={20} /> },
+  ]), []);
+  const challengeLabelMap = useMemo(
+    () => Object.fromEntries(challengeOptions.map(({ id, label }) => [id, label])),
+    [challengeOptions]
+  );
+  const [editingTradeNote, setEditingTradeNote] = useState<Trade | null>(null);
+  const [tradeNoteText, setTradeNoteText] = useState('');
+  const [isUpdatingNote, setIsUpdatingNote] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [showForgeMenu, setShowForgeMenu] = useState(false);
+  const [showFeaturesMenu, setShowFeaturesMenu] = useState(false);
+  const { addToast } = useToast();
+  const [wizardStep, setWizardStep] = useState(0);
+
+  const stats = useMemo(() => {
+    const sorted = [...rawTrades].sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
+    const wins = sorted.filter(t => t.result === 'Win').length;
+    const total = sorted.length;
+    const pnl = sorted.reduce((sum, t) => sum + safePnL(t.pnl), 0);
+    return { total, wins, pnl, winRate: total > 0 ? (wins / total) * 100 : 0 };
+  }, [rawTrades]);
+
+  const trades = useMemo(() => [...rawTrades].sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime()), [rawTrades]);
+  const analyticsSnapshot = useMemo(
+    () => buildAnalyticsAiSnapshot(trades, userProfile, dailyBias, eaSession),
+    [trades, userProfile, dailyBias, eaSession]
+  );
+  const preferredPairOptions = useMemo(() => {
+    const pairs = Array.from(new Set(rawTrades.map((trade) => trade.pair).filter(Boolean)));
+    return (pairs.length > 0 ? pairs : ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY', 'NAS100', 'US30']).slice(0, 8);
+  }, [rawTrades]);
+
+  const createInitialWizardData = useCallback(() => ({
+    tradingStyle: '',
+    goals: '',
+    riskTolerance: 'moderate',
+    challenges: [] as string[],
+    timeCommitment: '',
+    experience: userProfile?.experienceLevel || '',
+    preferredPairs: preferredPairOptions.slice(0, Math.min(3, preferredPairOptions.length)),
+    markets: [] as string[],
+    analysisTimeframe: 'Daily',
+    entryTimeframe: 'M15',
+    tradingSessions: [] as string[],
+    dailyTradeLimit: '3',
+    exitMechanics: 'Fixed TP/SL',
+    tradeManagement: 'Move to BE at 1R',
+    profitTarget: '',
+    lossCap: '',
+    whyITrade: '',
+  }), [preferredPairOptions, userProfile?.experienceLevel]);
+  const [wizardData, setWizardData] = useState<WizardData>(() => createInitialWizardData());
+  
+  const [selectedModel, setSelectedModel] = useLocalStorage<ModalModelType>('jfx_ai_selected_model', 'deepseek');
+  const [recallMemory, setRecallMemory] = useLocalStorage<boolean>('jfx_ai_recall_memory', true);
+  const [dailyCredits, setDailyCredits] = useLocalStorage<DailyCreditState>('jfx_ai_daily_credits', createDailyCreditState());
+  const assistantMode = useMemo(() => getAssistantMode(selectedModel), [selectedModel]);
+  const isResearchMode = assistantMode === 'research';
+  const assistantLabel = isResearchMode ? 'JFX Research' : 'JFX Mentor';
+  const [researchForgeCategory, setResearchForgeCategory] = useLocalStorage<'psychology' | 'scaling' | 'analysis' | 'strategy'>('jfx_ai_forge_category_research', 'psychology');
+  const [mentorForgeCategory, setMentorForgeCategory] = useLocalStorage<'psychology' | 'scaling' | 'analysis' | 'strategy'>('jfx_ai_forge_category_mentor', 'psychology');
+  const activeCategory = isResearchMode ? researchForgeCategory : mentorForgeCategory;
+  const setActiveCategory = useCallback((category: 'psychology' | 'scaling' | 'analysis' | 'strategy') => {
+    if (isResearchMode) {
+      setResearchForgeCategory(category);
+    } else {
+      setMentorForgeCategory(category);
+    }
+  }, [isResearchMode, setMentorForgeCategory, setResearchForgeCategory]);
+  
+  const [isPlanMode, setIsPlanMode] = useState(false);
+  const [input, setInput] = useState('');
+  const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  const [visualizerBars, setVisualizerBars] = useState<number[]>(() => Array.from({ length: 20 }, () => 0.18));
+  const [pendingVoiceClip, setPendingVoiceClip] = useState<VoiceClipAttachment | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const speechRecognitionRef = useRef<ReturnType<typeof browserSpeechService.createRecognition> | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingMimeTypeRef = useRef<string>('audio/webm');
+  const voiceBaseInputRef = useRef('');
+  const voiceFinalTranscriptRef = useRef('');
+  const voiceInterimTranscriptRef = useRef('');
+  const recordingActionRef = useRef<'transcribe' | 'discard'>('transcribe');
+  const recordingStartTimestampRef = useRef<number | null>(null);
+  const recordingAccumulatedMsRef = useRef(0);
+  const recordingTimerRef = useRef<number | null>(null);
+  const analyserContextRef = useRef<AudioContext | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const analyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const analyserFrameRef = useRef<number | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isProcessingRef = useRef(false);
+
+  useEffect(() => {
+    const syncDailyCredits = () => {
+      const today = getLocalDateKey();
+      setDailyCredits((current) => (
+        current.date === today ? current : createDailyCreditState(today)
+      ));
+    };
+
+    syncDailyCredits();
+    const intervalId = window.setInterval(syncDailyCredits, 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, [setDailyCredits]);
+  const streamingFlushTimeoutRef = useRef<number | null>(null);
+  const streamingTextRef = useRef('');
+
+  const normalizeMessages = useCallback((stored: Message[] = []) => (
+    stored.map((m) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+    }))
+  ), []);
+
+  const [researchMessages, setResearchMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history_research', []);
+  const [mentorMessages, setMentorMessages] = useLocalStorage<Message[]>('jfx_ai_chat_history_mentor', []);
+  const AssistantIcon = selectedModel === 'deepseek' ? Telescope : Brain;
+
+  const messages = useMemo(() => (
+    selectedModel === 'deepseek'
+      ? normalizeMessages(researchMessages)
+      : normalizeMessages(mentorMessages)
+  ), [mentorMessages, normalizeMessages, researchMessages, selectedModel]);
+
+  const setMessages = useCallback((value: Message[] | ((val: Message[]) => Message[])) => {
+    if (selectedModel === 'deepseek') {
+      setResearchMessages(prev => value instanceof Function ? value(prev) : value);
+      return;
+    }
+    setMentorMessages(prev => value instanceof Function ? value(prev) : value);
+  }, [selectedModel, setMentorMessages, setResearchMessages]);
+
+  const scheduleStreamingMessage = useCallback((nextText: string) => {
+    streamingTextRef.current = nextText;
+    if (streamingFlushTimeoutRef.current !== null) {
+      return;
+    }
+
+    streamingFlushTimeoutRef.current = window.setTimeout(() => {
+      streamingFlushTimeoutRef.current = null;
+      startTransition(() => {
+        setStreamingMessage(streamingTextRef.current);
+      });
+    }, 40);
+  }, []);
+
+  const resetStreamingMessage = useCallback((nextValue: string | null = null) => {
+    if (streamingFlushTimeoutRef.current !== null) {
+      window.clearTimeout(streamingFlushTimeoutRef.current);
+      streamingFlushTimeoutRef.current = null;
+    }
+    streamingTextRef.current = nextValue ?? '';
+    startTransition(() => {
+      setStreamingMessage(nextValue);
+    });
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.removeItem('jfx_ai_communication_style');
+  }, []);
+
+  useEffect(() => () => {
+    if (streamingFlushTimeoutRef.current !== null) {
+      window.clearTimeout(streamingFlushTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showWizard) return;
+    setWizardStep(0);
+    setWizardData(createInitialWizardData());
+  }, [createInitialWizardData, showWizard]);
+
+  useEffect(() => {
+    if (!showWizard) {
+      setIsPlanMode(false);
+    }
+  }, [showWizard]);
+
+  const handleStopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      addToast({ type: 'info', title: 'Generation Stopped', message: 'The AI architect has paused.' });
+    }
+  };
+
+  const handleScroll = useCallback(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    const isAtBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 100;
+    setShowScrollToBottom(!isAtBottom);
+  }, []);
+
+  const mergeVoiceInput = useCallback((baseInput: string, finalTranscript: string, interimTranscript: string = '') => {
+    const segments = [baseInput.trim(), finalTranscript.trim(), interimTranscript.trim()].filter(Boolean);
+    return segments.join(' ').trim();
+  }, []);
+
+  const playEarcon = useCallback((type: 'record-start' | 'ready' | 'thinking-done' | 'task-complete' | 'discard') => {
+    if (typeof window === 'undefined') return;
+
+    const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtor) return;
+
+    const context = new AudioCtor();
+    const gain = context.createGain();
+    gain.connect(context.destination);
+    gain.gain.value = 0.0001;
+
+    const sequences: Record<string, number[]> = {
+      'record-start': [540, 720],
+      ready: [480, 640],
+      'thinking-done': [660, 880],
+      'task-complete': [523, 659, 784],
+      discard: [420, 280],
+    };
+
+    const sequence = sequences[type];
+    const now = context.currentTime;
+
+    sequence.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      oscillator.connect(gain);
+      const startAt = now + index * 0.11;
+      const endAt = startAt + 0.08;
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(0.05, startAt + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+      oscillator.start(startAt);
+      oscillator.stop(endAt);
+    });
+
+    window.setTimeout(() => {
+      void context.close().catch(() => undefined);
+    }, sequence.length * 180);
+  }, []);
+
+  const handleModelSwitch = useCallback((nextModel: ModalModelType) => {
+    if (nextModel === selectedModel) return;
+    setShowForgeMenu(false);
+    setShowFeaturesMenu(false);
+    if (getAssistantMode(nextModel) === 'research') {
+      setShowWizard(false);
+      setIsPlanMode(false);
+    }
+    setSelectedModel(nextModel);
+  }, [selectedModel, setSelectedModel]);
+
+  const handleNewChat = useCallback(() => {
+    setMessages([]);
+  }, [setMessages]);
+
+  const stopVisualizer = useCallback(() => {
+    if (analyserFrameRef.current) {
+      window.cancelAnimationFrame(analyserFrameRef.current);
+      analyserFrameRef.current = null;
+    }
+    analyserSourceRef.current?.disconnect();
+    analyserSourceRef.current = null;
+    analyserNodeRef.current?.disconnect();
+    analyserNodeRef.current = null;
+    if (analyserContextRef.current && analyserContextRef.current.state !== 'closed') {
+      void analyserContextRef.current.close().catch(() => undefined);
+    }
+    analyserContextRef.current = null;
+    setVisualizerBars(Array.from({ length: 20 }, () => 0.18));
+  }, []);
+
+  const stopRecordingTimer = useCallback(() => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const startRecordingTimer = useCallback(() => {
+    stopRecordingTimer();
+    setRecordingElapsedMs(recordingAccumulatedMsRef.current);
+    recordingTimerRef.current = window.setInterval(() => {
+      const base = recordingAccumulatedMsRef.current;
+      const activeSlice = recordingStartTimestampRef.current ? Date.now() - recordingStartTimestampRef.current : 0;
+      setRecordingElapsedMs(base + activeSlice);
+    }, 120);
+  }, [stopRecordingTimer]);
+
+  const startVisualizer = useCallback((stream: MediaStream) => {
+    const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtor) return;
+
+    stopVisualizer();
+
+    const context = new AudioCtor();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.78;
+
+    const source = context.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    analyserContextRef.current = context;
+    analyserNodeRef.current = analyser;
+    analyserSourceRef.current = source;
+
+    const buffer = new Uint8Array(analyser.frequencyBinCount);
+
+    const tick = () => {
+      if (!analyserNodeRef.current || isRecordingPaused) {
+        setVisualizerBars(Array.from({ length: 20 }, () => 0.12));
+        return;
+      }
+
+      analyser.getByteFrequencyData(buffer);
+      const nextBars = Array.from({ length: 20 }, (_, index) => {
+        const bucketStart = Math.floor((index / 20) * buffer.length);
+        const bucketEnd = Math.max(bucketStart + 1, Math.floor(((index + 1) / 20) * buffer.length));
+        const slice = buffer.slice(bucketStart, bucketEnd);
+        const average = slice.reduce((sum, value) => sum + value, 0) / slice.length / 255;
+        return Math.max(0.14, Math.min(1, average * 1.8));
+      });
+      setVisualizerBars(nextBars);
+      analyserFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    analyserFrameRef.current = window.requestAnimationFrame(tick);
+  }, [isRecordingPaused, stopVisualizer]);
+
+  const discardPendingVoiceClip = useCallback(() => {
+    setPendingVoiceClip((current) => {
+      if (current) {
+        URL.revokeObjectURL(current.url);
+      }
+      return null;
+    });
+  }, []);
+
+  const cleanupVoiceInput = useCallback(() => {
+    stopRecordingTimer();
+    stopVisualizer();
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.onresult = null;
+      speechRecognitionRef.current.onerror = null;
+      speechRecognitionRef.current.onend = null;
+      try {
+        speechRecognitionRef.current.abort();
+      } catch {}
+    }
+    speechRecognitionRef.current = null;
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    mediaStreamRef.current = null;
+    audioChunksRef.current = [];
+    recordingMimeTypeRef.current = 'audio/webm';
+    recordingStartTimestampRef.current = null;
+    recordingAccumulatedMsRef.current = 0;
+    voiceFinalTranscriptRef.current = '';
+    voiceInterimTranscriptRef.current = '';
+    setRecordingElapsedMs(0);
+    setIsRecordingPaused(false);
+  }, [stopRecordingTimer, stopVisualizer]);
+
+  const stopVoiceRecording = useCallback((action: 'transcribe' | 'discard' = 'transcribe') => {
+    recordingActionRef.current = action;
+    if (recordingStartTimestampRef.current) {
+      recordingAccumulatedMsRef.current += Date.now() - recordingStartTimestampRef.current;
+      recordingStartTimestampRef.current = null;
+    }
+    stopRecordingTimer();
+    stopVisualizer();
+    try {
+      speechRecognitionRef.current?.stop();
+    } catch {}
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    } catch {}
+  }, [stopRecordingTimer, stopVisualizer]);
+
+  const togglePauseRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    if (recorder.state === 'recording') {
+      recorder.pause();
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch {}
+      if (recordingStartTimestampRef.current) {
+        recordingAccumulatedMsRef.current += Date.now() - recordingStartTimestampRef.current;
+        recordingStartTimestampRef.current = null;
+      }
+      stopRecordingTimer();
+      stopVisualizer();
+      setIsRecordingPaused(true);
+      setRecordingElapsedMs(recordingAccumulatedMsRef.current);
+      return;
+    }
+
+    if (recorder.state === 'paused') {
+      recorder.resume();
+      try {
+        speechRecognitionRef.current?.start();
+      } catch {}
+      recordingStartTimestampRef.current = Date.now();
+      startRecordingTimer();
+      if (mediaStreamRef.current) {
+        startVisualizer(mediaStreamRef.current);
+      }
+      setIsRecordingPaused(false);
+    }
+  }, [startRecordingTimer, startVisualizer, stopRecordingTimer, stopVisualizer]);
+
+  const finalizeVoiceRecording = useCallback(async (): Promise<string | null> => {
+    if (recordingActionRef.current === 'discard') {
+      cleanupVoiceInput();
+      playEarcon('discard');
+      return null;
+    }
+
+    if (audioChunksRef.current.length === 0) {
+      setIsTranscribing(false);
+      cleanupVoiceInput();
+      addToast({ type: 'warning', title: 'Voice Input', message: 'No audio was captured. Try again closer to the microphone.' });
+      return null;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: recordingMimeTypeRef.current });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      discardPendingVoiceClip();
+      setPendingVoiceClip({
+        blob: audioBlob,
+        url: audioUrl,
+        durationMs: recordingAccumulatedMsRef.current,
+        mimeType: recordingMimeTypeRef.current,
+      });
+      const transcript = `${voiceFinalTranscriptRef.current} ${voiceInterimTranscriptRef.current}`.trim();
+      const nextInput = mergeVoiceInput(voiceBaseInputRef.current, transcript);
+
+      if (nextInput) {
+        playEarcon('ready');
+        return nextInput;
+      } else {
+        addToast({ type: 'warning', title: 'Voice Input', message: 'No speech was recognized. Try again closer to the microphone.' });
+      }
+    } catch (error: any) {
+      addToast({ type: 'error', title: 'Transcription Error', message: error?.message || 'Voice transcription failed.' });
+    } finally {
+      setIsTranscribing(false);
+      cleanupVoiceInput();
+    }
+    return null;
+  }, [addToast, cleanupVoiceInput, discardPendingVoiceClip, mergeVoiceInput, playEarcon]);
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      stopVoiceRecording();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      if (!browserSpeechService.isSupported()) {
+        throw new Error('Browser speech recognition is not supported in this browser.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      mediaStreamRef.current = stream;
+      voiceBaseInputRef.current = input;
+      voiceFinalTranscriptRef.current = '';
+      voiceInterimTranscriptRef.current = '';
+      audioChunksRef.current = [];
+      recordingAccumulatedMsRef.current = 0;
+      recordingStartTimestampRef.current = Date.now();
+      setRecordingElapsedMs(0);
+      recordingActionRef.current = 'transcribe';
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+
+      if (!mimeType) {
+        throw new Error('Audio recording is not supported in this browser.');
+      }
+
+      recordingMimeTypeRef.current = mimeType;
+      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        void (async () => {
+          const finalText = await finalizeVoiceRecording();
+          if (finalText) {
+            setInput(finalText);
+            setTimeout(() => inputRef.current?.focus(), 100);
+          } else {
+            setTimeout(() => inputRef.current?.focus(), 100);
+          }
+        })();
+      };
+
+      mediaRecorder.start(250);
+      const recognition = browserSpeechService.createRecognition(
+        ({ finalTranscript, interimTranscript }) => {
+          if (finalTranscript) {
+            voiceFinalTranscriptRef.current = `${voiceFinalTranscriptRef.current} ${finalTranscript}`.trim();
+          }
+          voiceInterimTranscriptRef.current = interimTranscript;
+          setInput(mergeVoiceInput(voiceBaseInputRef.current, voiceFinalTranscriptRef.current, interimTranscript));
+        },
+        (error) => {
+          if (!['aborted', 'no-speech'].includes(error)) {
+            addToast({ type: 'warning', title: 'Voice Input', message: 'Speech recognition was interrupted. Stop and try again.' });
+          }
+        }
+      );
+
+      speechRecognitionRef.current = recognition;
+      try {
+        recognition?.start();
+      } catch {}
+      startRecordingTimer();
+      startVisualizer(stream);
+
+      setIsRecording(true);
+      setIsRecordingPaused(false);
+      playEarcon('record-start');
+    } catch (error: any) {
+      cleanupVoiceInput();
+      setIsRecording(false);
+      addToast({ type: 'error', title: 'Microphone Error', message: error?.message || 'Could not access the microphone.' });
+    }
+  };
+
+  useEffect(() => () => {
+    cleanupVoiceInput();
+    discardPendingVoiceClip();
+  }, [cleanupVoiceInput, discardPendingVoiceClip]);
+
+  const voiceStatusLabel = isRecording
+    ? (isRecordingPaused ? 'Paused' : 'Recording')
+    : isTranscribing
+      ? 'Processing'
+      : '';
+
+  const voiceStatusHint = isRecording
+    ? (isRecordingPaused ? 'Recording paused. Resume or stop when ready.' : 'Recording audio. Pause, discard, or stop when you are done.')
+    : isTranscribing
+      ? 'Sending the recording through the model.'
+      : pendingVoiceClip
+        ? 'Review the audio, edit the transcript, and send when ready.'
+        : '';
+
+  const inputPlaceholder = isRecording
+    ? (isRecordingPaused ? 'Recording paused...' : 'Recording...')
+    : isTranscribing
+      ? 'Processing recording...'
+      : isResearchMode
+        ? 'Research a market idea, setup, or trading concept...'
+        : 'Ask about your journal, psychology, or trading plan...';
+
+  const canSendMessage = isGenerating || Boolean(input.trim()) || Boolean(pendingVoiceClip);
+
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [handleScroll]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.features-menu') && !target.closest('.features-btn')) {
+        setShowFeaturesMenu(false);
+      }
+      if (!target.closest('.forge-menu') && !target.closest('.forge-btn')) {
+        setShowForgeMenu(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const shouldAutoFollow = messages.length > 0 || Boolean(streamingMessage) || isGenerating || isTranscribing;
+    if (!shouldAutoFollow) return;
+
+    const behavior = streamingMessage || isGenerating || isTranscribing ? 'auto' : 'smooth';
+    const timer = window.setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [messages, streamingMessage, isGenerating, isTranscribing]);
+
+  const handleSend = async (
+    overrideInput?: string,
+    options: { audioAttachment?: Message['audioAttachment']; voiceClip?: VoiceClipAttachment | null } = {}
+  ) => {
+    if (isProcessingRef.current) return;
+    
+    const finalInput = overrideInput || input;
+    let nextAudioAttachment = options.audioAttachment;
+    if (options.voiceClip) {
+      nextAudioAttachment = {
+        url: await blobToDataUrl(options.voiceClip.blob),
+        durationMs: options.voiceClip.durationMs,
+        mimeType: options.voiceClip.mimeType,
+        deviceLabel: options.voiceClip.deviceLabel,
+      };
+    }
+
+    const hasAudioAttachment = Boolean(nextAudioAttachment);
+    const normalizedInput = finalInput.trim();
+    if ((!normalizedInput && !hasAudioAttachment) || isGenerating) return;
+    
+    isProcessingRef.current = true;
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: normalizedInput || '[Voice recording]',
+      timestamp: new Date(),
+      audioAttachment: nextAudioAttachment,
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setPendingVoiceClip(null);
+    if (options.voiceClip) {
+      URL.revokeObjectURL(options.voiceClip.url);
+    }
+    setIsGenerating(true);
+    resetStreamingMessage("");
+    setShowForgeMenu(false);
+
+    abortControllerRef.current = new AbortController();
+    const requestContext = isResearchMode
+      ? { trades: [] as Trade[], userProfile: null as UserProfile | null, dailyBias: [] as DailyBias[], analyticsSnapshot: null as any }
+      : { trades, userProfile, dailyBias, analyticsSnapshot };
+    const requestHistory = recallMemory ? messages.map(m => ({ role: m.role, content: m.content })) : [];
+    const contextSummary = buildContextSummary(isResearchMode ? 'research' : 'mentor', isResearchMode ? 0 : requestHistory.length);
+    const activeCreditMode = isResearchMode ? 'research' : 'mentor';
+    const remainingCredits = activeCreditMode === 'research' ? dailyCredits.researchRemaining : dailyCredits.mentorRemaining;
+
+    if (isResearchMode && normalizedInput && isPrivateTradingRequest(normalizedInput)) {
+      processResponse(
+        'I can help with general market research, setups, risk models, and trading concepts, but Research mode cannot access your private journal, trades, account, or performance data. Switch to Mentor mode for that.',
+        (Date.now() + 1).toString(),
+        { contextSummary }
+      );
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+      setTimeout(() => inputRef.current?.focus(), 100);
+      return;
+    }
+
+    if (!isResearchMode && normalizedInput && isPairPerformanceQuestion(normalizedInput)) {
+      const localAnswer = buildPairPerformanceAnswer(normalizedInput, trades, userProfile);
+      processResponse(localAnswer, (Date.now() + 1).toString(), { contextSummary });
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+      setTimeout(() => inputRef.current?.focus(), 100);
+      return;
+    }
+
+    if (remainingCredits <= 0) {
+      setMessages(prev => prev.slice(0, -1));
+      setInput(normalizedInput);
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+      addToast({
+        type: 'error',
+        title: 'Daily credits used up',
+        message: `You have used all ${isResearchMode ? 'research' : 'mentor'} credits for today. Try again tomorrow.`,
+      });
+      setTimeout(() => inputRef.current?.focus(), 100);
+      return;
+    }
+    
+    try {
+      consumeDailyCredit(activeCreditMode);
+      const res = await modalResearchService.generateResponse(
+        normalizedInput || 'Analyze and respond to this attached voice recording.', 
+        requestContext.trades, 
+        requestContext.userProfile, 
+        requestContext.dailyBias, 
+        requestContext.analyticsSnapshot,
+        false, 
+        requestHistory, 
+        selectedModel, 
+        isPlanMode, 
+        (t) => scheduleStreamingMessage(t),
+        abortControllerRef.current.signal
+      );
+      processResponse(res, (Date.now() + 1).toString(), { contextSummary });
+    } catch (error: any) {
+      if (error.message === "Generation aborted") return;
+      console.error("AI Error:", error);
+      resetStreamingMessage(null);
+      const errorMessage = error?.message?.includes('API_KEY') 
+        ? 'AI not configured. Please add the NVIDIA API key to the service.'
+        : error?.message?.includes('timeout')
+        ? 'The AI service took too long to respond. Try a shorter prompt.'
+        : error?.message?.includes('quota')
+        ? 'API quota exceeded. Please try again later.'
+        : error?.message?.includes('rate')
+        ? 'Rate limit hit. Please wait a moment.'
+        : 'Failed to generate response. Please try again.';
+      addToast({ type: 'error', title: 'AI Error', message: errorMessage });
+    } finally {
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  };
+
+  const mapChallengeLabels = useCallback((challengeIds: string[]) => (
+    challengeIds.map((id) => challengeLabelMap[id] || id)
+  ), [challengeLabelMap]);
+
+  const buildPsychologySnapshot = useCallback(() => {
+    const emotionEntries = Object.entries(trades.reduce((acc, trade) => {
+      const key = trade.mindset || 'Neutral';
+      if (!acc[key]) acc[key] = { pnl: 0, trades: 0 };
+      acc[key].pnl += trade.pnl;
+      acc[key].trades += 1;
+      return acc;
+    }, {} as Record<string, { pnl: number; trades: number }>));
+    const topEmotion = emotionEntries.sort((a, b) => b[1].pnl - a[1].pnl)[0]?.[0] || 'Neutral';
+    const worstEmotion = emotionEntries.sort((a, b) => a[1].pnl - b[1].pnl)[0]?.[0] || 'Neutral';
+    return {
+      topEmotion,
+      worstEmotion,
+      noPlanTrades: trades.filter(t => t.planAdherence === 'No Plan').length,
+      followPlanTrades: trades.filter(t => t.planAdherence === 'Followed Exactly').length,
+      recentLosses: trades.filter(t => t.result === 'Loss').slice(-5).length,
+      totalTrades: trades.length,
+    };
+  }, [trades]);
+
+  const buildScalingSnapshot = useCallback(() => {
+    const fullStats = calculateStats(trades);
+    return {
+      balance: `${userProfile?.currencySymbol || '$'}${userProfile?.initialBalance?.toFixed?.(2) ?? userProfile?.initialBalance ?? 0}`,
+      netProfit: `${userProfile?.currencySymbol || '$'}${fullStats.netProfit.toFixed(2)}`,
+      winRate: `${fullStats.winRate.toFixed(1)}%`,
+      profitFactor: fullStats.profitFactor.toFixed(2),
+      avgWin: `${userProfile?.currencySymbol || '$'}${fullStats.avgWin.toFixed(2)}`,
+      avgLoss: `${userProfile?.currencySymbol || '$'}${fullStats.avgLoss.toFixed(2)}`,
+      riskPerTrade: userProfile?.defaultRR ? `${userProfile.defaultRR}R default` : 'Not set',
+      bestPair: fullStats.bestPair ? `${fullStats.bestPair.symbol} (${userProfile?.currencySymbol || '$'}${fullStats.bestPair.pnl.toFixed(2)})` : 'N/A',
+    };
+  }, [trades, userProfile]);
+
+  const buildContextSummary = useCallback((mode: 'research' | 'mentor' | 'research-quick', historyUsed: number, isDeepAnalysis = false): AssistantContextSummary => {
+    if (mode === 'research' || mode === 'research-quick') {
+      return {
+        mode: 'research',
+        sourceLabel: mode === 'research-quick' ? 'Public research only - quick prompt' : 'Public research only',
+        historyUsed: 0,
+        maxTokens: 420,
+        privateDataAllowed: false,
+        promptScope: isDeepAnalysis ? 'Research prompt' : 'Market concepts, setups, and trading research',
+      };
+    }
+
+    return {
+      mode: 'mentor',
+      sourceLabel: isDeepAnalysis ? 'Private journal context - deep analysis' : 'Private journal context',
+      historyUsed,
+      maxTokens: 420,
+      privateDataAllowed: true,
+      promptScope: isDeepAnalysis ? 'Performance review and coaching' : 'Mentor coaching, performance review, and strategy planning',
+    };
+  }, []);
+
+  const getCurrentCreditLabel = useCallback(() => (
+    `AI credit ${isResearchMode ? dailyCredits.researchRemaining : dailyCredits.mentorRemaining}/${DAILY_CREDIT_MAX}`
+  ), [dailyCredits.mentorRemaining, dailyCredits.researchRemaining, isResearchMode]);
+
+  const currentCreditsRemaining = isResearchMode ? dailyCredits.researchRemaining : dailyCredits.mentorRemaining;
+  const isCreditWarning = currentCreditsRemaining <= 1;
+
+  const consumeDailyCredit = useCallback((mode: 'research' | 'mentor') => {
+    const today = getLocalDateKey();
+    setDailyCredits((current) => {
+      const base = current.date === today ? current : createDailyCreditState(today);
+      if (mode === 'research') {
+        return {
+          ...base,
+          researchRemaining: Math.max(0, base.researchRemaining - 1),
+        };
+      }
+
+      return {
+        ...base,
+        mentorRemaining: Math.max(0, base.mentorRemaining - 1),
+      };
+    });
+  }, [setDailyCredits]);
+
+  const processResponse = (
+    fullResponse: string,
+    messageId: string,
+    options: {
+      isDeepAnalysis?: boolean;
+      kind?: 'chat' | 'analysis' | 'strategy' | 'psychology' | 'scaling' | 'trading-plan';
+      psychologySnapshot?: Message['psychologySnapshot'];
+      scalingSnapshot?: Message['scalingSnapshot'];
+      strategyProfile?: Message['strategyProfile'];
+      contextSummary?: AssistantContextSummary;
+    } = {}
+  ) => {
+    const { isDeepAnalysis = false, kind = isDeepAnalysis ? 'analysis' : 'chat', psychologySnapshot, scalingSnapshot, strategyProfile, contextSummary } = options;
+    let cleanContent = cleanThinkingTags(fullResponse).replace(/\n\n\n+/g, '\n\n').trim();
+
+    const sections: Record<string, string> = {};
+    const sectionMatches = Array.from(cleanContent.matchAll(/\[SECTION:([A-Z_]+)\]([\s\S]*?)(?=\[SECTION:[A-Z_]+\]|$)/g));
+    sectionMatches.forEach(([, name, body]) => {
+      sections[name] = body.trim();
+    });
+    if (sectionMatches.length > 0) {
+      cleanContent = cleanContent.replace(/\[SECTION:([A-Z_]+)\]([\s\S]*?)(?=\[SECTION:[A-Z_]+\]|$)/g, '').trim();
+    }
+
+    setMessages(prev => [...prev, { id: messageId, role: 'assistant', content: cleanContent, timestamp: new Date(), sections, isDeepAnalysis, kind, psychologySnapshot, scalingSnapshot, strategyProfile, contextSummary }]);
+    playEarcon(kind === 'chat' ? 'thinking-done' : 'task-complete');
+  };
+
+  const handleFeatureRequest = async (mode: 'psychology' | 'scaling', userRequest: string) => {
+    if (isGenerating) return;
+    if (isResearchMode) {
+      addToast({
+        type: 'info',
+        title: 'Mentor Only',
+        message: 'Switch to Mentor mode for psychology and scaling analysis based on your private trading data.',
+      });
+      return;
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: `### ${mode === 'psychology' ? 'Psychology' : 'Scaling'} Request\n\n${userRequest}`,
+      timestamp: new Date(),
+      kind: mode,
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setIsGenerating(true);
+    resetStreamingMessage("");
+    setShowForgeMenu(false);
+
+    abortControllerRef.current = new AbortController();
+    const psychologySnapshot = mode === 'psychology' ? buildPsychologySnapshot() : undefined;
+    const scalingSnapshot = mode === 'scaling' ? buildScalingSnapshot() : undefined;
+    const requestHistory = recallMemory ? messages.map(m => ({ role: m.role, content: m.content })) : [];
+    const contextSummary = buildContextSummary('mentor', requestHistory.length, true);
+    const prompt = mode === 'psychology'
+      ? `Build a trading psychology operating plan for this trader.
+
+Use exactly these sections:
+[SECTION:STATE_READ]
+[SECTION:TRIGGERS]
+[SECTION:RESET_PROTOCOL]
+[SECTION:ROUTINE]
+[SECTION:TARGETS]
+Base the response on actual emotions, adherence, and recent behavior. Focus on practical emotional control, reset rules, and a repeatable routine.
+
+User request: ${userRequest}`
+      : `Build a capital scaling plan for this trader.
+
+Use exactly these sections:
+[SECTION:BASELINE]
+[SECTION:RISK_LIMITS]
+[SECTION:SCALING_ROADMAP]
+[SECTION:CAPITAL_RULES]
+[SECTION:TARGETS]
+Base the response on actual performance, current balance, risk profile, and pair performance. Focus on practical risk control, scaling gates, and capital preservation.
+
+User request: ${userRequest}`;
+
+    if (dailyCredits.mentorRemaining <= 0) {
+      setMessages(prev => prev.slice(0, -1));
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+      addToast({
+        type: 'error',
+        title: 'Daily credits used up',
+        message: 'You have used all mentor credits for today. Try again tomorrow.',
+      });
+      return;
+    }
+
+    try {
+      consumeDailyCredit('mentor');
+      const res = await modalResearchService.generateResponse(
+        prompt,
+        trades,
+        userProfile,
+        dailyBias,
+        analyticsSnapshot,
+        true,
+        requestHistory,
+        selectedModel,
+        false,
+        (t) => scheduleStreamingMessage(t),
+        abortControllerRef.current.signal
+      );
+      processResponse(res, (Date.now() + 1).toString(), { isDeepAnalysis: true, kind: mode, psychologySnapshot, scalingSnapshot, contextSummary });
+    } catch (error: any) {
+      if (error.message === "Generation aborted") return;
+      addToast({
+        type: 'error',
+        title: `${mode === 'psychology' ? 'Psychology' : 'Scaling'} Error`,
+        message: error?.message?.includes('timeout')
+          ? 'The AI service took too long to respond. Try again with a shorter prompt.'
+          : `Failed to generate ${mode} plan. Please try again.`,
+      });
+    } finally {
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      isProcessingRef.current = false;
+    }
+  };
+
+  const isStepComplete = (step: number, data: any): boolean => {
+    switch (step) {
+      case 0: return !!data.tradingStyle && data.markets.length > 0;
+      case 1: return !!data.goals.trim() && !!data.whyITrade.trim();
+      case 2: return !!data.riskTolerance && !!data.dailyTradeLimit && !!data.profitTarget && !!data.lossCap;
+      case 3: return data.challenges.length > 0;
+      case 4: return !!data.timeCommitment && data.tradingSessions.length > 0;
+      case 5: return !!data.experience && data.preferredPairs.length > 0;
+      case 6: return !!data.exitMechanics && !!data.tradeManagement;
+      case 7: return true;
+      default: return false;
+    }
+  };
+
+  const generateStrategy = async () => {
+    if (isResearchMode) {
+      addToast({
+        type: 'info',
+        title: 'Mentor Only',
+        message: 'Strategy Blueprint uses your private journal context and is only available in Mentor mode.',
+      });
+      return;
+    }
+
+    setShowWizard(false);
+    setIsGenerating(true);
+    resetStreamingMessage("");
+    if (dailyCredits.mentorRemaining <= 0) {
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      addToast({
+        type: 'error',
+        title: 'Daily credits used up',
+        message: 'You have used all mentor credits for today. Try again tomorrow.',
+      });
+      return;
+    }
+    
+    const strategyProfile = {
+      tradingStyle: wizardData.tradingStyle,
+      goals: wizardData.goals.trim(),
+      riskTolerance: wizardData.riskTolerance,
+      challenges: mapChallengeLabels(wizardData.challenges),
+      timeCommitment: wizardData.timeCommitment,
+      experience: wizardData.experience,
+      preferredPairs: wizardData.preferredPairs,
+      markets: wizardData.markets,
+      analysisTimeframe: wizardData.analysisTimeframe,
+      entryTimeframe: wizardData.entryTimeframe,
+      tradingSessions: wizardData.tradingSessions,
+      dailyTradeLimit: wizardData.dailyTradeLimit,
+      exitMechanics: wizardData.exitMechanics,
+      tradeManagement: wizardData.tradeManagement,
+      profitTarget: wizardData.profitTarget,
+      lossCap: wizardData.lossCap,
+      whyITrade: wizardData.whyITrade,
+    };
+
+    const prompt = `Build a professional Strategy Blueprint for this trader.
+
+TRADER IDENTITY & GOALS
+- Style: ${strategyProfile.tradingStyle}
+- Markets: ${strategyProfile.markets.join(', ')}
+- Experience: ${strategyProfile.experience}
+- Motivation: ${strategyProfile.whyITrade}
+- Goals: ${strategyProfile.goals}
+
+LOGISTICS & LIMITS
+- Sessions: ${strategyProfile.tradingSessions.join(', ')}
+- Daily Limit: ${strategyProfile.dailyTradeLimit} trades
+- Time Commitment: ${strategyProfile.timeCommitment}
+
+RISK FRAMEWORK
+- Risk per Trade: ${strategyProfile.riskTolerance}
+- Profit Targets: ${strategyProfile.profitTarget || 'Standard'}
+- Loss Caps: ${strategyProfile.lossCap || 'Standard'}
+
+STRATEGY ARCHITECTURE
+- Analysis Timeframe (HTF): ${strategyProfile.analysisTimeframe}
+- Entry Timeframe (LTF): ${strategyProfile.entryTimeframe}
+- Preferred Pairs: ${strategyProfile.preferredPairs.join(', ')}
+- Exit Mechanics: ${strategyProfile.exitMechanics}
+- Trade Management: ${strategyProfile.tradeManagement}
+
+OUTPUT REQUIREMENTS
+- Use exactly these sections:
+[SECTION:IDENTITY]
+[SECTION:MARKET_SELECTION]
+[SECTION:CORE_EDGE]
+[SECTION:RISK]
+[SECTION:STRATEGY_RULES]
+[SECTION:EXECUTION_FLOW]
+[SECTION:EXIT_PROTOCOL]
+[SECTION:ROUTINE]
+[SECTION:REVIEW]
+
+CONTENT RULES
+- IDENTITY: Define the trader's core profile and motivation.
+- MARKET_SELECTION: Detail the specific asset classes and criteria for pair selection.
+- CORE_EDGE: Explain the technical edge and market conditions required for success.
+- RISK: Establish absolute loss caps, position sizing rules, and circuit breakers.
+- STRATEGY_RULES: Map HTF structure to LTF triggers. Define valid setups.
+- EXECUTION_FLOW: Specific 6-point entry checklist and trigger mechanics.
+- EXIT_PROTOCOL: Management of active trades, scaling out, and exit rules.
+- ROUTINE: List pre-market prep, in-session focus, and post-market shutdown.
+- REVIEW: Weekly review prompts and performance tracking metrics.
+
+STYLE
+- Be structural, architectural, and highly specific.
+- No generic motivation.`;
+
+    const userFacingPrompt = `### Strategy Blueprint Request
+
+- **Style:** ${strategyProfile.tradingStyle}
+- **Markets:** ${strategyProfile.markets.join(', ')}
+- **Risk:** ${strategyProfile.riskTolerance}
+- **Timeframes:** ${strategyProfile.analysisTimeframe} / ${strategyProfile.entryTimeframe}
+- **Daily Limit:** ${strategyProfile.dailyTradeLimit} Trades
+
+**Core Motivation**
+${strategyProfile.whyITrade}`;
+
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userFacingPrompt, timestamp: new Date(), kind: 'trading-plan', strategyProfile };
+    setMessages(prev => [...prev, userMsg]);
+
+    abortControllerRef.current = new AbortController();
+    const requestHistory = recallMemory ? messages.map(m => ({ role: m.role, content: m.content })) : [];
+    const contextSummary = buildContextSummary('mentor', requestHistory.length, true);
+
+    try {
+      consumeDailyCredit('mentor');
+      const res = await modalResearchService.generateResponse(
+        prompt,
+        trades,
+        userProfile,
+        dailyBias,
+        analyticsSnapshot,
+        true,
+        requestHistory,
+        selectedModel,
+        true,
+        (t) => scheduleStreamingMessage(t),
+        abortControllerRef.current.signal
+      );
+      processResponse(res, Date.now().toString(), { isDeepAnalysis: true, kind: 'trading-plan', strategyProfile, contextSummary });
+    } catch (error: any) {
+      if (error.message === "Generation aborted") return;
+      console.error("Trading Plan Error:", error);
+      addToast({
+        type: 'error',
+        title: 'Plan Error',
+        message: error?.message?.includes('timeout')
+          ? 'The AI service took too long to respond. Try again with a shorter prompt.'
+          : 'Failed to architect trading plan.',
+      });
+    } finally {
+      setIsGenerating(false);
+      resetStreamingMessage(null);
+      abortControllerRef.current = null;
+      setIsPlanMode(false);
+    }
+  };
+
+  const renderMessageContent = useCallback((message: Message) => {
+    const { content, role, isStreaming, audioAttachment } = message;
+    const isUser = role === 'user';
+    const isAudioOnlyUserMessage = isUser && Boolean(audioAttachment) && (!content || content === '[Voice recording]');
+
+    let safeContent = cleanThinkingTags(content || '');
+    if (!isUser) {
+      safeContent = normalizeAssistantMarkdown(safeContent);
+    }
+
+    if (isStreaming) {
+      return <div className="markdown-plain-text whitespace-pre-wrap leading-7">{safeContent.replace(/\[SECTION:[A-Z_]+\]/g, '')}</div>;
+    }
+
+    const markdownClassName = isUser
+      ? 'ai-markdown ai-markdown-user'
+      : `ai-markdown ${message.kind === 'analysis' || message.kind === 'strategy' ? 'ai-markdown-report' : 'ai-markdown-standard'} ${isDarkMode ? 'ai-markdown-dark' : 'ai-markdown-light'}`;
+
+    return (
+      <div className={markdownClassName}>
+        {audioAttachment && (
+          <div className={`${isAudioOnlyUserMessage ? '' : 'mb-3 '}rounded-2xl border p-3 ${isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-300 bg-white/70'}`}>
+            <div className={`mb-2 flex items-center justify-between text-[11px] uppercase tracking-[0.18em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+              <span>{isAudioOnlyUserMessage ? 'Voice' : 'Voice Recording'}</span>
+              <span>{formatAudioDuration(audioAttachment.durationMs)}</span>
+            </div>
+            <VoiceAudioPlayer
+              src={audioAttachment.url}
+              durationMs={audioAttachment.durationMs}
+              isDarkMode={isDarkMode}
+              compact={isAudioOnlyUserMessage}
+            />
+            {audioAttachment.deviceLabel && (
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>
+                Source: {audioAttachment.deviceLabel}
+              </p>
+            )}
+          </div>
+        )}
+        {isAudioOnlyUserMessage ? null : (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              h1: ({ children }) => <h1 className="ai-md-h1">{children}</h1>,
+              h2: ({ children }) => <h2 className="ai-md-h2">{children}</h2>,
+              h3: ({ children }) => <h3 className="ai-md-h3">{children}</h3>,
+              p: ({ children }) => <p className="ai-md-p">{children}</p>,
+              ul: ({ children }) => <ul className="ai-md-ul">{children}</ul>,
+              ol: ({ children }) => <ol className="ai-md-ol">{children}</ol>,
+              li: ({ children }) => <li className="ai-md-li">{children}</li>,
+              strong: ({ children }) => <strong className="ai-md-strong">{children}</strong>,
+              em: ({ children }) => <em className="ai-md-em">{children}</em>,
+              blockquote: ({ children }) => <blockquote className="ai-md-blockquote">{children}</blockquote>,
+              hr: () => <hr className="ai-md-hr" />,
+              a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="ai-md-link">{children}</a>,
+              code: ({ children, className, ...props }: any) => props.inline
+                ? <code className="ai-md-code-inline">{children}</code>
+                : <code className={className || 'ai-md-code-block'}>{children}</code>,
+              pre: ({ children }) => <pre className="ai-md-pre">{children}</pre>,
+            }}
+          >
+            {safeContent.replace(/\[SECTION:[A-Z_]+\]/g, '')}
+          </ReactMarkdown>
+        )}
+      </div>
+    );
+  }, [isDarkMode]);
+
+  const renderSectionCards = (sections: Record<string, string>, message: Message) => {
+    const isTradingPlan = message.kind === 'trading-plan' || message.kind === 'strategy';
+    const config = isTradingPlan
+      ? STRATEGY_SECTION_CONFIG
+      : message.kind === 'psychology'
+        ? PSYCHOLOGY_SECTION_CONFIG
+        : message.kind === 'scaling'
+          ? SCALING_SECTION_CONFIG
+          : ANALYSIS_SECTION_CONFIG;
+
+    const orderedSections = isTradingPlan
+      ? STRATEGY_SECTION_ORDER.filter((key) => sections[key]).map((key) => [key, sections[key]] as const)
+      : message.kind === 'psychology'
+        ? PSYCHOLOGY_SECTION_ORDER.filter((key) => sections[key]).map((key) => [key, sections[key]] as const)
+      : message.kind === 'scaling'
+        ? SCALING_SECTION_ORDER.filter((key) => sections[key]).map((key) => [key, sections[key]] as const)
+      : message.kind === 'analysis'
+        ? (() => {
+            const nextSections = ANALYSIS_SECTION_ORDER.filter((key) => sections[key]).map((key) => [key, sections[key]] as const);
+            return nextSections.length > 0 ? nextSections : Object.entries(sections);
+          })()
+      : Object.entries(sections);
+    
+    return (
+      <div className={`relative flex flex-col gap-3 mt-4 ${(isTradingPlan || message.kind === 'analysis' || message.kind === 'psychology' || message.kind === 'scaling') ? 'max-w-4xl' : 'max-w-2xl'}`}>
+
+        {isTradingPlan && message.strategyProfile && (
+          <div className={`rounded-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-zinc-900/70' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-center mb-4">
+              <div className="flex items-center gap-2">
+                <Workflow size={18} className="text-amber-500" />
+                <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Strategy Blueprint</span>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                ['Style', message.strategyProfile.tradingStyle],
+                ['Markets', message.strategyProfile.markets?.join(', ') || 'N/A'],
+                ['HTF/LTF', `${message.strategyProfile.analysisTimeframe}/${message.strategyProfile.entryTimeframe}`],
+                ['Risk', message.strategyProfile.riskTolerance],
+                ['Sessions', message.strategyProfile.tradingSessions?.join(', ') || 'N/A'],
+                ['Limit', `${message.strategyProfile.dailyTradeLimit} Trades`],
+                ['Target', message.strategyProfile.profitTarget || 'N/A'],
+                ['Loss Cap', message.strategyProfile.lossCap || 'N/A'],
+              ].map(([label, value]) => (
+                <div key={label} className={`rounded-xl p-3 ${isDarkMode ? 'bg-black/20 border border-zinc-800' : 'bg-white border border-slate-200'}`}>
+                  <div className={`text-[10px] uppercase tracking-widest mb-1 ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>{label}</div>
+                  <div className={`text-sm font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`} title={String(value)}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {message.kind === 'psychology' && message.psychologySnapshot && (
+          <div className={`rounded-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-zinc-900/70' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-center gap-2 mb-4">
+              <Brain size={18} className="text-rose-500" />
+              <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Psychology Snapshot</span>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {[
+                ['Top State', message.psychologySnapshot.topEmotion],
+                ['Worst State', message.psychologySnapshot.worstEmotion],
+                ['No Plan Trades', String(message.psychologySnapshot.noPlanTrades)],
+                ['Followed Plan', String(message.psychologySnapshot.followPlanTrades)],
+                ['Recent Losses', String(message.psychologySnapshot.recentLosses)],
+                ['Total Trades', String(message.psychologySnapshot.totalTrades)],
+              ].map(([label, value]) => (
+                <div key={label} className={`rounded-xl p-3 ${isDarkMode ? 'bg-black/20 border border-zinc-800' : 'bg-white border border-slate-200'}`}>
+                  <div className={`text-[10px] uppercase tracking-widest mb-1 ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>{label}</div>
+                  <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {message.kind === 'scaling' && message.scalingSnapshot && (
+          <div className={`rounded-2xl border p-5 ${isDarkMode ? 'border-zinc-800 bg-zinc-900/70' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp size={18} className="text-amber-500" />
+              <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Scaling Snapshot</span>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                ['Balance', message.scalingSnapshot.balance],
+                ['Net PnL', message.scalingSnapshot.netProfit],
+                ['Win Rate', message.scalingSnapshot.winRate],
+                ['Profit Factor', message.scalingSnapshot.profitFactor],
+                ['Avg Win', message.scalingSnapshot.avgWin],
+                ['Avg Loss', message.scalingSnapshot.avgLoss],
+                ['Risk Default', message.scalingSnapshot.riskPerTrade],
+                ['Best Pair', message.scalingSnapshot.bestPair],
+              ].map(([label, value]) => (
+                <div key={label} className={`rounded-xl p-3 ${isDarkMode ? 'bg-black/20 border border-zinc-800' : 'bg-white border border-slate-200'}`}>
+                  <div className={`text-[10px] uppercase tracking-widest mb-1 ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>{label}</div>
+                  <div className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className={isTradingPlan ? 'hidden' : 'flex flex-col gap-3'}>
+          {orderedSections.map(([key, content], i) => {
+            const c = config[key] || { icon: <AlertCircle size={16} />, color: 'text-zinc-400', bg: 'bg-zinc-500/10', borderColor: 'border-zinc-500/20', label: key };
+            
+            return (
+              <motion.div 
+                id={`section-${message.id}-${key}`}
+                key={i} 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className={`relative break-inside-avoid p-4 rounded-xl border flex flex-col gap-2 transition-all duration-300 ${c.bg} ${c.borderColor} ${isDarkMode ? 'bg-zinc-900/50' : 'bg-slate-50'} group hover:border-amber-500/30 shadow-sm mb-4`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className={`flex items-center gap-2 ${c.color}`}>
+                    {c.icon}
+                    <span className="text-[10px] font-bold uppercase tracking-[0.2em]">{c.label}</span>
+                  </div>
+                </div>
+                
+                <div className={`text-sm leading-relaxed ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'}`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
+      </div>
+    );
+  };
 
-        <AnimatePresence initial={false}>
-          {messages.map((message) => (
-            <motion.div
-              key={message.id}
-              ref={el => { messageRefs.current[message.id] = el; }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full relative z-10`}
+  return (
+    <div className={`flex flex-col h-full ${isDarkMode ? 'bg-[#000000]' : 'bg-white'}`}>
+      {/* Header - ChatGPT Style */}
+      <header className={`sticky top-0 z-50 flex items-center justify-between px-4 h-14 border-b ${
+        isDarkMode ? 'bg-[#000000] border-zinc-800' : 'bg-white border-slate-200'
+      }`}>
+        <div className="flex items-center gap-3">
+          <button className={`p-2 rounded-lg lg:hidden ${isDarkMode ? 'hover:bg-zinc-800' : 'hover:bg-slate-100'}`}>
+            <Menu size={20} className={isDarkMode ? 'text-zinc-300' : 'text-slate-700'} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-700 flex items-center justify-center shadow-lg shadow-black/20">
+              <AssistantIcon size={16} className="text-white" />
+            </div>
+            <h2 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              {assistantLabel}
+            </h2>
+          </div>
+        </div>
+        
+        {/* Model Switcher & New Chat */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
+            <button
+              onClick={() => handleModelSwitch('deepseek')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                selectedModel === 'deepseek'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                  : isDarkMode ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-500 hover:text-slate-700'
+              }`}
             >
-              <div className={`flex gap-4 sm:gap-5 w-full ${message.role === 'user' ? 'sm:max-w-[75%] lg:max-w-[60%] flex-row-reverse' : 'sm:max-w-[85%] lg:max-w-[80%]'} group/msg`}>
-                {/* Avatar */}
-                <div className={`shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center border transition-all duration-500 ${message.role === 'user'
-                  ? (isDarkMode ? 'bg-zinc-900 border-white/5 shadow-lg shadow-black/20' : 'bg-white border-slate-200 shadow-sm')
-                  : (isDarkMode ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20')
-                  } group-hover/msg:scale-105`}>
-                  {message.role === 'user'
-                    ? (userProfile?.avatarUrl ? <img src={userProfile.avatarUrl} alt="User" className="w-full h-full object-cover" /> : <User size={18} className={isDarkMode ? 'text-zinc-500' : 'text-slate-400'} />)
-                    : <Bot size={20} className="sm:size-6" />
-                  }
-                </div>
+              <Telescope size={12} />
+              <span className="hidden sm:inline">Research</span>
+            </button>
+            <button
+              onClick={() => handleModelSwitch('kimi')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                selectedModel === 'kimi'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                  : isDarkMode ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Brain size={12} />
+              <span className="hidden sm:inline">Mentor</span>
+            </button>
+          </div>
+          <button 
+            onClick={handleNewChat} 
+            className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}
+            title={`New ${selectedModel === 'deepseek' ? 'Research' : 'Mentor'} Chat`}
+          >
+            <Plus size={18} />
+          </button>
+          <button
+            onClick={() => onOpenSettings?.()}
+            className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-slate-100 text-slate-700'}`}
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+      </header>
 
-                <div className={`flex flex-col gap-2 min-w-0 ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  {/* Message Bubble */}
-                  <div className={`w-fit max-w-full overflow-hidden transition-all duration-500 relative group/bubble ${message.role === 'user'
-                    ? (isDarkMode ? 'bg-gradient-to-br from-zinc-800/80 to-zinc-900/80 border border-white/5 rounded-[24px] rounded-tr-none shadow-lg shadow-black/20' : 'bg-gradient-to-br from-white to-slate-50 border border-slate-200/80 shadow-md rounded-[24px] rounded-tr-none')
-                    : (isDarkMode ? 'bg-gradient-to-br from-[#121218] to-[#0a0a0c] border border-white/8 rounded-[28px] rounded-tl-none backdrop-blur-xl shadow-2xl shadow-black/30' : 'bg-gradient-to-br from-white to-slate-50 border border-slate-200/60 shadow-lg rounded-[28px] rounded-tl-none')
-                    }`}>
-                    
-                    {/* Animated gradient accent for AI messages */}
-                    {message.role === 'assistant' && (
-                      <>
-                        <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-indigo-500 via-violet-500 to-purple-600 rounded-l-[28px]" />
-                        <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 via-transparent to-transparent opacity-0 group-hover/bubble:opacity-100 transition-opacity duration-500 rounded-[28px]" />
-                      </>
-                    )}
-
-                    <div className="p-5 sm:p-7">
-                      {renderMessageContent(message)}
-                    </div>
-
-                    {/* Bento Analysis Grid */}
-                    {(message.sections || (message.widgetKeys && message.widgetKeys.length > 0)) && (
-                      <div className={`p-6 sm:p-8 pt-0 space-y-8 ${message.role === 'assistant' ? 'mt-0' : ''}`}>
-                        {message.sections && (
-                          <div className="pt-8 border-t border-white/5">
-                            {renderSectionCards(message.sections, message)}
-                          </div>
-                        )}
-                        
-                        {/* Render footer widgets ONLY if they were not placed inline in the content or sections */}
-                        <div className="grid grid-cols-1 gap-6">
-                          {message.widgetKeys?.filter(key => {
-                            const tagPart = key === 'strategy' ? 'STRATEGY_EFFICIENCY' : key.toUpperCase();
-                            const inContent = message.content.includes(`[WIDGET:${tagPart}`) || 
-                                             message.content.includes(`[WIDGET:${tagPart}_INDEXED`);
-                            const inSections = message.sections && Object.values(message.sections).some((s: any) => 
-                                             s.includes(`[WIDGET:${tagPart}`) || 
-                                             s.includes(`[WIDGET:${tagPart}_INDEXED`));
-                            return !inContent && !inSections;
-                          }).map((key, i) => (
-                            <div key={`footer-widget-${i}`} className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
-                              {renderWidget(key, message.id, message, i)}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Timestamp */}
-                  <div className={`px-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] opacity-30 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                    <span>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <div className="w-1 h-1 rounded-full bg-current" />
-                    <span>{message.role === 'user' ? 'Sent' : 'Assistant'}</span>
-                  </div>
-                </div>
+      {/* Trading Plan Architect Wizard */}
+      <AnimatePresence>
+        {showWizard && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className={`flex-1 overflow-y-auto p-6 ${isDarkMode ? 'bg-[#000000]' : 'bg-white'}`}
+          >
+            {/* Progress Bar */}
+            <div className="max-w-2xl mx-auto mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                  Step {wizardStep + 1} of 8
+                </span>
+                <button 
+                  onClick={() => setShowWizard(false)}
+                  className={`text-xs ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Cancel
+                </button>
               </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {isTyping && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start relative z-10 pl-1">
-            <div className="flex gap-4 items-start">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/20 shrink-0">
-                <Brain size={20} className="animate-pulse" />
+              <div className={`h-1 rounded-full ${isDarkMode ? 'bg-zinc-800' : 'bg-slate-200'}`}>
+                <motion.div 
+                  className="h-full bg-gradient-to-r from-amber-500 to-amber-600 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${((wizardStep + 1) / 8) * 100}%` }}
+                  transition={{ duration: 0.3 }}
+                />
               </div>
-              <div className={`flex flex-col gap-3 p-4 rounded-3xl rounded-tl-none border ${isDarkMode ? 'bg-indigo-500/5 border-indigo-500/10' : 'bg-white border-slate-200 shadow-sm'}`}>
-                <div className="flex gap-1.5 items-center">
-                  {[0, 1, 2].map((i) => (
-                    <motion.div
-                      key={i}
-                      animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }}
-                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                      className="w-1.5 h-1.5 rounded-full bg-indigo-500"
-                    />
-                  ))}
-                </div>
-                {analysisStatus === 'analyzing' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="flex flex-col gap-3 border-t border-indigo-500/10 pt-3 min-w-[220px]"
-                  >
-                    <div className="flex justify-between items-center px-1">
-                        <span className={`text-[10px] font-black uppercase tracking-[0.15em] transition-colors duration-500 ${stepColors[currentStepIndex]}`}>
-                          {analysisSteps[currentStepIndex]}
-                        </span>
-                        <span className="text-[10px] font-mono font-bold opacity-40">
-                            {Math.round(((currentStepIndex + 1) / analysisSteps.length) * 100)}%
-                        </span>
-                    </div>
+            </div>
 
-                    {/* Progress Bar */}
-                    <div className="h-1 w-full bg-zinc-500/10 rounded-full overflow-hidden">
-                        <motion.div 
-                            className={`h-full transition-colors duration-500 ${stepBgColors[currentStepIndex]}`}
-                            animate={{ width: `${((currentStepIndex + 1) / analysisSteps.length) * 100}%` }}
-                        />
+            {/* Wizard Content */}
+            <div className="max-w-2xl mx-auto">
+              {wizardStep === 0 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center mx-auto mb-4">
+                      <Target size={32} className="text-white" />
                     </div>
-
-                    {/* Step History */}
-                    <div className="space-y-1.5 mt-1">
-                        {analysisSteps.map((step, i) => (
-                            <div 
-                                key={i} 
-                                className={`flex items-center gap-2 text-[8px] font-bold uppercase tracking-wider transition-all duration-500 ${
-                                    i < currentStepIndex ? 'text-emerald-500 opacity-60' : 
-                                    i === currentStepIndex ? 'text-indigo-400' : 'opacity-20'
-                                }`}
-                            >
-                                {i < currentStepIndex ? (
-                                    <CheckCircle2 size={10} className="text-emerald-500" />
-                                ) : (
-                                    <div className={`w-1 h-1 rounded-full ${i === currentStepIndex ? 'bg-indigo-400 animate-pulse' : 'bg-current'}`} />
-                                )}
-                                {step.replace('...', '')}
-                            </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Trader Identity & Markets</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Define your style and market focus</p>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Trading Style</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['Scalper', 'Day Trader', 'Swing Trader', 'Position Trader'].map((style) => (
+                          <button
+                            key={style}
+                            onClick={() => setWizardData({ ...wizardData, tradingStyle: style })}
+                            className={`p-4 rounded-xl border-2 text-left transition-all ${
+                              wizardData.tradingStyle === style
+                                ? 'border-amber-500 bg-amber-500/10'
+                                : isDarkMode ? 'border-zinc-800 hover:border-zinc-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{style}</span>
+                          </button>
                         ))}
+                      </div>
                     </div>
-                  </motion.div>
+
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Asset Classes</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Forex', 'Crypto', 'Stocks', 'Options', 'Futures', 'Indices', 'Commodities'].map((market) => (
+                          <button
+                            key={market}
+                            onClick={() => {
+                              const next = wizardData.markets.includes(market)
+                                ? wizardData.markets.filter(m => m !== market)
+                                : [...wizardData.markets, market];
+                              setWizardData({ ...wizardData, markets: next });
+                            }}
+                            className={`px-4 py-2 rounded-full border-2 transition-all ${
+                              wizardData.markets.includes(market)
+                                ? 'border-amber-500 bg-amber-500/10 text-amber-500'
+                                : isDarkMode ? 'border-zinc-800 text-zinc-400' : 'border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {market}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 1 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center mx-auto mb-4">
+                      <GoalIcon size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Goals & Motivation</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>What drives your trading performance?</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className={`block mb-2 text-sm font-medium ${isDarkMode ? 'text-zinc-400' : 'text-slate-700'}`}>Your 'Why' (Core Motivation)</label>
+                      <textarea
+                        value={wizardData.whyITrade}
+                        onChange={(e) => setWizardData({ ...wizardData, whyITrade: e.target.value })}
+                        placeholder="e.g., Financial freedom for my family, building a legacy, or master technical analysis..."
+                        className={`w-full h-24 p-4 rounded-xl border-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+                          isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className={`block mb-2 text-sm font-medium ${isDarkMode ? 'text-zinc-400' : 'text-slate-700'}`}>Specific Performance Goals</label>
+                      <textarea
+                        value={wizardData.goals}
+                        onChange={(e) => setWizardData({ ...wizardData, goals: e.target.value })}
+                        placeholder="e.g., Target 5% monthly return, grow account to $50k, maintain < 3% drawdown..."
+                        className={`w-full h-24 p-4 rounded-xl border-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+                          isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 2 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center mx-auto mb-4">
+                      <AlertCircle size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Risk & Volume Caps</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Protecting your capital with hard limits</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Risk Per Trade</label>
+                      <div className="grid grid-cols-3 gap-3">
+                        {['Conservative (0.5%)', 'Moderate (1%)', 'Aggressive (2%)'].map((risk) => (
+                          <button
+                            key={risk}
+                            onClick={() => setWizardData({ ...wizardData, riskTolerance: risk })}
+                            className={`p-3 rounded-xl border-2 text-center transition-all ${
+                              wizardData.riskTolerance === risk
+                                ? 'border-rose-500 bg-rose-500/10 text-rose-500'
+                                : isDarkMode ? 'border-zinc-800 text-zinc-400' : 'border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            <span className="text-sm font-medium">{risk.split(' ')[0]}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Daily Trade Limit</label>
+                      <div className="grid grid-cols-3 gap-3">
+                        {['1-2 Trades', '3-5 Trades', 'Unlimited'].map((limit) => (
+                          <button
+                            key={limit}
+                            onClick={() => setWizardData({ ...wizardData, dailyTradeLimit: limit })}
+                            className={`p-3 rounded-xl border-2 text-center transition-all ${
+                              wizardData.dailyTradeLimit === limit
+                                ? 'border-rose-500 bg-rose-500/10 text-rose-500'
+                                : isDarkMode ? 'border-zinc-800 text-zinc-400' : 'border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            <span className="text-sm font-medium">{limit}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className={`block mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Daily Loss Cap</label>
+                        <input
+                          type="text"
+                          value={wizardData.lossCap}
+                          onChange={(e) => setWizardData({ ...wizardData, lossCap: e.target.value })}
+                          placeholder="e.g., -2% or -$500"
+                          className={`w-full p-3 rounded-xl border-2 focus:outline-none focus:ring-2 focus:ring-rose-500/20 ${
+                            isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className={`block mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Profit Target</label>
+                        <input
+                          type="text"
+                          value={wizardData.profitTarget}
+                          onChange={(e) => setWizardData({ ...wizardData, profitTarget: e.target.value })}
+                          placeholder="e.g., +4% or +$1000"
+                          className={`w-full p-3 rounded-xl border-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+                            isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white placeholder-zinc-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 3 && (
+                <ChallengesStep 
+                  isDarkMode={isDarkMode}
+                  data={wizardData}
+                  challengeOptions={challengeOptions}
+                  onChange={(u) => setWizardData({ ...wizardData, ...u })}
+                />
+              )}
+
+              {wizardStep === 4 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center mx-auto mb-4">
+                      <Clock size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Logistics & Timing</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>When and how long will you trade?</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Preferred Sessions</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['London Open', 'New York Open', 'Asian Session', 'NY/London Overlap'].map((session) => (
+                          <button
+                            key={session}
+                            onClick={() => {
+                              const next = wizardData.tradingSessions.includes(session)
+                                ? wizardData.tradingSessions.filter(s => s !== session)
+                                : [...wizardData.tradingSessions, session];
+                              setWizardData({ ...wizardData, tradingSessions: next });
+                            }}
+                            className={`p-4 rounded-xl border-2 text-left transition-all ${
+                              wizardData.tradingSessions.includes(session)
+                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-500'
+                                : isDarkMode ? 'border-zinc-800 hover:border-zinc-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{session}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Daily Screen Time</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['Minimal (<1hr)', 'Part-Time (1-3hr)', 'Full-Time (3-5hr)', 'Intense (5hr+)'].map((time) => (
+                          <button
+                            key={time}
+                            onClick={() => setWizardData({ ...wizardData, timeCommitment: time })}
+                            className={`p-4 rounded-xl border-2 text-left transition-all ${
+                              wizardData.timeCommitment === time
+                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-500'
+                                : isDarkMode ? 'border-zinc-800 hover:border-zinc-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{time}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 5 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center mx-auto mb-4">
+                      <LayoutGrid size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Technical Framework</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Map your structure and execution pairs</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className={`block mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>HTF (Structure)</label>
+                        <select
+                          value={wizardData.analysisTimeframe}
+                          onChange={(e) => setWizardData({ ...wizardData, analysisTimeframe: e.target.value })}
+                          className={`w-full p-3 rounded-xl border-2 focus:outline-none ${
+                            isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          {['Monthly', 'Weekly', 'Daily', 'H4', 'H1'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={`block mb-2 text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>LTF (Entry)</label>
+                        <select
+                          value={wizardData.entryTimeframe}
+                          onChange={(e) => setWizardData({ ...wizardData, entryTimeframe: e.target.value })}
+                          className={`w-full p-3 rounded-xl border-2 focus:outline-none ${
+                            isDarkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          {['H1', 'M15', 'M5', 'M1', 'Seconds'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Primary Watchlist</label>
+                      <div className="flex flex-wrap gap-2">
+                        {preferredPairOptions.map((pair) => (
+                          <button
+                            key={pair}
+                            onClick={() => {
+                              const next = wizardData.preferredPairs.includes(pair)
+                                ? wizardData.preferredPairs.filter(p => p !== pair)
+                                : [...wizardData.preferredPairs, pair].slice(0, 4);
+                              setWizardData({ ...wizardData, preferredPairs: next });
+                            }}
+                            className={`px-4 py-2 rounded-full border-2 transition-all ${
+                              wizardData.preferredPairs.includes(pair)
+                                ? 'border-indigo-500 bg-indigo-500/10 text-indigo-500'
+                                : isDarkMode ? 'border-zinc-800 text-zinc-400' : 'border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {pair}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 6 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center mx-auto mb-4">
+                      <Zap size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Execution Protocols</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>How do you manage active trades?</p>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Exit Mechanic</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['Fixed TP/SL', 'Trailing Stop', 'Tiered Targets (TP1/2)', 'Time-Based Exit'].map((mech) => (
+                          <button
+                            key={mech}
+                            onClick={() => setWizardData({ ...wizardData, exitMechanics: mech })}
+                            className={`p-4 rounded-xl border-2 text-left transition-all ${
+                              wizardData.exitMechanics === mech
+                                ? 'border-violet-500 bg-violet-500/10'
+                                : isDarkMode ? 'border-zinc-800 hover:border-zinc-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{mech}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`block mb-3 text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-zinc-500' : 'text-slate-500'}`}>Trade Management (BE)</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['Move to BE at 1R', 'Move to BE after TP1', 'No Break Even (Hard SL)', 'Dynamic Discretion'].map((mgmt) => (
+                          <button
+                            key={mgmt}
+                            onClick={() => setWizardData({ ...wizardData, tradeManagement: mgmt })}
+                            className={`p-4 rounded-xl border-2 text-left transition-all ${
+                              wizardData.tradeManagement === mgmt
+                                ? 'border-violet-500 bg-violet-500/10'
+                                : isDarkMode ? 'border-zinc-800 hover:border-zinc-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className={`font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{mgmt}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 7 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-zinc-500 to-zinc-600 flex items-center justify-center mx-auto mb-4">
+                      <BarChart3 size={32} className="text-white" />
+                    </div>
+                    <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Architect Review</h2>
+                    <p className={`mt-2 ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Verify your trading plan parameters</p>
+                  </div>
+
+                  <div className={`rounded-2xl border p-5 space-y-4 ${isDarkMode ? 'border-zinc-800 bg-zinc-900/50' : 'border-slate-200 bg-slate-50'}`}>
+                    <div className="grid grid-cols-2 gap-4">
+                      {[
+                        { label: 'Style', value: wizardData.tradingStyle },
+                        { label: 'Risk', value: wizardData.riskTolerance },
+                        { label: 'Limit', value: wizardData.dailyTradeLimit },
+                        { label: 'HTF/LTF', value: `${wizardData.analysisTimeframe}/${wizardData.entryTimeframe}` }
+                      ].map(item => (
+                        <div key={item.label} className={`p-3 rounded-xl border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-slate-200 bg-white'}`}>
+                          <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">{item.label}</div>
+                          <div className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={`p-3 rounded-xl border ${isDarkMode ? 'border-zinc-800 bg-black/20' : 'border-slate-200 bg-white'}`}>
+                      <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Core Motivation</div>
+                      <div className={`text-sm italic ${isDarkMode ? 'text-zinc-300' : 'text-slate-700'}`}>"{wizardData.whyITrade}"</div>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* Navigation Buttons */}
+              <div className="flex items-center justify-between mt-8 pt-6 border-t border-black/10 dark:border-white/10">
+                <button
+                  onClick={() => setWizardStep(wizardStep - 1)}
+                  disabled={wizardStep === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                    wizardStep === 0 
+                      ? 'opacity-0 cursor-not-allowed' 
+                      : isDarkMode ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <ArrowLeft size={16} /> Back
+                </button>
+                {wizardStep < 7 ? (
+                  <button
+                    onClick={() => setWizardStep(wizardStep + 1)}
+                    disabled={!isStepComplete(wizardStep, wizardData)}
+                    className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium transition-all ${
+                      isStepComplete(wizardStep, wizardData)
+                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700'
+                        : isDarkMode ? 'bg-zinc-800 text-zinc-600 cursor-not-allowed' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Next <ArrowRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="flex items-center gap-2 px-6 py-2 rounded-lg font-medium bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                    title="Under development"
+                    aria-label="Architect Plan under development"
+                  >
+                    <Sparkles size={16} />
+                    Under development
+                  </button>
                 )}
               </div>
             </div>
           </motion.div>
-        )}
-      </div>
-
-      {/* Input Section */}
-      <div className="p-4 sm:p-6 pt-2 relative z-20">
-        <div className={`relative max-w-4xl mx-auto rounded-[24px] sm:rounded-[32px] border transition-all duration-500 backdrop-blur-3xl shadow-2xl ${
-          input.includes('@')
-            ? (isDarkMode ? 'bg-indigo-500/10 border-indigo-500/40 shadow-indigo-500/20' : 'bg-indigo-50/80 border-indigo-300 shadow-indigo-100')
-            : (isDarkMode ? 'bg-zinc-900/40 border-white/10 hover:border-white/20 shadow-black/40' : 'bg-white/80 border-slate-200/60 hover:border-slate-300 shadow-slate-200/40')
-          }`}>
-          <div className="flex items-center gap-2 p-2 px-4 sm:px-6">
-            <div className="flex items-center gap-1">
-              <div className="relative">
-                <button
-                  onClick={handleSpecialAnalysis}
-                  disabled={isTyping}
-                  className={`w-8 h-8 shrink-0 flex items-center justify-center rounded-lg transition-all group border relative overflow-hidden ${isDarkMode
-                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20'
-                    : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100'
-                    }`}
-                  title={isPlanMode ? 'Strategy Architect' : 'Performance Analysis'}
-                >
-                  <Brain size={14} className="group-hover:scale-110 transition-transform" />
-                  {analysisStatus !== 'idle' && (
-                    <div className="absolute bottom-0 left-0 w-full h-0.5 flex gap-0.5">
-                      <motion.div
-                        initial={{ width: "0%" }}
-                        animate={{ width: "100%" }}
-                        className="h-full bg-indigo-500"
-                      />
-                    </div>
-                  )}
-                </button>
-              </div>
-
-              <div className="relative">
-                <button
-                  onClick={() => setShowModeDropdown(!showModeDropdown)}
-                  className={`w-8 h-8 shrink-0 flex items-center justify-center border rounded-lg transition-all ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-400 hover:bg-white/5' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white'
-                    }`}
-                >
-                  {isPlanMode ? <Workflow size={14} className="text-[#FF4F01]" /> : <Activity size={14} className="text-indigo-500" />}
-                </button>
-
-                <AnimatePresence>
-                  {showModeDropdown && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                      className={`absolute bottom-full left-0 mb-2 w-44 rounded-xl border shadow-2xl overflow-hidden z-[100] ${isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'
-                        }`}
-                    >
-                      <div className="p-1.5 space-y-1">
-                        <button
-                          onClick={() => { setIsPlanMode(false); setShowModeDropdown(false); }}
-                          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all text-left group ${!isPlanMode ? 'bg-indigo-600 text-white' : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')}`}
-                        >
-                          <Brain size={14} />
-                          <span className="text-[10px] font-black uppercase">Analysis</span>
-                        </button>
-                        <button
-                          onClick={() => { setIsPlanMode(true); setShowModeDropdown(false); }}
-                          className={`w-full flex items-center gap-3 p-2 rounded-lg transition-all text-left group ${isPlanMode ? 'bg-[#FF4F01] text-white' : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')}`}
-                        >
-                          <Workflow size={14} />
-                          <span className="text-[10px] font-black uppercase">Strategy</span>
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className={`w-px h-3.5 mx-0.5 ${isDarkMode ? 'bg-white/5' : 'bg-slate-200'}`} />
-
-              <button
-                onClick={() => {
-                  const inputEl = document.getElementById('ai-chat-input') as HTMLInputElement;
-                  if (inputEl) {
-                    const newValue = input.endsWith(' ') || input === '' ? input + '@' : input + ' @';
-                    setInput(newValue);
-                    setMentionMenuFilter('');
-                    setShowMentionMenu(true);
-                    inputEl.focus();
-                  }
-                }}
-                className={`w-8 h-8 shrink-0 flex items-center justify-center border rounded-lg transition-all group ${isDarkMode ? 'bg-zinc-500/5 border-white/5 text-zinc-500 hover:text-amber-500 hover:border-amber-500/30' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-amber-600 hover:border-amber-300'
-                  }`}
-                title="Quick Mention"
-              >
-                <motion.span 
-                  whileTap={{ scale: 0.7, rotate: -15 }}
-                  whileHover={{ scale: 1.2 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                  className="text-[14px] font-black leading-none"
-                >
-                  @
-                </motion.span>
-              </button>
-            </div>
-
-            <div className={`w-px h-5 mx-1 ${isDarkMode ? 'bg-white/10' : 'bg-slate-200'}`} />
-
-            <div className="flex-1 relative">
-              <AnimatePresence>
-                {showMentionMenu && filteredMentions.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: -10 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className={`absolute bottom-full left-0 w-56 sm:w-64 mb-3 rounded-[24px] border shadow-2xl overflow-hidden transition-colors duration-500 z-[100] ${isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'
-                      }`}
-                  >
-                    <div className="p-3 border-b border-white/5 bg-white/[0.01]">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 ml-1">Mentions</span>
-                    </div>
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
-                      {filteredMentions.map((m, i) => (
-                        <button
-                          key={m.value}
-                          onClick={() => insertMention(m.value)}
-                          onMouseEnter={() => setMentionIndex(i)}
-                          aria-label={`Mention ${m.label}`}
-                          className={`w-full flex items-center gap-3 p-3 rounded-[16px] transition-all text-left group ${mentionIndex === i
-                            ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20'
-                            : (isDarkMode ? 'hover:bg-white/5 text-zinc-400' : 'hover:bg-slate-50 text-slate-600')
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${mentionIndex === i ? 'bg-white/20' : (isDarkMode ? 'bg-white/5' : 'bg-slate-100')}`}>
-                            {React.cloneElement(m.icon as React.ReactElement<{ size?: number }>, { size: 14 })}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-black uppercase tracking-wide truncate">{m.label}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <input
-                id="ai-chat-input"
-                name="chat-message"
-                aria-label="Ask your AI assistant a question"
-                type="text"
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask your assistant anything..."
-                className={`w-full bg-transparent border-none focus:ring-0 focus:outline-none text-[13px] sm:text-[14px] font-medium py-1.5 placeholder:opacity-30 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-              />
-            </div>
-
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isTyping}
-              className={`p-2 rounded-[10px] transition-all shadow-xl group ${input.trim()
-                ? 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-indigo-500/30 active:scale-95'
-                : (isDarkMode ? 'bg-white/5 text-zinc-700 cursor-not-allowed' : 'bg-slate-100 text-slate-300 cursor-not-allowed')
-                }`}
-            >
-              <Send className={`w-3.5 h-3.5 transition-transform ${input.trim() ? 'group-hover:translate-x-0.5 group-hover:-translate-y-0.5' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Analysis History Modal */}
-      <AnimatePresence>
-        {isHistoryOpen && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsHistoryOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className={`relative w-full max-w-lg rounded-[40px] border overflow-hidden shadow-2xl transition-colors duration-500 ${isDarkMode ? 'bg-[#0d1117] border-white/10' : 'bg-white border-slate-200'}`}>
-              <div className="p-10">
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-500"><History size={24} /></div>
-                    <div><h3 className="text-xl font-black uppercase tracking-tight">Analysis History</h3><p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Jump back to key insights</p></div>
-                  </div>
-                  <button onClick={() => setIsHistoryOpen(false)} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'hover:bg-white/5 text-zinc-500' : 'hover:bg-black/5 text-slate-400'}`}><X size={20} /></button>
-                </div>
-
-                <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
-                  {analysisHistory.length === 0 ? (
-                    <div className="py-12 text-center opacity-30 flex flex-col items-center gap-4">
-                      <div className="w-16 h-16 rounded-3xl bg-zinc-500/5 flex items-center justify-center">
-                        <History size={40} strokeWidth={1} />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-black uppercase tracking-widest">No History</p>
-                        <p className="text-[10px] font-medium leading-relaxed max-w-[200px]">
-                          Your AI-generated charts and widgets will appear here for quick access.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    analysisHistory.map((msg) => (
-                      <div key={msg.id} className="relative group/item">
-                        <button
-                          onClick={() => scrollToMessage(msg.id)}
-                          className={`w-full p-4 pr-12 rounded-2xl border text-left transition-all flex flex-col gap-2 group ${isDarkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-indigo-500/30' : 'bg-slate-50 border-slate-100 hover:bg-white hover:border-indigo-300 shadow-sm'
-                            }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex gap-1">
-                              {msg.widgetKeys?.map(key => (
-                                <span key={key} className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-wider">{tagToLabel[key].split(' ')[0]}</span>
-                              ))}
-                            </div>
-                            <span className="text-[8px] font-bold opacity-30 uppercase">{new Date(msg.timestamp).toLocaleDateString()}</span>
-                          </div>
-                          <p className="text-xs font-medium line-clamp-2 opacity-60 group-hover:opacity-100 transition-opacity">"{msg.content}"</p>
-                        </button>
-                        <button
-                          onClick={(e) => deleteMessage(msg.id, e)}
-                          className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl opacity-0 group-hover/item:opacity-100 transition-all ${isDarkMode ? 'hover:bg-rose-500/10 text-zinc-500 hover:text-rose-500' : 'hover:bg-rose-50 text-slate-400 hover:text-rose-500'
-                            }`}
-                          title="Delete Analysis"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <button onClick={() => setIsHistoryOpen(false)} className="w-full mt-8 py-4 border border-zinc-800 rounded-2xl font-black text-[10px] uppercase tracking-widest opacity-50 hover:opacity-100 transition-all">Close History</button>
-              </div>
-            </motion.div>
-          </div>
         )}
       </AnimatePresence>
 
-      <AISettingsDrawer
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        isDarkMode={isDarkMode}
-        selectedModel={selectedModel}
-        setSelectedModel={setSelectedModel}
-        communicationStyle={communicationStyle}
-        setCommunicationStyle={setCommunicationStyle}
-        autoRevealCharts={autoRevealCharts}
-        setAutoRevealCharts={setAutoRevealCharts}
-        recallMemory={recallMemory}
-        setRecallMemory={setRecallMemory}
-      />
-    </div>
+      {/* Main Chat Area - Simple ChatGPT-style */}
+      {!showWizard && (
+      <main ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar relative">
+        <AnimatePresence mode="popLayout">
+          {messages.length === 0 && !showWizard ? (
+            <motion.div 
+              key="empty-state"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center h-full px-4"
+            >
+              <div className="w-14 h-14 rounded-full bg-zinc-800 dark:bg-zinc-700 flex items-center justify-center mb-4">
+                <AssistantIcon size={28} className="text-white" />
+              </div>
+              <h2 className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{assistantLabel}</h2>
+              <p className={`text-sm mt-1 mb-6 max-w-xl text-center ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                {isResearchMode
+                  ? 'Research markets, setups, and risk ideas without touching private trading data.'
+                  : 'Use your journal context for performance coaching, psychology work, and strategy architecture.'}
+              </p>
+              
+              {/* Quick Start Options */}
+              {isResearchMode ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full">
+                  {RESEARCH_STARTERS.map((item) => (
+                    <button
+                      key={item.title}
+                      onClick={() => handleSend(item.prompt)}
+                      className={`p-4 rounded-xl border text-left transition-all ${
+                        isDarkMode ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={item.color}>{item.icon}</span>
+                        <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{item.title}</span>
+                      </div>
+                      <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{item.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-4xl w-full">
+                  <button 
+                    onClick={() => handleFeatureRequest('psychology', "Create a psychology protocol for managing tilt and emotional state during drawdown.")}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      isDarkMode ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Brain size={16} className="text-rose-500" />
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Psychology Protocol</span>
+                    </div>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Tilt & mindset management</p>
+                  </button>
+                  <button 
+                    onClick={() => handleSend("Perform a deep performance audit. Include: 1) Win rate analysis by pair/time/emotion 2) Best and worst setups 3) Execution quality assessment 4) Key improvement areas 5) Action plan.")}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      isDarkMode ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Activity size={16} className="text-indigo-500" />
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Deep Audit</span>
+                    </div>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Performance review and insights</p>
+                  </button>
+                  <button 
+                    onClick={() => handleSend("Generate a visual decision tree for my current trading strategy with entry and exit criteria.")}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      isDarkMode ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Workflow size={16} className="text-cyan-500" />
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Strategy Tree</span>
+                    </div>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Entry and exit decision logic</p>
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <div key="chat-messages" className="space-y-0">
+              {messages.map((m, i) => (
+                <MessageRow 
+                  key={m.id} 
+                  message={m} 
+                  isDarkMode={isDarkMode} 
+                  userProfile={userProfile} 
+                  renderMessageContent={renderMessageContent} 
+                  renderSectionCards={renderSectionCards}
+                  assistantIcon={AssistantIcon}
+                />
+              ))}
+              {(streamingMessage && streamingMessage.length > 0) && (
+                <MessageRow 
+                  key="stream"
+                  message={{
+                    id: 'stream',
+                    role: 'assistant',
+                    content: streamingMessage,
+                    timestamp: new Date(),
+                    isStreaming: true
+                  }}
+                  isDarkMode={isDarkMode}
+                  userProfile={userProfile}
+                  renderMessageContent={renderMessageContent}
+                  renderSectionCards={renderSectionCards}
+                  assistantIcon={AssistantIcon}
+                />
+              )}
+            </div>
+          )}
+          {(isGenerating || isTranscribing) && (!streamingMessage || streamingMessage === "") && messages.length > 0 && !showWizard && (
+            <motion.div 
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 px-4 py-2"
+            >
+              <div className="flex items-center gap-4 max-w-4xl mx-auto w-full">
+                <div className="shrink-0 mt-1">
+                  <div className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-700 flex items-center justify-center">
+                    <AssistantIcon size={16} className="text-white" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                    {[0, 1, 2].map(i => (
+                      <motion.div 
+                        key={i}
+                        animate={{ scale: [1, 1.3, 1], opacity: [0.3, 0.8, 0.3] }}
+                        transition={{ repeat: Infinity, duration: 1, delay: i * 0.15 }}
+                        className="w-2 h-2 rounded-full bg-zinc-500" 
+                      />
+                    ))}
+                  </div>
+                  <span className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                    {isTranscribing ? 'Processing voice recording...' : isResearchMode ? 'Researching...' : 'Thinking...'}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div ref={messagesEndRef} />
+
+        {/* Floating Controls Container */}
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[70]">
+          {/* Scroll to Bottom Button */}
+          <AnimatePresence>
+            {showScrollToBottom && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 12 }}
+                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                className={`flex items-center justify-center w-9 h-9 rounded-full shadow-lg transition-all active:scale-95 border backdrop-blur-sm opacity-50 hover:opacity-90 ${
+                  isDarkMode
+                    ? 'bg-zinc-900/45 text-zinc-300 hover:bg-zinc-800/70 border-zinc-700/60'
+                    : 'bg-white/45 text-slate-600 hover:bg-white/80 border-slate-200/60'
+                }`}
+                title="Scroll to bottom"
+                aria-label="Scroll to latest message"
+              >
+                <ChevronDown size={18} />
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+      </main>
+      )}
+
+      {/* Chat Input Area - ChatGPT Style */}
+      {!showWizard && (
+      <div className={`${isDarkMode ? 'bg-[#000000]' : 'bg-white'}`}>
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          
+          {/* Features Menu */}
+          <AnimatePresence>
+            {showFeaturesMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className={`features-menu mb-4 p-4 rounded-2xl shadow-lg ${
+                  isDarkMode ? 'bg-zinc-900/95' : 'bg-slate-50/95'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                    {assistantLabel}
+                  </h3>
+                  <button 
+                    onClick={() => setShowFeaturesMenu(false)}
+                    className={`p-1 rounded-lg ${isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-200 text-slate-500'}`}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {isResearchMode ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {RESEARCH_STARTERS.map((item) => (
+                      <button
+                        key={item.title}
+                        onClick={() => { void handleSend(item.prompt); setShowFeaturesMenu(false); }}
+                        className={`p-4 rounded-xl border text-left transition-all ${
+                          isDarkMode ? 'bg-zinc-800 border-zinc-700 hover:border-zinc-600' : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={item.color}>{item.icon}</span>
+                          <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{item.title}</span>
+                        </div>
+                        <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>{item.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => { handleFeatureRequest('psychology', "Create a psychology protocol for managing tilt and emotional state during drawdown."); setShowFeaturesMenu(false); }}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      isDarkMode ? 'bg-zinc-800 border-zinc-700 hover:border-zinc-600' : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Brain size={16} className="text-rose-500" />
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Psychology</span>
+                    </div>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Tilt & mindset protocols</p>
+                  </button>
+                  <button 
+                    onClick={() => { handleSend("Perform a deep performance audit. Include: 1) Win rate analysis by pair/time/emotion 2) Best and worst setups 3) Execution quality assessment 4) Key improvement areas 5) Action plan."); setShowFeaturesMenu(false); }}
+                    className={`p-4 rounded-xl border text-left transition-all ${
+                      isDarkMode ? 'bg-zinc-800 border-zinc-700 hover:border-zinc-600' : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Activity size={16} className="text-indigo-500" />
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Deep Audit</span>
+                    </div>
+                    <p className={`text-xs ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Performance review and insights</p>
+                  </button>
+                </div>
+              )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          {/* Quick Prompt Menu */}
+          <AnimatePresence>
+            {showForgeMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                className={`forge-menu mb-4 p-4 rounded-2xl border ${
+                  isDarkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                {isResearchMode ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {RESEARCH_QUICK_PROMPTS.map((item, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleSend(item.prompt)}
+                        className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all hover:scale-105 active:scale-95 ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}
+                      >
+                        <div className={`p-2 rounded-xl bg-current/10 ${item.color}`}>{item.icon}</div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-center">{item.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-2 mb-3 flex-wrap">
+                      {(['psychology', 'scaling', 'analysis', 'strategy'] as const).map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => setActiveCategory(cat)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                            activeCategory === cat
+                              ? isDarkMode ? 'bg-emerald-600 text-white' : 'bg-emerald-600 text-white'
+                              : isDarkMode ? 'bg-zinc-800 text-zinc-400 hover:text-white' : 'bg-slate-200 text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {MENTOR_QUICK_PROMPTS.filter(p => p.category === activeCategory).map((item, i) => (
+                        <button
+                          key={i}
+                          onClick={() => item.featureMode ? handleFeatureRequest(item.featureMode, item.prompt) : handleSend(item.prompt)}
+                          className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all hover:scale-105 active:scale-95 ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}
+                        >
+                          <div className={`p-2 rounded-xl bg-current/10 ${item.color}`}>{item.icon}</div>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-center">{item.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+            {/* Input Area - ChatGPT Style */}
+            <div className={`relative rounded-[22px] border shadow-sm ${
+              isDarkMode 
+                ? 'bg-zinc-900/95 border-zinc-700 focus-within:border-emerald-500' 
+                : 'bg-white border-slate-200 focus-within:border-slate-300'
+            }`}>
+              {(isRecording || pendingVoiceClip) && (
+                <div className={`border-b px-3 pt-3 ${isDarkMode ? 'border-zinc-800' : 'border-slate-200'}`}>
+                  {isRecording && (
+                    <div className={`mb-3 rounded-2xl border p-3 ${isDarkMode ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50/70'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="relative flex h-12 w-12 items-center justify-center rounded-full">
+                            <div className={`absolute inset-0 rounded-full ${isDarkMode ? 'bg-emerald-500/15' : 'bg-emerald-500/10'}`} />
+                            {!isRecordingPaused && (
+                              <motion.div
+                                className={`absolute inset-0 rounded-full ${isDarkMode ? 'border border-emerald-400/40' : 'border border-emerald-500/30'}`}
+                                animate={{ scale: [1, 1.18, 1], opacity: [0.8, 0.2, 0.8] }}
+                                transition={{ duration: 1.4, repeat: Infinity }}
+                              />
+                            )}
+                            <Mic size={18} className="relative z-10 text-emerald-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className={`mt-1 text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{formatAudioDuration(recordingElapsedMs)}</div>
+                          </div>
+                        </div>
+                        <VoiceWaveform bars={visualizerBars} isDarkMode={isDarkMode} active={!isRecordingPaused} />
+                      </div>
+                    </div>
+                  )}
+
+                  {pendingVoiceClip && (
+                    <div className={`mb-3 rounded-2xl border p-3 ${isDarkMode ? 'border-zinc-700 bg-black/20' : 'border-slate-200 bg-slate-50'}`}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div>
+                          <div className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>Voice Preview</div>
+                          <div className={`mt-1 text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                            {formatAudioDuration(pendingVoiceClip.durationMs)}
+                            {pendingVoiceClip.deviceLabel ? ` from ${pendingVoiceClip.deviceLabel}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          onClick={discardPendingVoiceClip}
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${isDarkMode ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
+                        >
+                          Discard Clip
+                        </button>
+                      </div>
+                      <VoiceAudioPlayer
+                        src={pendingVoiceClip.url}
+                        durationMs={pendingVoiceClip.durationMs}
+                        isDarkMode={isDarkMode}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 p-2">
+                <button 
+                  onClick={() => setShowFeaturesMenu(!showFeaturesMenu)}
+                  className={`features-btn shrink-0 p-2.5 rounded-2xl transition-colors ${
+                    showFeaturesMenu 
+                      ? isDarkMode ? 'bg-emerald-600 text-white' : 'bg-emerald-600 text-white'
+                      : isDarkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-slate-100 text-slate-500'
+                  }`}
+                  title="Features"
+                  aria-label="Open features menu"
+                >
+                  <Zap size={18} />
+                </button>
+
+                <input 
+                  ref={inputRef}
+                  value={input} 
+                  onChange={(e) => setInput(e.target.value)} 
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()} 
+                  placeholder={inputPlaceholder}
+                  className={`min-w-0 flex-1 bg-transparent px-2 py-3 focus:outline-none text-sm ${
+                    isDarkMode ? 'text-white placeholder-zinc-500' : 'text-slate-900 placeholder-slate-400'
+                  }`}
+                  disabled={isGenerating}
+                  aria-label="Chat input"
+                />
+
+                <motion.button 
+                  onClick={toggleRecording}
+                  disabled={isTranscribing}
+                  animate={(isRecording || isTranscribing) ? { 
+                    scale: [1, 1.03, 1],
+                    backgroundColor: isDarkMode ? ['rgba(16, 185, 129, 0.12)', 'rgba(16, 185, 129, 0.22)', 'rgba(16, 185, 129, 0.12)'] : ['rgba(16, 185, 129, 0.08)', 'rgba(16, 185, 129, 0.16)', 'rgba(16, 185, 129, 0.08)']
+                  } : {}}
+                  transition={{ repeat: Infinity, duration: 1.4 }}
+                  className={`shrink-0 flex items-center gap-2 px-3 py-2.5 rounded-2xl border transition-colors ${
+                    isRecording || isTranscribing
+                      ? (isDarkMode ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-emerald-200 text-emerald-700 bg-emerald-50')
+                      : (isDarkMode ? 'border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50')
+                  } disabled:opacity-50`}
+                  title={isTranscribing ? "Processing recording..." : (isRecording ? "Stop recording" : "Start recording")}
+                  aria-label={isTranscribing ? "Processing recording" : (isRecording ? "Stop recording" : "Start recording")}
+                >
+                  {isTranscribing ? <Loader2 size={16} className="animate-spin" /> : <Mic size={16} />}
+                  <span className="hidden sm:inline text-xs font-semibold">
+                    {isTranscribing ? 'Working...' : (isRecording ? 'Stop' : 'Record')}
+                  </span>
+                </motion.button>
+
+                {isRecording && (
+                  <>
+                    <button
+                      onClick={togglePauseRecording}
+                      disabled={isTranscribing}
+                      className={`shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
+                        isDarkMode ? 'border-zinc-700 text-zinc-200 hover:bg-zinc-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                      title={isRecordingPaused ? 'Resume recording' : 'Pause recording'}
+                    >
+                      {isRecordingPaused ? <Play size={15} /> : <Pause size={15} />}
+                      <span className="hidden sm:inline">{isRecordingPaused ? 'Resume' : 'Pause'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        stopVoiceRecording('discard');
+                        setIsRecording(false);
+                      }}
+                      disabled={isTranscribing}
+                      className={`shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
+                        isDarkMode ? 'border-rose-500/30 text-rose-300 hover:bg-rose-500/10' : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                      }`}
+                      title="Discard recording"
+                    >
+                      <X size={15} />
+                      <span className="hidden sm:inline">Discard</span>
+                    </button>
+                  </>
+                )}
+
+                <button 
+                  onClick={isGenerating ? handleStopGeneration : () => handleSend(undefined, pendingVoiceClip ? {
+                    voiceClip: pendingVoiceClip,
+                  } : {})} 
+                  disabled={(!isGenerating && !canSendMessage) || isRecording || isTranscribing} 
+                  className={`shrink-0 p-2.5 rounded-2xl transition-all active:scale-95 ${
+                    isGenerating
+                      ? (isDarkMode ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-900 text-white hover:bg-slate-800')
+                      : (canSendMessage
+                        ? (isDarkMode ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-900 text-white hover:bg-slate-800')
+                        : (isDarkMode ? 'bg-zinc-800 text-zinc-600' : 'bg-slate-100 text-slate-400'))
+                  } disabled:cursor-not-allowed disabled:active:scale-100`}
+                  title={isGenerating ? "Stop Generating" : "Send Message"}
+                >
+                  {isGenerating ? (
+                    <StopCircle size={16} />
+                  ) : (
+                    <CornerDownLeft size={16} />
+                  )}
+                </button>
+              </div>
+
+              <div className={`flex flex-col gap-2 border-t px-3 pb-3 pt-2 ${isDarkMode ? 'border-zinc-800' : 'border-slate-200'} sm:flex-row sm:items-center sm:justify-between`}>
+                <div />
+                <div />
+              </div>
+            </div>
+            
+            <div className="mt-2 flex flex-col gap-2">
+              <div className={`flex items-start gap-2 text-xs ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
+                {(isRecording || isTranscribing) && (
+                  isTranscribing
+                    ? <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin text-amber-500" />
+                    : <CircleDot size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+                )}
+                <span>{isRecording || isTranscribing ? <span className="font-medium md:hidden">{voiceStatusLabel}: </span> : null}{voiceStatusHint}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className={`text-xs font-medium ${isCreditWarning ? 'text-red-500' : isDarkMode ? 'text-zinc-400' : 'text-slate-500'}`}>
+                  {getCurrentCreditLabel()}
+                </div>
+                <p className={`text-right text-xs ${isDarkMode ? 'text-zinc-500' : 'text-slate-400'}`}>
+                  AI can make mistakes. Please verify important information.
+                </p>
+              </div>
+            </div>
+        </div>
+      </div>
+      )}
+
+      {editingTradeNote && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className={`w-full max-w-lg rounded-[32px] p-8 border shadow-2xl ${isDarkMode ? 'bg-[#0e0e16] border-white/10' : 'bg-white border-slate-200'}`}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-xl bg-indigo-600/10 text-indigo-500"><StickyNote size={20} /></div>
+              <h3 className="text-xl font-black uppercase tracking-tight">Refine Trade Note</h3>
+            </div>
+            <textarea 
+              value={tradeNoteText} 
+              onChange={(e) => setTradeNoteText(e.target.value)} 
+              className={`w-full h-48 p-5 rounded-2xl bg-transparent border focus:ring-2 focus:ring-indigo-500/20 focus:outline-none mb-8 text-sm leading-relaxed transition-all ${
+                isDarkMode ? 'border-white/10 bg-black/20 text-zinc-300' : 'border-slate-200 bg-slate-50 text-slate-700'
+              }`}
+              placeholder="Inject your market logic here..."
+            />
+            <div className="flex justify-end gap-4">
+              <button onClick={() => setEditingTradeNote(null)} className="px-6 py-3 opacity-50 hover:opacity-100 transition-opacity uppercase text-[11px] font-black tracking-widest">Cancel</button>
+              <button 
+                onClick={async () => {
+                  if (!onUpdateTrade) return;
+                  setIsUpdatingNote(true);
+                  try {
+                    await onUpdateTrade({ ...editingTradeNote, notes: tradeNoteText });
+                    addToast({ type: 'success', title: 'Neural Buffer Updated', message: 'Trade records synchronized.' });
+                    setEditingTradeNote(null);
+                  } finally { setIsUpdatingNote(false); }
+                }} 
+                disabled={isUpdatingNote}
+                className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/20 uppercase text-[11px] font-black tracking-widest flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isUpdatingNote ? 'Processing...' : 'Sync Note'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      </div>
   );
 };
 
+const isPrivateTradingRequest = (input: string) => {
+  const normalized = input.toLowerCase();
+  const phrases = [
+    'my trades',
+    'my trade',
+    'my journal',
+    'my results',
+    'my performance',
+    'my win rate',
+    'my balance',
+    'my pnl',
+    'my drawdown',
+    'my psychology',
+    'my strategy',
+    'my risk',
+    'based on my',
+    'analyze my',
+    'review my',
+    'audit my',
+    'what should i change',
+    'how am i doing',
+  ];
+  return phrases.some((phrase) => normalized.includes(phrase));
+};
+
 export default AIChat;
+

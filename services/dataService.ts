@@ -1,74 +1,231 @@
 
 import { supabase } from '../lib/supabase';
-import { Trade, Note, DailyBias, UserProfile, Goal, StrategyDiagram, DBTrade, DBGoal, BacktestSession } from '../types';
+import { Trade, Note, DailyBias, UserProfile, Goal, StrategyDiagram, DBTrade, DBGoal, BacktestSession, CashTransaction, DBCashTransaction } from '../types';
 import { APP_CONSTANTS, PLAN_FEATURES } from '../lib/constants';
+import { normalizeTrade } from '../lib/trade-normalization';
+
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const toStringArray = (value: unknown, fallback: string[] = []): string[] => {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : fallback;
+};
+
+const toSafeString = (value: unknown, fallback = ''): string => {
+  return typeof value === 'string' ? value : fallback;
+};
 
 // Helper to map DB Trade to App Trade
-export const mapTradeFromDB = (dbTrade: DBTrade): Trade => ({
+export const mapTradeFromDB = (dbTrade: DBTrade): Trade => normalizeTrade({
   id: dbTrade.id,
-  ticketId: dbTrade.ticket_id,
-  pair: dbTrade.pair,
-  assetType: dbTrade.asset_type,
-  date: dbTrade.date,
-  time: dbTrade.time,
-  session: dbTrade.session,
-  direction: dbTrade.direction,
-  entryPrice: Number(dbTrade.entry_price || 0),
-  exitPrice: dbTrade.exit_price ? Number(dbTrade.exit_price) : undefined,
-  stopLoss: Number(dbTrade.stop_loss || 0),
-  takeProfit: Number(dbTrade.take_profit || 0),
-  lots: Number(dbTrade.lots || 0),
-  result: dbTrade.result,
-  pnl: Number(dbTrade.pnl || 0),
-  rr: Number(dbTrade.rr || 0),
-  rating: Number(dbTrade.rating || 0),
-  tags: dbTrade.tags,
-  notes: dbTrade.notes,
-  emotions: dbTrade.emotions,
+  ticketId: dbTrade.ticket_id || undefined,
+  pair: dbTrade.pair || '',
+  assetType: dbTrade.asset_type || 'Forex',
+  date: dbTrade.date || '',
+  time: dbTrade.time || '',
+  session: dbTrade.session || 'London Session',
+  direction: dbTrade.direction || 'Long',
+  entryPrice: toFiniteNumber(dbTrade.entry_price, 0),
+  exitPrice: dbTrade.exit_price !== undefined && dbTrade.exit_price !== null ? toFiniteNumber(dbTrade.exit_price, 0) : undefined,
+  stopLoss: toFiniteNumber(dbTrade.stop_loss, 0),
+  takeProfit: toFiniteNumber(dbTrade.take_profit, 0),
+  lots: toFiniteNumber(dbTrade.lots, 0),
+  result: dbTrade.result || 'Pending',
+  pnl: toFiniteNumber(dbTrade.pnl, 0),
+  commissions: dbTrade.commissions !== undefined ? toFiniteNumber(dbTrade.commissions, 0) : undefined,
+  fees: dbTrade.fees !== undefined ? toFiniteNumber(dbTrade.fees, 0) : undefined,
+  swap: dbTrade.swap !== undefined ? toFiniteNumber(dbTrade.swap, 0) : undefined,
+  rr: toFiniteNumber(dbTrade.rr, 0),
+  rating: toFiniteNumber(dbTrade.rating, 0),
+  tags: dbTrade.tags || [],
+  notes: dbTrade.notes || undefined,
+  emotions: dbTrade.emotions || [],
   planAdherence: dbTrade.plan_adherence,
   tradingMistake: dbTrade.trading_mistake,
   mindset: dbTrade.mindset,
   exitComment: dbTrade.exit_comment,
+  voiceNote: dbTrade.voice_note,
   openTime: dbTrade.open_time,
   closeTime: dbTrade.close_time,
   beforeScreenshot: dbTrade.before_screenshot,
   afterScreenshot: dbTrade.after_screenshot,
   setupId: dbTrade.setup_id,
+  setupName: dbTrade.setup_name,
   deletedAt: dbTrade.deleted_at,
 });
 
 // Helper to map App Trade to DB Trade
-const mapTradeToDB = (trade: Trade, userId: string): Partial<DBTrade> => ({
+const buildTradeDbPayload = (trade: Partial<Trade>, userId: string, fallback: Partial<Trade> = {}): Partial<DBTrade> => {
+  const merged = normalizeTrade(
+    {
+      ...fallback,
+      ...trade,
+      id: toSafeString(trade.id, toSafeString(fallback.id, crypto.randomUUID())),
+    },
+    fallback
+  );
+
+  return {
+    user_id: userId,
+    ticket_id: merged.ticketId,
+    pair: merged.pair,
+    asset_type: merged.assetType,
+    date: merged.date,
+    time: merged.time,
+    session: merged.session,
+    direction: merged.direction,
+    entry_price: merged.entryPrice,
+    exit_price: merged.exitPrice,
+    stop_loss: merged.stopLoss,
+    take_profit: merged.takeProfit,
+    lots: merged.lots,
+    result: merged.result,
+    pnl: merged.pnl,
+    commissions: merged.commissions,
+    fees: merged.fees,
+    swap: merged.swap,
+    rr: merged.rr,
+    rating: merged.rating,
+    tags: merged.tags,
+    notes: merged.notes,
+    emotions: merged.emotions,
+    plan_adherence: merged.planAdherence,
+    trading_mistake: merged.tradingMistake,
+    mindset: merged.mindset,
+    exit_comment: merged.exitComment,
+    voice_note: merged.voiceNote,
+    open_time: merged.openTime,
+    close_time: merged.closeTime,
+    before_screenshot: merged.beforeScreenshot,
+    after_screenshot: merged.afterScreenshot,
+    setup_id: merged.setupId || null,
+    setup_name: merged.setupName || null,
+    deleted_at: merged.deletedAt,
+  };
+};
+
+// Helper to map DB Cash Transaction to App Cash Transaction
+export const mapCashTransactionFromDB = (dbTx: DBCashTransaction): CashTransaction => ({
+  id: dbTx.id,
+  type: dbTx.type,
+  amount: normalizeCashTransactionAmount({
+    type: dbTx.type,
+    amount: Number(dbTx.amount || 0),
+  } as CashTransaction),
+  date: dbTx.date,
+  description: dbTx.description,
+});
+
+const normalizeCashTransactionAmount = (tx: Pick<CashTransaction, 'type' | 'amount'>) => {
+  const amount = Number(tx.amount || 0);
+  if (!Number.isFinite(amount)) return 0;
+
+  switch (tx.type) {
+    case 'Deposit':
+    case 'Interest':
+    case 'Promotion':
+      return Math.abs(amount);
+    case 'Withdrawal':
+    case 'Fee':
+    case 'Tax':
+      return -Math.abs(amount);
+    case 'Transfer':
+    default:
+      return amount;
+  }
+};
+
+const CASH_TRANSACTION_CACHE_PREFIX = 'jfx_cash_transactions_cache_';
+let cashTransactionsBackendUnavailable = false;
+
+const getCashTransactionCacheKey = (userId: string) => `${CASH_TRANSACTION_CACHE_PREFIX}${userId}`;
+
+const readCashTransactionCache = (userId: string): CashTransaction[] => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(getCashTransactionCacheKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((tx: any) => ({
+        id: String(tx.id || crypto.randomUUID()),
+        type: tx.type,
+        amount: normalizeCashTransactionAmount({
+          type: tx.type,
+          amount: tx.amount,
+        } as CashTransaction),
+        date: tx.date,
+        description: tx.description || '',
+      }))
+      .filter((tx: CashTransaction) => !!tx.type && !!tx.date);
+  } catch (error) {
+    console.warn('Failed to read cash transaction cache:', error);
+    return [];
+  }
+};
+
+const writeCashTransactionCache = (userId: string, transactions: CashTransaction[]) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(getCashTransactionCacheKey(userId), JSON.stringify(transactions));
+  } catch (error) {
+    console.warn('Failed to write cash transaction cache:', error);
+  }
+};
+
+const upsertCashTransactionCache = (userId: string, transaction: CashTransaction) => {
+  const next = readCashTransactionCache(userId).filter(tx => tx.id !== transaction.id);
+  next.unshift(transaction);
+  writeCashTransactionCache(userId, next);
+  return next;
+};
+
+const removeCashTransactionFromCache = (userId: string, transactionId: string) => {
+  const next = readCashTransactionCache(userId).filter(tx => tx.id !== transactionId);
+  writeCashTransactionCache(userId, next);
+  return next;
+};
+
+const notifyCashTransactionsChanged = (userId: string) => {
+  if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(new CustomEvent('jfx-cash-transactions-changed', {
+    detail: { userId }
+  }));
+};
+
+const notifyCashTransactionsAvailability = (available: boolean) => {
+  if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(new CustomEvent('jfx-cash-transactions-availability', {
+    detail: { available }
+  }));
+};
+
+const isMissingCashTransactionsTableError = (error: any) => {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    error?.status === 404 ||
+    error?.code === '42P01' ||
+    error?.code === 'PGRST205' ||
+    message.includes('cash_transactions') ||
+    message.includes('does not exist')
+  );
+};
+
+// Helper to map App Cash Transaction to DB Cash Transaction
+const mapCashTransactionToDB = (tx: CashTransaction, userId: string): Partial<DBCashTransaction> => ({
   user_id: userId,
-  ticket_id: trade.ticketId,
-  pair: trade.pair,
-  asset_type: trade.assetType,
-  date: trade.date,
-  time: trade.time,
-  session: trade.session,
-  direction: trade.direction,
-  entry_price: trade.entryPrice,
-  exit_price: trade.exitPrice,
-  stop_loss: trade.stopLoss,
-  take_profit: trade.takeProfit,
-  lots: trade.lots,
-  result: trade.result,
-  pnl: trade.pnl,
-  rr: trade.rr,
-  rating: trade.rating,
-  tags: trade.tags,
-  notes: trade.notes,
-  emotions: trade.emotions,
-  plan_adherence: trade.planAdherence,
-  trading_mistake: trade.tradingMistake,
-  mindset: trade.mindset,
-  exit_comment: trade.exitComment,
-  open_time: trade.openTime,
-  close_time: trade.closeTime,
-  before_screenshot: trade.beforeScreenshot,
-  after_screenshot: trade.afterScreenshot,
-  setup_id: trade.setupId,
-  deleted_at: trade.deletedAt,
+  type: tx.type,
+  amount: normalizeCashTransactionAmount(tx),
+  date: tx.date,
+  description: tx.description,
 });
 
 // Helper to map DB Goal to App Goal
@@ -91,7 +248,8 @@ export const mapGoalFromDB = (dbGoal: DBGoal): Goal => ({
 });
 
 const uploadImage = async (userId: string, imageSource: string | undefined, type: 'before' | 'after'): Promise<string | undefined> => {
-  if (!imageSource || imageSource.startsWith('http')) return imageSource;
+  if (!imageSource) return undefined;
+  if (imageSource.startsWith('http')) return imageSource;
 
   try {
     // Convert base64 to Blob
@@ -252,17 +410,19 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    const normalizedInput = normalizeTrade(trade, {}, { preserveProvidedPnl: trade.ticketId !== undefined });
+
     // Upload images if they are base64 (keep awaiting images as they are small and critical)
-    const beforeUrl = await uploadImage(user.id, trade.beforeScreenshot, 'before');
-    const afterUrl = await uploadImage(user.id, trade.afterScreenshot, 'after');
+    const beforeUrl = await uploadImage(user.id, normalizedInput.beforeScreenshot, 'before');
+    const afterUrl = await uploadImage(user.id, normalizedInput.afterScreenshot, 'after');
 
     const tradeToSave = {
-      ...trade,
+      ...normalizedInput,
       beforeScreenshot: beforeUrl,
       afterScreenshot: afterUrl,
     };
 
-    const dbTrade = mapTradeToDB(tradeToSave, user.id);
+    const dbTrade = buildTradeDbPayload(tradeToSave, user.id);
 
     // If it has a ticketId, we want to prevent duplicates
     if (dbTrade.ticket_id) {
@@ -299,8 +459,12 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    const normalizedTrades = trades.map(trade =>
+      normalizeTrade(trade, {}, { preserveProvidedPnl: trade.ticketId !== undefined })
+    );
+
     // Filter out duplicates before sending to DB if ticket IDs are provided
-    const ticketIds = trades.map(t => t.ticketId).filter(Boolean) as string[];
+    const ticketIds = normalizedTrades.map(t => t.ticketId).filter(Boolean) as string[];
     
     let existingTicketIds = new Set<string>();
     if (ticketIds.length > 0) {
@@ -313,9 +477,9 @@ export const dataService = {
       existingTicketIds = new Set(existing?.map(t => t.ticket_id) || []);
     }
 
-    const tradesToSave = trades
+    const tradesToSave = normalizedTrades
       .filter(t => !t.ticketId || !existingTicketIds.has(t.ticketId))
-      .map(t => mapTradeToDB(t, user.id));
+      .map(t => buildTradeDbPayload(t, user.id));
 
     if (tradesToSave.length === 0) return [];
 
@@ -328,38 +492,61 @@ export const dataService = {
     return (data || []).map(mapTradeFromDB);
   },
 
-  async updateTrade(trade: Trade) {
+  async updateTrade(trade: Trade): Promise<Trade> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
     // Get current record to check for deleted files
-    const { data: currentTrade } = await supabase
+    const { data: currentTradeRow } = await supabase
       .from('trades')
-      .select('before_screenshot, after_screenshot')
+      .select('*')
       .eq('id', trade.id)
       .single();
 
-    if (currentTrade) {
+    const currentTrade = currentTradeRow ? mapTradeFromDB(currentTradeRow as DBTrade) : undefined;
+    const isBridgeManagedTrade = Boolean(
+      currentTrade?.ticketId ||
+      currentTrade?.tags?.some(tag => /MT[45]_Auto_Journal|Imported/i.test(tag))
+    );
+
+    const tradeForSave = isBridgeManagedTrade && currentTrade
+      ? {
+          ...trade,
+          date: currentTrade.date,
+          time: currentTrade.time,
+          entryPrice: currentTrade.entryPrice,
+          exitPrice: currentTrade.exitPrice,
+          result: currentTrade.result,
+        }
+      : trade;
+
+    const normalizedInput = normalizeTrade(
+      tradeForSave,
+      currentTrade,
+      { preserveProvidedPnl: true }
+    );
+
+    if (currentTradeRow) {
       // Handle images
-      if (currentTrade.before_screenshot && (!trade.beforeScreenshot || trade.beforeScreenshot.startsWith('data:'))) {
-        await deleteImageFile(currentTrade.before_screenshot);
+      if (currentTradeRow.before_screenshot && (!normalizedInput.beforeScreenshot || normalizedInput.beforeScreenshot.startsWith('data:'))) {
+        await deleteImageFile(currentTradeRow.before_screenshot);
       }
-      if (currentTrade.after_screenshot && (!trade.afterScreenshot || trade.afterScreenshot.startsWith('data:'))) {
-        await deleteImageFile(currentTrade.after_screenshot);
+      if (currentTradeRow.after_screenshot && (!normalizedInput.afterScreenshot || normalizedInput.afterScreenshot.startsWith('data:'))) {
+        await deleteImageFile(currentTradeRow.after_screenshot);
       }
     }
 
     // Upload images if they are base64
-    const beforeUrl = await uploadImage(user.id, trade.beforeScreenshot, 'before');
-    const afterUrl = await uploadImage(user.id, trade.afterScreenshot, 'after');
+    const beforeUrl = await uploadImage(user.id, normalizedInput.beforeScreenshot, 'before');
+    const afterUrl = await uploadImage(user.id, normalizedInput.afterScreenshot, 'after');
 
     const tradeToUpdate = {
-      ...trade,
+      ...normalizedInput,
       beforeScreenshot: beforeUrl,
       afterScreenshot: afterUrl,
     };
 
-    let updateData = mapTradeToDB(tradeToUpdate, user.id);
+    let updateData = buildTradeDbPayload(tradeToUpdate, user.id, currentTrade || trade);
     
     // Recursive update function to handle missing columns
     const performUpdate = async (data: Partial<DBTrade>): Promise<void> => {
@@ -367,9 +554,11 @@ export const dataService = {
       
       if (error) {
         if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
-          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
-          if (fieldMatch && fieldMatch[1]) {
-            const missingField = fieldMatch[1].replace(/"/g, '') as keyof DBTrade;
+          const fieldMatch = error.message.match(/column "(.+)"/i) || 
+                             error.message.match(/column (.+) of/i) || 
+                             error.message.match(/'(.+)' column/i);
+          if (fieldMatch && (fieldMatch[1] || fieldMatch[2] || fieldMatch[3])) {
+            const missingField = (fieldMatch[1] || fieldMatch[2] || fieldMatch[3]).replace(/"/g, '').replace(/'/g, '') as keyof DBTrade;
             console.warn(`Column ${missingField} missing. Retrying without it.`);
             const { [missingField]: _, ...safeData } = data;
             return performUpdate(safeData);
@@ -380,6 +569,15 @@ export const dataService = {
     };
 
     await performUpdate(updateData);
+
+    const { data: refreshedTrade, error: refreshError } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('id', trade.id)
+      .single();
+
+    if (refreshError) throw refreshError;
+    return mapTradeFromDB(refreshedTrade as DBTrade);
   },
 
   async batchUpdateTrades(trades: Trade[]) {
@@ -397,9 +595,11 @@ export const dataService = {
       if (failedResult && failedResult.error) {
         const error = failedResult.error;
         if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
-          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
-          if (fieldMatch && fieldMatch[1]) {
-            const missingField = fieldMatch[1].replace(/"/g, '') as keyof DBTrade;
+          const fieldMatch = error.message.match(/column "(.+)"/i) || 
+                             error.message.match(/column (.+) of/i) || 
+                             error.message.match(/'(.+)' column/i);
+          if (fieldMatch && (fieldMatch[1] || fieldMatch[2] || fieldMatch[3])) {
+            const missingField = (fieldMatch[1] || fieldMatch[2] || fieldMatch[3]).replace(/"/g, '').replace(/'/g, '') as keyof DBTrade;
             console.warn(`Batch: Column ${missingField} missing. Stripping and retrying.`);
             
             const nextDataList = dataList.map(item => {
@@ -415,7 +615,10 @@ export const dataService = {
 
     const initialDataList = trades.map(t => ({
       id: t.id,
-      data: mapTradeToDB(t, user.id)
+      data: buildTradeDbPayload(
+        normalizeTrade(t, {}, { preserveProvidedPnl: t.ticketId !== undefined }),
+        user.id
+      )
     }));
 
     await performBatch(initialDataList);
@@ -502,28 +705,50 @@ export const dataService = {
     // Upload image if it is base64
     const imageUrl = await uploadImage(user.id, note.image, 'after');
 
-    const { data, error } = await supabase
-      .from('notes')
-      .insert({
-        user_id: user.id,
-        title: note.title,
-        content: note.content,
-        date: note.date,
-        tags: note.tags,
-        color: note.color,
-        is_pinned: note.isPinned,
-        is_archived: note.isArchived,
-        is_trashed: note.isTrashed,
-        is_list: note.isList,
-        list_items: note.listItems,
-        image: imageUrl,
-        table_data: note.tableData,
-        position: note.position || 0
-      })
-      .select()
-      .single();
+    const insertData = {
+      user_id: user.id,
+      title: note.title,
+      content: note.content,
+      date: note.date,
+      tags: note.tags,
+      color: note.color,
+      is_pinned: !!note.isPinned,
+      is_archived: !!note.isArchived,
+      is_trashed: !!note.isTrashed,
+      is_list: !!note.isList,
+      list_items: note.listItems || [],
+      image: imageUrl ?? null,
+      table_data: note.tableData || null,
+      position: note.position || 0
+    };
 
-    if (error) throw error;
+    const performInsert = async (data: any): Promise<any> => {
+      const { data: result, error } = await supabase
+        .from('notes')
+        .insert(data)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Supabase addNote error:", error);
+        // Handle missing columns by stripping them and retrying
+        if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
+          const fieldMatch = error.message.match(/column "(.+)"/i) || 
+                             error.message.match(/column (.+) of/i) || 
+                             error.message.match(/'(.+)' column/i);
+          if (fieldMatch && (fieldMatch[1] || fieldMatch[2] || fieldMatch[3])) {
+            const missingField = (fieldMatch[1] || fieldMatch[2] || fieldMatch[3]).replace(/"/g, '').replace(/'/g, '') as string;
+            console.warn(`Column ${missingField} missing in notes table. Retrying insert without it.`);
+            const { [missingField]: _, ...safeData } = data;
+            return performInsert(safeData);
+          }
+        }
+        throw error;
+      }
+      return result;
+    };
+
+    const data = await performInsert(insertData);
     
     // Fully map the returned note
     return {
@@ -543,21 +768,33 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    // Upload image if it is base64
-    const imageUrl = await uploadImage(user.id, note.image, 'after');
+    const imageProvided = Object.prototype.hasOwnProperty.call(note, 'image');
+    const nextImage = imageProvided ? (note.image ? await uploadImage(user.id, note.image, 'after') : null) : undefined;
+
+    const { data: currentNote } = await supabase
+      .from('notes')
+      .select('image')
+      .eq('id', note.id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (imageProvided && currentNote?.image && currentNote.image !== nextImage) {
+      await deleteImageFile(currentNote.image);
+    }
 
     const updateData: any = {};
     if (note.title !== undefined) updateData.title = note.title;
     if (note.content !== undefined) updateData.content = note.content;
     if (note.tags !== undefined) updateData.tags = note.tags;
     if (note.color !== undefined) updateData.color = note.color;
-    if (note.isPinned !== undefined) updateData.is_pinned = note.isPinned;
-    if (note.isArchived !== undefined) updateData.is_archived = note.isArchived;
-    if (note.isTrashed !== undefined) updateData.is_trashed = note.isTrashed;
-    if (note.isList !== undefined) updateData.is_list = note.isList;
-    if (note.listItems !== undefined) updateData.list_items = note.listItems;
-    if (imageUrl !== undefined) updateData.image = imageUrl;
-    else if (note.image !== undefined) updateData.image = note.image;
+    if (note.isPinned !== undefined) updateData.is_pinned = !!note.isPinned;
+    if (note.isArchived !== undefined) updateData.is_archived = !!note.isArchived;
+    if (note.isTrashed !== undefined) updateData.is_trashed = !!note.isTrashed;
+    if (note.isList !== undefined) updateData.is_list = !!note.isList;
+    if (note.listItems !== undefined) updateData.list_items = note.listItems || [];
+    if (imageProvided) {
+      updateData.image = nextImage;
+    }
     if (note.tableData !== undefined) updateData.table_data = note.tableData;
     if (note.date !== undefined) updateData.date = note.date;
     if (note.position !== undefined) updateData.position = note.position;
@@ -566,15 +803,18 @@ export const dataService = {
       const { error } = await supabase
         .from('notes')
         .update(data)
-        .eq('id', note.id);
+        .eq('id', note.id)
+        .eq('user_id', user.id);
 
       if (error) {
         console.error("Supabase updateNote error:", error);
         // Handle missing columns by stripping them and retrying
         if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
-          const fieldMatch = error.message.match(/column "(.+)"/i) || error.message.match(/column (.+) of/i);
-          if (fieldMatch && fieldMatch[1]) {
-            const missingField = fieldMatch[1].replace(/"/g, '') as string;
+          const fieldMatch = error.message.match(/column "(.+)"/i) || 
+                             error.message.match(/column (.+) of/i) || 
+                             error.message.match(/'(.+)' column/i);
+          if (fieldMatch && (fieldMatch[1] || fieldMatch[2] || fieldMatch[3])) {
+            const missingField = (fieldMatch[1] || fieldMatch[2] || fieldMatch[3]).replace(/"/g, '').replace(/'/g, '') as string;
             console.warn(`Column ${missingField} missing in notes table. Retrying update without it.`);
             const { [missingField]: _, ...safeData } = data;
             return performUpdate(safeData);
@@ -588,10 +828,14 @@ export const dataService = {
   },
 
   async deleteNote(noteId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { error } = await supabase
       .from('notes')
       .delete()
-      .eq('id', noteId);
+      .eq('id', noteId)
+      .eq('user_id', user.id);
 
     if (error) throw error;
   },
@@ -752,10 +996,12 @@ export const dataService = {
     if (error) {
       console.error('Error updating profile:', error);
       // Fallback for missing columns (common in beta migrations)
-      if ((error as any).code === '42703') {
-        const fieldMatch = error.message.match(/column "(.+)" of relation "profiles" does not exist/);
-        if (fieldMatch && fieldMatch[1]) {
-          const missingField = fieldMatch[1];
+      if (error.code === '42703' || error.code === 'PGRST204' || ((error as any).status === 400 && error.message.includes('column'))) {
+        const fieldMatch = error.message.match(/column "(.+)"/i) || 
+                           error.message.match(/column (.+) of/i) || 
+                           error.message.match(/'(.+)' column/i);
+        if (fieldMatch && (fieldMatch[1] || fieldMatch[2] || fieldMatch[3])) {
+          const missingField = (fieldMatch[1] || fieldMatch[2] || fieldMatch[3]).replace(/"/g, '').replace(/'/g, '');
           console.warn(`Column ${missingField} missing in profiles table. Retrying without it.`);
           const { [missingField]: _, ...safeProfile } = dbProfile;
           const { error: retryError } = await supabase
@@ -847,17 +1093,43 @@ export const dataService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    const basePayload = {
+      user_id: user.id,
+      symbol: session.symbol,
+      timeframe: session.timeframe,
+      data: session.data,
+      drawings: session.drawings,
+      trades: session.trades,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: existingSession, error: findError } = await supabase
+      .from('backtest_sessions')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('symbol', session.symbol)
+      .eq('timeframe', session.timeframe)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (findError) throw findError;
+
+    if (existingSession?.id) {
+      const { data, error } = await supabase
+        .from('backtest_sessions')
+        .update(basePayload)
+        .eq('id', existingSession.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as BacktestSession;
+    }
+
     const { data, error } = await supabase
       .from('backtest_sessions')
-      .upsert({
-        user_id: user.id,
-        symbol: session.symbol,
-        timeframe: session.timeframe,
-        data: session.data,
-        drawings: session.drawings,
-        trades: session.trades,
-        updated_at: new Date().toISOString()
-      })
+      .insert(basePayload)
       .select()
       .single();
 
@@ -886,6 +1158,141 @@ export const dataService = {
       .eq('id', id);
 
     if (error) throw error;
-  }
+  },
+
+  // --- Cash Transactions ---
+  async getCashTransactions(userId: string) {
+    if (cashTransactionsBackendUnavailable) {
+      return readCashTransactionCache(userId);
+    }
+
+    const { data, error } = await supabase
+      .from('cash_transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('date', { ascending: false });
+
+    if (error) {
+      if (isMissingCashTransactionsTableError(error)) {
+        cashTransactionsBackendUnavailable = true;
+        notifyCashTransactionsAvailability(false);
+        return readCashTransactionCache(userId);
+      }
+      throw error;
+    }
+
+    const mapped = (data || []).map(mapCashTransactionFromDB);
+    writeCashTransactionCache(userId, mapped);
+    return mapped;
+  },
+
+  async addCashTransaction(transaction: CashTransaction) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const dbTransaction = mapCashTransactionToDB(transaction, user.id);
+
+    if (cashTransactionsBackendUnavailable) {
+      const saved = { ...transaction, id: transaction.id || crypto.randomUUID(), amount: normalizeCashTransactionAmount(transaction) };
+      upsertCashTransactionCache(user.id, saved);
+      notifyCashTransactionsChanged(user.id);
+      return saved;
+    }
+
+    const { data, error } = await supabase
+      .from('cash_transactions')
+      .insert(dbTransaction)
+      .select()
+      .single();
+
+    if (error) {
+      if (isMissingCashTransactionsTableError(error)) {
+        cashTransactionsBackendUnavailable = true;
+        notifyCashTransactionsAvailability(false);
+        const saved = { ...transaction, id: transaction.id || crypto.randomUUID(), amount: normalizeCashTransactionAmount(transaction) };
+        upsertCashTransactionCache(user.id, saved);
+        notifyCashTransactionsChanged(user.id);
+        return saved;
+      }
+      throw error;
+    }
+
+    const mapped = mapCashTransactionFromDB(data);
+    upsertCashTransactionCache(user.id, mapped);
+    notifyCashTransactionsChanged(user.id);
+    return mapped;
+  },
+
+  async updateCashTransaction(transaction: CashTransaction) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    if (cashTransactionsBackendUnavailable) {
+      const updated = { ...transaction, amount: normalizeCashTransactionAmount(transaction) };
+      upsertCashTransactionCache(user.id, updated);
+      notifyCashTransactionsChanged(user.id);
+      return;
+    }
+
+    const query = supabase
+      .from('cash_transactions')
+      .update({
+        type: transaction.type,
+        amount: normalizeCashTransactionAmount(transaction),
+        date: transaction.date,
+        description: transaction.description,
+      })
+      .eq('id', transaction.id)
+      .eq('user_id', user.id);
+
+    const { error } = await query;
+
+    if (error) {
+      if (isMissingCashTransactionsTableError(error)) {
+        cashTransactionsBackendUnavailable = true;
+        notifyCashTransactionsAvailability(false);
+        const updated = { ...transaction, amount: normalizeCashTransactionAmount(transaction) };
+        upsertCashTransactionCache(user.id, updated);
+        notifyCashTransactionsChanged(user.id);
+        return;
+      }
+      throw error;
+    }
+
+    const updated = { ...transaction, amount: normalizeCashTransactionAmount(transaction) };
+    upsertCashTransactionCache(user.id, updated);
+    notifyCashTransactionsChanged(user.id);
+  },
+
+  async deleteCashTransaction(transactionId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    if (cashTransactionsBackendUnavailable) {
+      removeCashTransactionFromCache(user.id, transactionId);
+      notifyCashTransactionsChanged(user.id);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('cash_transactions')
+      .delete()
+      .eq('id', transactionId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      if (isMissingCashTransactionsTableError(error)) {
+        cashTransactionsBackendUnavailable = true;
+        notifyCashTransactionsAvailability(false);
+        removeCashTransactionFromCache(user.id, transactionId);
+        notifyCashTransactionsChanged(user.id);
+        return;
+      }
+      throw error;
+    }
+
+    removeCashTransactionFromCache(user.id, transactionId);
+    notifyCashTransactionsChanged(user.id);
+  },
 };
 

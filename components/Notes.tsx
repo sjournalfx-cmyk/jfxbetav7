@@ -3,7 +3,7 @@ import CreateArea from './notes/CreateArea';
 import NoteCard from './notes/NoteCard';
 import NoteEditor from './notes/NoteEditor';
 import { Note as KeepNote, NoteColor, SidebarSection } from './notes/types';
-import { Note as AppNote, Goal, UserProfile } from '../types';
+import { Note as AppNote, UserProfile } from '../types';
 import { Search, Menu, RefreshCw, Grid, Settings, Trash2, Archive, Lightbulb, ChevronLeft, Bell, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -27,14 +27,13 @@ import { CSS } from '@dnd-kit/utilities';
 interface NotesProps {
   isDarkMode: boolean;
   notes: AppNote[];
-  goals: Goal[];
   onAddNote: (note: any) => Promise<any>;
   onUpdateNote: (note: any) => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
   onRestoreNote: (id: string) => Promise<void>;
-  onUpdateGoal: (goal: Goal) => Promise<void>;
   userProfile?: UserProfile | null;
   onViewChange: (view: string) => void;
+  isDemoMode?: boolean;
 }
 
 const Notes: React.FC<NotesProps> = ({ 
@@ -45,14 +44,16 @@ const Notes: React.FC<NotesProps> = ({
   onDeleteNote, 
   onRestoreNote,
   userProfile, 
-  onViewChange 
+  onViewChange,
+  isDemoMode = false,
 }) => {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentSection, setCurrentSection] = useState<SidebarSection>('NOTES');
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
   
   // Canvas Size State
-  const [canvasWidth, setCanvasWidth] = useState(700);
+  const [canvasWidth, setCanvasWidth] = useState(560);
   const [canvasHeight, setCanvasHeight] = useState(0); 
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
@@ -77,16 +78,23 @@ const Notes: React.FC<NotesProps> = ({
   }));
 
   const selectedNote = notes.find(n => n.id === selectedNoteId) || null;
+  const availableLabels = React.useMemo(() => {
+    return Array.from(new Set(notes.flatMap(note => note.labels || []))).sort((a, b) => a.localeCompare(b));
+  }, [notes]);
 
-  const handleCreateNote = async (newNoteData: Omit<KeepNote, 'id' | 'createdAt' | 'updatedAt' | 'isArchived' | 'isTrashed' | 'labels'>) => {
+  const handleCreateNote = async (newNoteData: Omit<KeepNote, 'id' | 'createdAt' | 'updatedAt' | 'isArchived' | 'isTrashed' | 'labels'> & { labels?: string[] }) => {
+    const nextPosition = notes.length > 0
+      ? Math.min(...notes.map(note => note.position ?? 0)) - 1
+      : 0;
+
     const newNote: Partial<AppNote> = {
       title: newNoteData.title,
       content: newNoteData.content,
       isPinned: newNoteData.isPinned,
       color: newNoteData.color.toLowerCase() as any,
-      tags: [],
+      tags: newNoteData.labels || [],
       date: new Date().toISOString(),
-      position: 0 // New notes start at the top
+      position: nextPosition // Place new notes above the current stack
     };
     
     // Add extra fields for the new notebook
@@ -100,12 +108,14 @@ const Notes: React.FC<NotesProps> = ({
       if (added) {
         setSelectedNoteId(added.id);
       }
+      return added;
     } catch (e) {
       console.error("Failed to create note", e);
+      throw e;
     }
   };
 
-  const handleUpdateKeepNote = (updatedNote: KeepNote) => {
+  const handleUpdateKeepNote = async (updatedNote: KeepNote) => {
     const update: Partial<AppNote> & { id: string } = {
       id: updatedNote.id,
       title: updatedNote.title,
@@ -125,7 +135,7 @@ const Notes: React.FC<NotesProps> = ({
     (update as any).image = updatedNote.image;
     (update as any).tableData = updatedNote.tableData;
 
-    onUpdateNote(update);
+    await onUpdateNote(update);
   };
 
   const handlePinNote = (e: React.MouseEvent, note: KeepNote) => {
@@ -204,6 +214,10 @@ const Notes: React.FC<NotesProps> = ({
                           note.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           note.listItems?.some(item => item.text.toLowerCase().includes(searchQuery.toLowerCase()));
     
+    if (currentSection === 'EDIT_LABELS') {
+      const matchesLabel = !activeLabel || (note.labels || []).includes(activeLabel);
+      return !note.isArchived && !note.isTrashed && matchesSearch && matchesLabel;
+    }
     if (currentSection === 'ARCHIVE') return note.isArchived && !note.isTrashed && matchesSearch;
     if (currentSection === 'TRASH') return note.isTrashed && matchesSearch;
     return !note.isArchived && !note.isTrashed && matchesSearch;
@@ -211,6 +225,28 @@ const Notes: React.FC<NotesProps> = ({
 
   const pinnedNotes = filteredNotes.filter(n => n.isPinned).sort((a, b) => (a.position || 0) - (b.position || 0));
   const otherNotes = filteredNotes.filter(n => !n.isPinned).sort((a, b) => (a.position || 0) - (b.position || 0));
+  const emptyTitle = currentSection === 'ARCHIVE'
+    ? 'No archived notes'
+    : currentSection === 'TRASH'
+      ? 'Trash is empty'
+      : currentSection === 'EDIT_LABELS'
+        ? activeLabel
+          ? `No notes tagged "${activeLabel}"`
+          : 'Pick a label to start'
+        : currentSection === 'REMINDERS'
+          ? 'Reminders are not configured'
+          : 'No notes found';
+  const emptyDescription = currentSection === 'ARCHIVE'
+    ? 'Archived notes stay here until you restore them.'
+    : currentSection === 'TRASH'
+      ? 'Deleted notes will appear here before they are permanently removed.'
+      : currentSection === 'EDIT_LABELS'
+        ? activeLabel
+          ? 'Try another label or clear the current filter.'
+          : 'Select a label from the browser to filter notes.'
+        : currentSection === 'REMINDERS'
+          ? 'The notebook currently has no reminder data model.'
+          : 'Create a note to start building your notebook.';
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -232,15 +268,23 @@ const Notes: React.FC<NotesProps> = ({
       
       const newList = arrayMove(list, oldIndex, newIndex);
       
-      // Update local state immediately
+      // Persist the entire ordering so the database and UI stay aligned.
       const updatedNotes = newList.map((n, i) => ({ ...n, position: i }));
-      
-      // Update the main notes list by merging
-      onUpdateNote({ id: active.id as string, position: newIndex } as any);
-      // In a real scenario, we'd batch update all positions
-      updatedNotes.forEach(n => onUpdateNote({ id: n.id, position: n.position } as any));
+      await Promise.all(updatedNotes.map(n => onUpdateNote({ id: n.id, position: n.position } as any)));
     }
   };
+
+  const handleRefreshNotebook = () => {
+    setSearchQuery('');
+    setSelectedNoteId(null);
+    setActiveLabel(null);
+  };
+
+  useEffect(() => {
+    if (activeLabel && !availableLabels.includes(activeLabel)) {
+      setActiveLabel(null);
+    }
+  }, [activeLabel, availableLabels]);
 
   return (
     <div className={`flex flex-col h-full w-full font-sans overflow-hidden ${isResizing ? 'cursor-nwse-resize select-none' : ''}`} style={{ backgroundColor: 'var(--note-default-bg)', color: 'var(--notebook-text)' }}>
@@ -305,7 +349,7 @@ const Notes: React.FC<NotesProps> = ({
         </div>
 
         <div className="flex items-center gap-2 justify-self-end">
-          <HeaderIcon icon={<RefreshCw className="w-[17px] h-[17px]" />} title="Refresh" isDarkMode={isDarkMode} />
+          <HeaderIcon icon={<RefreshCw className="w-[17px] h-[17px]" />} title="Refresh" isDarkMode={isDarkMode} onClick={handleRefreshNotebook} />
           <HeaderIcon icon={<Settings className="w-[17px] h-[17px]" />} title="Settings" isDarkMode={isDarkMode} onClick={() => onViewChange('settings')} />
         </div>
       </header>
@@ -316,6 +360,54 @@ const Notes: React.FC<NotesProps> = ({
             {/* Left Side: Scrollable Notes List */}
             <aside className="w-[340px] xl:w-[380px] flex flex-col border-r shrink-0 overflow-y-auto custom-scrollbar transition-all duration-300" style={{ backgroundColor: 'var(--note-default-bg)', borderColor: 'var(--notebook-divider)' }}>
                 <div className="p-4 space-y-4">
+                    {currentSection === 'EDIT_LABELS' && (
+                        <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+                            <div className="flex items-center justify-between gap-3 mb-3">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Label Browser</p>
+                                    <p className="text-xs opacity-60 mt-1">Filter notebook cards by label.</p>
+                                </div>
+                                {activeLabel && (
+                                    <button
+                                        onClick={() => setActiveLabel(null)}
+                                        className="text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-400"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={() => setActiveLabel(null)}
+                                    className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-colors ${!activeLabel ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-[var(--notebook-divider)] text-[var(--notebook-muted)] hover:text-[var(--notebook-text)]'}`}
+                                >
+                                    All Labels
+                                </button>
+                                {availableLabels.map(label => (
+                                    <button
+                                        key={label}
+                                        onClick={() => setActiveLabel(label)}
+                                        className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-colors ${activeLabel === label ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-[var(--notebook-divider)] text-[var(--notebook-muted)] hover:text-[var(--notebook-text)]'}`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            {availableLabels.length === 0 && (
+                                <p className="text-xs opacity-50 mt-3 leading-relaxed">No labels yet. Add labels from the note editor menu when you're ready.</p>
+                            )}
+                        </div>
+                    )}
+
+                    {currentSection === 'REMINDERS' && (
+                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-500">Reminders</p>
+                            <p className="text-xs opacity-60 mt-1 leading-relaxed">
+                                Reminder data is not stored in the current notebook model yet. The bell actions are left intentionally as a placeholder until a reminder schema is added.
+                            </p>
+                        </div>
+                    )}
+
                     <AnimatePresence initial={false} mode="popLayout">
                         {pinnedNotes.length > 0 && (
                             <motion.div 
@@ -394,7 +486,8 @@ const Notes: React.FC<NotesProps> = ({
                                 className="flex flex-col items-center justify-center py-20 opacity-20"
                             >
                                 <Lightbulb className="w-16 h-16 mb-4" />
-                                <p className="text-sm font-bold uppercase tracking-wider">No notes found</p>
+                                <p className="text-sm font-bold uppercase tracking-wider">{emptyTitle}</p>
+                                <p className="text-xs mt-2 max-w-sm leading-relaxed">{emptyDescription}</p>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -409,8 +502,7 @@ const Notes: React.FC<NotesProps> = ({
                 style={{ 
                   width: `${canvasWidth}px`, 
                   height: canvasHeight > 0 ? `${canvasHeight}px` : 'auto',
-                  minWidth: '400px'
-                }}
+                  minWidth: '320px'                }}
               >
                 {selectedNote ? (
                   <div className="w-full flex justify-center animate-in fade-in slide-in-from-bottom-4 duration-500 ease-spring">
